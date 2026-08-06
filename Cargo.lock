@@ -42,6 +42,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rp2a03"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "sh2"
 version = "0.1.0"
 dependencies = [
