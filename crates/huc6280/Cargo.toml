@@ -1,0 +1,13 @@
+[package]
+name = "huc6280"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Complete HuC6280 opcode model and placement-aware assembler"
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true
