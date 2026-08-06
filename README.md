@@ -15,4 +15,4 @@ CPU 독립 `expected-write` crate는 불변 원본 선조건, 쓰기 소유권, 
 
 ## 라이선스
 
-GNU General Public License version 2 only (`GPL-2.0-only`).
+GNU General Public License version 2 or later (`GPL-2.0-or-later`).
