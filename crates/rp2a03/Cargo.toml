@@ -3,6 +3,7 @@ name = "rp2a03"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 description = "Complete typed Ricoh RP2A03 instruction encoding and checked assembly"
 publish = false
 

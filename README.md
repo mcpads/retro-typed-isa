@@ -12,3 +12,7 @@ CPU 독립 `expected-write` crate는 불변 원본 선조건, 쓰기 소유권, 
 - 최종 byte 검증: `expected-write`
 
 모든 crate는 선언한 정적 ISA 프로필 전체를 분모로 검증하며 Cargo 배포는 현재 비활성화되어 있다.
+
+## 라이선스
+
+GNU General Public License version 2 only (`GPL-2.0-only`).
