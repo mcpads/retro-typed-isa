@@ -6,4 +6,9 @@
 
 CPU 독립 `expected-write` crate는 불변 원본 선조건, 쓰기 소유권, 보호 영역과 typed machine-code 검산을 담당한다.
 
+## 지원 crate
+
+- CPU 프로필: `w65c816`, `psx-r3000a`, `huc6280`, `rp2a03`, `sh2`, `z80`, `sh4`, `m68000`, `v30`
+- 최종 byte 검증: `expected-write`
+
 모든 crate는 선언한 정적 ISA 프로필 전체를 분모로 검증하며 Cargo 배포는 현재 비활성화되어 있다.
