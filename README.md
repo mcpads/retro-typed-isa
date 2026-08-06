@@ -4,4 +4,6 @@
 
 각 CPU 변형은 독립된 crate가 책임지며, typed instruction과 operand, byte decode와 encode, 배치 인식 checked assembler를 제공한다. 명령 실행기, CPU 상태 전이, pipeline, cycle timing과 simulator는 범위에 포함하지 않는다.
 
+CPU 독립 `expected-write` crate는 불변 원본 선조건, 쓰기 소유권, 보호 영역과 typed machine-code 검산을 담당한다.
+
 모든 crate는 선언한 정적 ISA 프로필 전체를 분모로 검증하며 Cargo 배포는 현재 비활성화되어 있다.

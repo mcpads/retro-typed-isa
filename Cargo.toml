@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/expected-write",
     "crates/huc6280",
     "crates/m68000",
     "crates/psx-r3000a",
