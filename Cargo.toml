@@ -4,6 +4,7 @@ members = [
     "crates/huc6280",
     "crates/psx-r3000a",
     "crates/sh2",
+    "crates/sh4",
     "crates/w65c816",
     "crates/z80",
 ]
