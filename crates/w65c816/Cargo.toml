@@ -1,0 +1,12 @@
+[package]
+name = "w65c816"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Fail-closed W65C816 instruction model and placement-aware assembler"
+
+[dependencies]
+
+[lints]
+workspace = true
