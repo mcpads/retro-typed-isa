@@ -1,0 +1,13 @@
+[package]
+name = "psx-r3000a"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Fail-closed PlayStation R3000A instruction model and placement-aware assembler"
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

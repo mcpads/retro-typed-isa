@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/psx-r3000a",
     "crates/w65c816",
 ]
 
