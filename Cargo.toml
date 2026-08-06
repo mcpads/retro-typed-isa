@@ -5,6 +5,7 @@ members = [
     "crates/psx-r3000a",
     "crates/sh2",
     "crates/w65c816",
+    "crates/z80",
 ]
 
 [workspace.package]
