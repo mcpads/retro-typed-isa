@@ -12,40 +12,86 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+/// Failure returned while decoding an ARM or Thumb instruction.
 pub enum DecodeError {
     #[error("ARM7TDMI instruction needs {needed} bytes, but only {got} are available")]
-    UnexpectedEnd { needed: usize, got: usize },
+    /// The input does not contain one complete instruction.
+    UnexpectedEnd {
+        /// The required instruction length.
+        needed: usize,
+        /// The available input length.
+        got: usize,
+    },
     #[error("ARM7TDMI instruction address {address:#x} is not aligned to {alignment} bytes")]
-    UnalignedAddress { address: u64, alignment: u8 },
+    /// The instruction address violates the active state's alignment.
+    UnalignedAddress {
+        /// The supplied instruction address.
+        address: u64,
+        /// The required byte alignment.
+        alignment: u8,
+    },
     #[error("reserved ARM7TDMI {width}-bit instruction encoding {value:#010x}")]
-    ReservedEncoding { width: u8, value: u32 },
+    /// The word or halfword belongs to a reserved encoding.
+    ReservedEncoding {
+        /// The instruction width in bits.
+        width: u8,
+        /// The rejected encoding.
+        value: u32,
+    },
     #[error(
         "architecturally unpredictable ARM7TDMI {width}-bit instruction encoding {value:#010x}"
     )]
-    UnpredictableEncoding { width: u8, value: u32 },
+    /// ARMv4T classifies the otherwise recognized encoding as unpredictable.
+    UnpredictableEncoding {
+        /// The instruction width in bits.
+        width: u8,
+        /// The rejected encoding.
+        value: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+/// Failure returned when a typed instruction cannot be represented by ARMv4T bytes.
 pub enum EncodeError {
     #[error("{field} value {value} is outside the encoded maximum {maximum}")]
+    /// A numeric operand exceeds its encoding field.
     FieldOutOfRange {
+        /// The rejected field name.
         field: &'static str,
+        /// The rejected field value.
         value: u32,
+        /// The greatest encodable value.
         maximum: u32,
     },
     #[error("{field} value {value} does not have required alignment {alignment}")]
+    /// A displacement or offset is not aligned as required by its encoding.
     UnalignedField {
+        /// The rejected field name.
         field: &'static str,
+        /// The rejected field value.
         value: i32,
+        /// The required byte alignment.
         alignment: u8,
     },
     #[error("ARM7TDMI instruction address {address:#x} is not aligned to {alignment} bytes")]
-    UnalignedAddress { address: u64, alignment: u8 },
+    /// The output address violates the active state's alignment.
+    UnalignedAddress {
+        /// The supplied instruction address.
+        address: u64,
+        /// The required byte alignment.
+        alignment: u8,
+    },
     #[error("operand combination is not defined by ARMv4T: {reason}")]
-    InvalidOperand { reason: &'static str },
+    /// The operand combination is reserved or architecturally unpredictable.
+    InvalidOperand {
+        /// A stable explanation of the rejected combination.
+        reason: &'static str,
+    },
 }
 
+/// The little-endian ARM-state protocol profile with four-byte instructions.
 pub struct Arm7TdmiArm;
+/// The little-endian Thumb-state protocol profile with two- or four-byte instructions.
 pub struct Arm7TdmiThumb;
 
 impl TypedIsa for Arm7TdmiArm {
@@ -132,6 +178,11 @@ fn require_encode_address_alignment(address: u64, alignment: u8) -> Result<(), E
     }
 }
 
+/// Decodes one four-byte little-endian ARM-state instruction.
+///
+/// This byte-only helper does not validate an external instruction address. Use
+/// [`TypedIsa::decode_one`] through [`Arm7TdmiArm`] when address alignment is
+/// part of the contract.
 pub fn decode_arm_bytes(source: &[u8]) -> Result<ArmInstruction, DecodeError> {
     let bytes: [u8; 4] = source
         .get(..4)
@@ -144,6 +195,7 @@ pub fn decode_arm_bytes(source: &[u8]) -> Result<ArmInstruction, DecodeError> {
     decode_arm_word(u32::from_le_bytes(bytes))
 }
 
+/// Encodes one typed ARM-state instruction as four little-endian bytes.
 pub fn encode_arm_bytes(instruction: &ArmInstruction) -> Result<[u8; 4], EncodeError> {
     Ok(encode_arm_word(instruction)?.to_le_bytes())
 }
@@ -1020,6 +1072,11 @@ fn unpredictable_arm(word: u32) -> DecodeError {
     }
 }
 
+/// Decodes one little-endian Thumb instruction, consuming two or four bytes as required.
+///
+/// This byte-only helper does not validate an external instruction address. Use
+/// [`TypedIsa::decode_one`] through [`Arm7TdmiThumb`] when address alignment is
+/// part of the contract.
 pub fn decode_thumb_bytes(source: &[u8]) -> Result<ThumbInstruction, DecodeError> {
     let first_bytes: [u8; 2] = source
         .get(..2)
@@ -1051,6 +1108,7 @@ pub fn decode_thumb_bytes(source: &[u8]) -> Result<ThumbInstruction, DecodeError
     decode_thumb_halfword(first)
 }
 
+/// Encodes one typed Thumb instruction as two or four little-endian bytes.
 pub fn encode_thumb_bytes(instruction: &ThumbInstruction) -> Result<Vec<u8>, EncodeError> {
     if let ThumbInstruction::BranchLink { displacement } = *instruction {
         check_signed_aligned("Thumb BL displacement", displacement, 23, 2)?;

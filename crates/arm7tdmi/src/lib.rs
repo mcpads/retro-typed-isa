@@ -5,6 +5,8 @@
 //! profiles because instruction width and decoding state are externally known.
 //! Reserved and architecturally unpredictable encodings fail closed.
 
+#![deny(missing_docs)]
+
 mod assembler;
 mod codec;
 mod instruction;
