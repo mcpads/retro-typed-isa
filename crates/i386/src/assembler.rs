@@ -11,6 +11,11 @@ enum Node {
     Data(Vec<u8>),
 }
 
+/// Sequential assembler for one explicit 80386 code-segment mode.
+///
+/// Labels record placed addresses; typed instructions and declared data are
+/// emitted in insertion order. Relative fixups are represented by instruction
+/// operands rather than label nodes in this assembler.
 #[derive(Debug, Clone)]
 pub struct Assembler {
     code_mode: CodeMode,
@@ -18,6 +23,7 @@ pub struct Assembler {
 }
 
 impl Assembler {
+    /// Creates an empty assembler for `code_mode`.
     pub const fn new(code_mode: CodeMode) -> Self {
         Self {
             code_mode,
@@ -25,26 +31,33 @@ impl Assembler {
         }
     }
 
+    /// Returns the assembler's fixed code-segment mode.
     pub const fn code_mode(&self) -> CodeMode {
         self.code_mode
     }
 
+    /// Declares `name` at the current byte address.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Appends a typed instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
-    /// Emit declared non-executable data without interpreting it as an instruction.
+    /// Emits declared non-executable data without interpreting it as an instruction.
     pub fn data(&mut self, bytes: impl Into<Vec<u8>>) -> &mut Self {
         self.nodes.push(Node::Data(bytes.into()));
         self
     }
 
+    /// Places and verifies the complete program at `origin`.
+    ///
+    /// Each instruction must use the assembler's code mode and decode back to
+    /// the same typed value and exact byte sequence.
     pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
         let mut labels = BTreeMap::new();
         let mut bytes = Vec::new();
@@ -105,6 +118,7 @@ fn placed_address(origin: u64, offset: usize) -> Result<u64, AssemblerError> {
         .ok_or(AssemblerError::AddressOverflow { origin })
 }
 
+/// Immutable bytes, labels, and typed instruction spans from assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     origin: u64,
@@ -115,48 +129,72 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Returns the requested program origin.
     pub const fn origin(&self) -> u64 {
         self.origin
     }
 
+    /// Returns the code-segment mode used for every instruction.
     pub const fn code_mode(&self) -> CodeMode {
         self.code_mode
     }
 
+    /// Returns the complete byte stream, including declared data.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the result and returns its byte stream.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns the resolved address of `name`, if declared.
     pub fn label_address(&self, name: &str) -> Option<u64> {
         self.labels.get(name).copied()
     }
 
+    /// Returns spans for executable instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
         &self.instruction_spans
     }
 }
 
+/// Failure to place or verify an assembler program.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AssemblerError {
+    /// A label name is declared more than once.
     #[error("duplicate label `{label}`")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Duplicated label name.
+        label: String,
+    },
+    /// The origin plus output length overflows a 64-bit address.
     #[error("Intel 80386 assembly from {origin:#018x} exceeds the address space")]
-    AddressOverflow { origin: u64 },
+    AddressOverflow {
+        /// Program origin involved in the overflow.
+        origin: u64,
+    },
+    /// An instruction was constructed for a different code-segment mode.
     #[error(
         "assembler code mode {assembler:?} does not match instruction code mode {instruction:?}"
     )]
     CodeModeMismatch {
+        /// Mode selected for the assembler.
         assembler: CodeMode,
+        /// Mode captured by the instruction.
         instruction: CodeMode,
     },
+    /// Typed encoding failed.
     #[error(transparent)]
     Encode(#[from] EncodeError),
+    /// Verification decoding failed.
     #[error(transparent)]
     Decode(#[from] DecodeError),
+    /// Encoded bytes did not decode to the same typed instruction.
     #[error("Intel 80386 instruction verification failed at output offset {offset:#x}")]
-    VerificationFailed { offset: usize },
+    VerificationFailed {
+        /// Byte offset of the mismatched instruction.
+        offset: usize,
+    },
 }

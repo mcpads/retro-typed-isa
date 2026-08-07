@@ -14,6 +14,8 @@
 //!
 //! [Intel manual]: https://www.read.seas.harvard.edu/~kohler/class/aosref/i386.pdf
 
+#![deny(missing_docs)]
+
 mod assembler;
 mod codec;
 mod expected_write;
@@ -29,8 +31,14 @@ pub use expected_write::ExpectedWriteVerifier;
 pub use instruction::*;
 pub use selector::*;
 
+/// Legacy package-level profile identifier.
+///
+/// Shared-protocol consumers should select [`CODE16_PROFILE_ID`] or
+/// [`CODE32_PROFILE_ID`] so the code-segment D-bit default is explicit.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
+/// Stable profile identifier for code segments whose D bit is clear.
 pub const CODE16_PROFILE_ID: &str = "i386-code16";
+/// Stable profile identifier for code segments whose D bit is set.
 pub const CODE32_PROFILE_ID: &str = "i386-code32";
 
 /// Intel 80386 code segments whose D bit is clear.
@@ -41,12 +49,17 @@ pub struct I386Code16;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct I386Code32;
 
+/// Shared trait for the two code-segment default-size profiles.
 pub trait I386Profile:
     typed_isa_core::TypedIsa<Instruction = Instruction, Form = InstructionForm>
 {
+    /// Operand- and address-size defaults selected by the code-segment D bit.
     const CODE_MODE: CodeMode;
 }
 
+/// Formats an instruction into a stable diagnostic representation.
+///
+/// This is intended for Expected Write audit records, not as assembler source.
 pub fn format_instruction(instruction: &Instruction) -> String {
     if instruction.operands().is_empty() {
         format!("{:?}", instruction.operation())

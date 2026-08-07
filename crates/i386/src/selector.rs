@@ -1,10 +1,15 @@
 use crate::{Prefix, SegmentRegister};
 
+/// Classification of one byte in the 80386 primary opcode map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrimaryOpcodeClass {
+    /// The byte begins an instruction encoding.
     Instruction,
+    /// The byte is an instruction prefix.
     Prefix(Prefix),
+    /// The byte escapes to the two-byte opcode map.
     SecondaryEscape,
+    /// The byte is explicitly undefined by the profile.
     Undefined,
 }
 
@@ -28,9 +33,12 @@ pub const fn classify_primary_opcode(opcode: u8) -> PrimaryOpcodeClass {
     }
 }
 
+/// Classification of an opcode byte following the `0F` escape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecondaryOpcodeClass {
+    /// The byte selects an instruction or ModR/M opcode group.
     Instruction,
+    /// The byte is undefined on the 80386.
     Undefined,
 }
 
@@ -50,10 +58,14 @@ pub const fn classify_secondary_opcode(opcode: u8) -> SecondaryOpcodeClass {
     }
 }
 
+/// Classification of the ModR/M `reg` field when it extends an opcode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModRmSelectorClass {
+    /// The selector names a documented group member.
     Valid,
+    /// The selector is reserved for that opcode group.
     Reserved,
+    /// The opcode does not use `reg` as an opcode extension.
     NotOpcodeExtension,
 }
 

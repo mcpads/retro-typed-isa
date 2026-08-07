@@ -9,6 +9,10 @@ use crate::{
     classify_primary_opcode, classify_secondary_modrm_selector, classify_secondary_opcode,
 };
 
+/// One validated 80386 instruction with an exact selected encoding.
+///
+/// `code_mode` records the code-segment D-bit default. Prefix order and exact
+/// displacement/immediate widths are retained so encoding is byte-stable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instruction {
     code_mode: CodeMode,
@@ -19,6 +23,10 @@ pub struct Instruction {
 }
 
 impl Instruction {
+    /// Constructs an encodable instruction from semantic components.
+    ///
+    /// Invalid operation/operand combinations and invalid prefix use fail
+    /// before an [`Instruction`] is returned.
     pub fn new(
         code_mode: CodeMode,
         prefixes: PrefixSequence,
@@ -28,29 +36,36 @@ impl Instruction {
         construct_instruction(code_mode, prefixes, operation, operands)
     }
 
+    /// Returns the code-segment mode used to interpret default sizes.
     pub const fn code_mode(&self) -> CodeMode {
         self.code_mode
     }
 
+    /// Returns the validated prefix sequence in encoded order.
     pub fn prefixes(&self) -> &PrefixSequence {
         &self.prefixes
     }
 
+    /// Returns the semantic operation.
     pub const fn operation(&self) -> Operation {
         self.operation
     }
 
+    /// Returns typed operands in syntax order.
     pub fn operands(&self) -> &[Operand] {
         &self.operands
     }
 
+    /// Returns the stable operation and operand-kind signature.
     pub fn form(&self) -> InstructionForm {
         InstructionForm::new(self.operation, &self.operands)
     }
 }
 
+/// Failure to construct an encodable instruction form.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InstructionConstructionError {
+    /// The operation, operand list, sizes, or prefixes do not name a valid form.
     #[error("operation and operands do not name an encodable Intel 80386 instruction form")]
     InvalidForm,
 }
@@ -114,6 +129,7 @@ struct ModRmEncoding {
     displacement: Displacement,
 }
 
+/// One decoded instruction together with the exact bytes it consumed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedInstruction {
     instruction: Instruction,
@@ -121,50 +137,87 @@ pub struct DecodedInstruction {
 }
 
 impl DecodedInstruction {
+    /// Borrows the semantic instruction.
     pub const fn instruction(&self) -> &Instruction {
         &self.instruction
     }
 
+    /// Consumes the wrapper and returns the semantic instruction.
     pub fn into_instruction(self) -> Instruction {
         self.instruction
     }
 
+    /// Returns the exact source prefix and instruction bytes.
     pub fn source_bytes(&self) -> &[u8] {
         &self.source_bytes
     }
 
+    /// Returns the variable instruction length in bytes.
     pub fn byte_len(&self) -> usize {
         self.source_bytes.len()
     }
 }
 
+/// Failure to decode one variable-length instruction.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DecodeError {
+    /// The byte stream ended before the selected form was complete.
     #[error("input bytes truncated at byte {offset}: needed {needed} more byte(s)")]
-    Truncated { offset: usize, needed: usize },
+    Truncated {
+        /// Byte offset where decoding stopped.
+        offset: usize,
+        /// Minimum additional byte count required.
+        needed: usize,
+    },
+    /// Prefixes and instruction bytes exceed the architectural 15-byte limit.
     #[error("instruction exceeds the architectural 15-byte limit")]
     InstructionLengthExceeded,
+    /// The primary opcode byte is undefined in the 80386 map.
     #[error("undefined Intel 80386 primary opcode {opcode:#04X}")]
-    UndefinedPrimaryOpcode { opcode: u8 },
+    UndefinedPrimaryOpcode {
+        /// Undefined primary opcode byte.
+        opcode: u8,
+    },
+    /// The opcode byte after `0F` is undefined in the 80386 map.
     #[error("undefined Intel 80386 secondary opcode 0F {opcode:02X}")]
-    UndefinedSecondaryOpcode { opcode: u8 },
+    UndefinedSecondaryOpcode {
+        /// Undefined secondary opcode byte.
+        opcode: u8,
+    },
+    /// A ModR/M opcode-extension selector is reserved for its group.
     #[error("reserved Intel 80386 ModR/M selector /{selector} for opcode {opcode}")]
-    ReservedModRmSelector { opcode: String, selector: u8 },
+    ReservedModRmSelector {
+        /// Primary or secondary opcode label.
+        opcode: String,
+        /// Reserved three-bit `reg` selector.
+        selector: u8,
+    },
+    /// A recognized prefix is invalid for the decoded operation or operands.
     #[error("instruction prefix is undefined for the decoded Intel 80386 instruction form")]
     InvalidPrefix,
+    /// ModR/M, SIB, register, displacement, or immediate fields are inconsistent.
     #[error("invalid Intel 80386 operand encoding")]
     InvalidOperand,
 }
 
+/// Failure to encode a validated instruction.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EncodeError {
+    /// A typed operand no longer matches the field selected during construction.
     #[error("typed operand {operand} does not match its Intel 80386 encoding field")]
-    OperandMismatch { operand: usize },
+    OperandMismatch {
+        /// Zero-based operand position.
+        operand: usize,
+    },
+    /// The instruction belongs to a different code-segment profile.
     #[error("instruction code mode {actual:?} does not match profile code mode {expected:?}")]
     CodeModeMismatch {
+        /// Mode selected by the protocol profile.
         expected: CodeMode,
+        /// Mode captured by the instruction.
         actual: CodeMode,
     },
+    /// Prefixes and instruction bytes exceed the architectural 15-byte limit.
     #[error("instruction exceeds the architectural 15-byte limit")]
     InstructionLengthExceeded,
 }
@@ -1762,6 +1815,9 @@ fn fixed_opcode(operation: Operation) -> Option<OpcodeEncoding> {
     })
 }
 
+/// Decodes the first 80386 instruction using `code_mode` defaults.
+///
+/// The returned wrapper reports the exact number of source bytes consumed.
 pub fn decode_bytes(source: &[u8], code_mode: CodeMode) -> Result<DecodedInstruction, DecodeError> {
     let mut cursor = Cursor::new(source);
     let prefixes = decode_prefixes(&mut cursor)?;
@@ -1861,6 +1917,7 @@ fn prefixes_are_valid(
     true
 }
 
+/// Encodes one validated instruction, preserving its selected exact form.
 pub fn encode_bytes(instruction: &Instruction) -> Result<Vec<u8>, EncodeError> {
     let mut bytes = instruction
         .prefixes

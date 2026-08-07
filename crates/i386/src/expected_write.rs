@@ -6,12 +6,18 @@ use expected_write::{
     MachineCodeVerifierError,
 };
 
+/// Expected Write machine-code verifier for one explicit 80386 code mode.
+///
+/// The resolver maps an external assembly-source identity to an independently
+/// assembled program. Variable-length replacement bytes are decoded and
+/// re-encoded through the selected profile before admission.
 pub struct ExpectedWriteVerifier<Profile, ResolveSource> {
     resolve_source: ResolveSource,
     profile: PhantomData<Profile>,
 }
 
 impl<Profile, ResolveSource> ExpectedWriteVerifier<Profile, ResolveSource> {
+    /// Creates a verifier with the external assembly-source resolver.
     pub fn new(resolve_source: ResolveSource) -> Self {
         Self {
             resolve_source,
