@@ -26,13 +26,19 @@ enum Node {
     Data(Vec<u8>),
 }
 
+/// Label-resolving assembler for a selected PowerPC processor profile.
+///
+/// Instructions remain typed until final placement. Raw data may be inserted,
+/// but any following instruction must still begin at a four-byte boundary.
 #[derive(Debug, Clone)]
 pub struct ProfileAssembler<P> {
     nodes: Vec<Node>,
     profile: PhantomData<P>,
 }
 
+/// PowerPC 750CL assembler using the full 750CL SPR map.
 pub type Assembler = ProfileAssembler<PowerPc750Cl>;
+/// IBM Gekko assembler that rejects 750CL-only SPRs.
 pub type GekkoAssembler = ProfileAssembler<PowerPcGekko>;
 
 impl<P> Default for ProfileAssembler<P> {
@@ -48,20 +54,26 @@ impl<P> ProfileAssembler<P>
 where
     P: TypedIsa<Instruction = Instruction, Form = InstructionForm, EncodeError = EncodeError>,
 {
+    /// Creates an empty assembler program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Declares `name` at the current output address.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Appends an already validated instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Appends an unconditional relative branch to `label`.
+    ///
+    /// When `link` is true, the encoded branch updates the link register.
     pub fn branch_to_label(&mut self, link: bool, label: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Branch {
             link,
@@ -70,6 +82,10 @@ where
         self
     }
 
+    /// Appends a conditional relative branch to `label`.
+    ///
+    /// The branch-options and condition-bit fields are retained as typed
+    /// operands; displacement range is checked after labels are placed.
     pub fn conditional_branch_to_label(
         &mut self,
         options: BranchOptions,
@@ -86,12 +102,16 @@ where
         self
     }
 
-    /// Emit declared non-executable data without interpreting it as an instruction.
+    /// Emits declared non-executable data without interpreting it as an instruction.
     pub fn data(&mut self, bytes: impl Into<Vec<u8>>) -> &mut Self {
         self.nodes.push(Node::Data(bytes.into()));
         self
     }
 
+    /// Resolves labels and encodes the program at `origin`.
+    ///
+    /// The origin and every instruction placement must be four-byte aligned,
+    /// and every resolved address must remain within the 32-bit address space.
     pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
         if origin & 3 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });
@@ -204,6 +224,7 @@ fn placed_address(origin: u64, offset: usize) -> Result<u64, AssemblerError> {
         .ok_or(AssemblerError::AddressOverflow { origin })
 }
 
+/// Immutable bytes, labels, and typed instruction spans from assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     origin: u64,
@@ -213,41 +234,74 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Returns the requested program origin.
     pub const fn origin(&self) -> u64 {
         self.origin
     }
 
+    /// Returns the complete assembled byte stream, including declared data.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the result and returns its byte stream.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns the resolved absolute address of `name`, if declared.
     pub fn label_address(&self, name: &str) -> Option<u64> {
         self.labels.get(name).copied()
     }
 
+    /// Returns spans for executable instructions only.
+    ///
+    /// Declared data is present in [`Self::bytes`] but has no instruction span.
     pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
         &self.instruction_spans
     }
 }
 
+/// Failure to place, resolve, or encode an assembler program.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AssemblerError {
+    /// The requested program origin is not four-byte aligned.
     #[error("PowerPC assembly origin {origin:#018x} is not four-byte aligned")]
-    UnalignedOrigin { origin: u64 },
+    UnalignedOrigin {
+        /// Rejected origin address.
+        origin: u64,
+    },
+    /// Declared data leaves a following instruction unaligned.
     #[error("PowerPC instruction at output offset {offset:#x} is not four-byte aligned")]
-    UnalignedInstruction { offset: usize },
+    UnalignedInstruction {
+        /// Byte offset of the unaligned instruction.
+        offset: usize,
+    },
+    /// A label name is declared more than once.
     #[error("duplicate label `{label}`")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Duplicated label name.
+        label: String,
+    },
+    /// A branch refers to an undeclared label.
     #[error("undefined label `{label}`")]
-    UndefinedLabel { label: String },
+    UndefinedLabel {
+        /// Missing label name.
+        label: String,
+    },
+    /// Output length cannot be added to the origin without overflow.
     #[error("PowerPC assembly from {origin:#018x} exceeds the address space")]
-    AddressOverflow { origin: u64 },
+    AddressOverflow {
+        /// Program origin involved in the overflow.
+        origin: u64,
+    },
+    /// A resolved label address exceeds the 32-bit target address space.
     #[error("PowerPC label address {address:#018x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
+    AddressOutOfRange {
+        /// Resolved address that cannot be represented.
+        address: u64,
+    },
+    /// An instruction failed profile validation or encoding.
     #[error(transparent)]
     Encode(#[from] EncodeError),
 }

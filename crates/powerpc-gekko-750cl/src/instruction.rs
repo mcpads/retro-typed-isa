@@ -7,6 +7,7 @@ macro_rules! bounded_u8 {
         pub struct $name(u8);
 
         impl $name {
+            /// Constructs a value when it fits the architectural field.
             pub const fn new(value: u8) -> Option<Self> {
                 if value < $limit {
                     Some(Self(value))
@@ -15,6 +16,7 @@ macro_rules! bounded_u8 {
                 }
             }
 
+            /// Returns the unencoded numeric value.
             pub const fn value(self) -> u8 {
                 self.0
             }
@@ -74,10 +76,12 @@ bounded_u8!(
 pub struct ConditionRegisterMask(u8);
 
 impl ConditionRegisterMask {
+    /// Constructs a mask from its eight architectural bits.
     pub const fn new(bits: u8) -> Self {
         Self(bits)
     }
 
+    /// Returns the mask bits.
     pub const fn bits(self) -> u8 {
         self.0
     }
@@ -88,10 +92,12 @@ impl ConditionRegisterMask {
 pub struct FpscrFieldMask(u8);
 
 impl FpscrFieldMask {
+    /// Constructs a mask from its eight architectural bits.
     pub const fn new(bits: u8) -> Self {
         Self(bits)
     }
 
+    /// Returns the mask bits.
     pub const fn bits(self) -> u8 {
         self.0
     }
@@ -102,10 +108,12 @@ impl FpscrFieldMask {
 pub struct FpscrImmediate(u8);
 
 impl FpscrImmediate {
+    /// Constructs a four-bit FPSCR immediate, or returns `None` when out of range.
     pub const fn new(value: u8) -> Option<Self> {
         if value < 16 { Some(Self(value)) } else { None }
     }
 
+    /// Returns the immediate value.
     pub const fn value(self) -> u8 {
         self.0
     }
@@ -120,100 +128,192 @@ impl FpscrImmediate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u16)]
 pub enum SpecialPurposeRegister {
+    /// Fixed-point exception register (XER).
     Xer = 1,
+    /// Link register (LR).
     Link = 8,
+    /// Count register (CTR).
     Count = 9,
+    /// Data-storage interrupt status register (DSISR).
     DataStorageInterruptStatus = 18,
+    /// Data-address register (DAR).
     DataAddress = 19,
+    /// Decrementer register (DEC).
     Decrementer = 22,
+    /// Storage description register (SDR1).
     StorageDescription = 25,
+    /// Machine-status save/restore register 0 (SRR0).
     SaveRestore0 = 26,
+    /// Machine-status save/restore register 1 (SRR1).
     SaveRestore1 = 27,
+    /// Read selector for the lower time-base half (TBL).
     TimeBaseLowerRead = 268,
+    /// Read selector for the upper time-base half (TBU).
     TimeBaseUpperRead = 269,
+    /// General-purpose SPR 0 (SPRG0).
     General0 = 272,
+    /// General-purpose SPR 1 (SPRG1).
     General1 = 273,
+    /// General-purpose SPR 2 (SPRG2).
     General2 = 274,
+    /// General-purpose SPR 3 (SPRG3).
     General3 = 275,
+    /// External access register (EAR).
     ExternalAccess = 282,
+    /// Write selector for the lower time-base half (TBL_W).
     TimeBaseLowerWrite = 284,
+    /// Write selector for the upper time-base half (TBU_W).
     TimeBaseUpperWrite = 285,
+    /// Processor version register (PVR).
     ProcessorVersion = 287,
+    /// Instruction BAT pair 0 upper register (IBAT0U).
     InstructionBat0Upper = 528,
+    /// Instruction BAT pair 0 lower register (IBAT0L).
     InstructionBat0Lower = 529,
+    /// Instruction BAT pair 1 upper register (IBAT1U).
     InstructionBat1Upper = 530,
+    /// Instruction BAT pair 1 lower register (IBAT1L).
     InstructionBat1Lower = 531,
+    /// Instruction BAT pair 2 upper register (IBAT2U).
     InstructionBat2Upper = 532,
+    /// Instruction BAT pair 2 lower register (IBAT2L).
     InstructionBat2Lower = 533,
+    /// Instruction BAT pair 3 upper register (IBAT3U).
     InstructionBat3Upper = 534,
+    /// Instruction BAT pair 3 lower register (IBAT3L).
     InstructionBat3Lower = 535,
+    /// Data BAT pair 0 upper register (DBAT0U).
     DataBat0Upper = 536,
+    /// Data BAT pair 0 lower register (DBAT0L).
     DataBat0Lower = 537,
+    /// Data BAT pair 1 upper register (DBAT1U).
     DataBat1Upper = 538,
+    /// Data BAT pair 1 lower register (DBAT1L).
     DataBat1Lower = 539,
+    /// Data BAT pair 2 upper register (DBAT2U).
     DataBat2Upper = 540,
+    /// Data BAT pair 2 lower register (DBAT2L).
     DataBat2Lower = 541,
+    /// Data BAT pair 3 upper register (DBAT3U).
     DataBat3Upper = 542,
+    /// Data BAT pair 3 lower register (DBAT3L).
     DataBat3Lower = 543,
+    /// 750CL-only instruction BAT pair 4 upper register (IBAT4U).
     InstructionBat4Upper = 560,
+    /// 750CL-only instruction BAT pair 4 lower register (IBAT4L).
     InstructionBat4Lower = 561,
+    /// 750CL-only instruction BAT pair 5 upper register (IBAT5U).
     InstructionBat5Upper = 562,
+    /// 750CL-only instruction BAT pair 5 lower register (IBAT5L).
     InstructionBat5Lower = 563,
+    /// 750CL-only instruction BAT pair 6 upper register (IBAT6U).
     InstructionBat6Upper = 564,
+    /// 750CL-only instruction BAT pair 6 lower register (IBAT6L).
     InstructionBat6Lower = 565,
+    /// 750CL-only instruction BAT pair 7 upper register (IBAT7U).
     InstructionBat7Upper = 566,
+    /// 750CL-only instruction BAT pair 7 lower register (IBAT7L).
     InstructionBat7Lower = 567,
+    /// 750CL-only data BAT pair 4 upper register (DBAT4U).
     DataBat4Upper = 568,
+    /// 750CL-only data BAT pair 4 lower register (DBAT4L).
     DataBat4Lower = 569,
+    /// 750CL-only data BAT pair 5 upper register (DBAT5U).
     DataBat5Upper = 570,
+    /// 750CL-only data BAT pair 5 lower register (DBAT5L).
     DataBat5Lower = 571,
+    /// 750CL-only data BAT pair 6 upper register (DBAT6U).
     DataBat6Upper = 572,
+    /// 750CL-only data BAT pair 6 lower register (DBAT6L).
     DataBat6Lower = 573,
+    /// 750CL-only data BAT pair 7 upper register (DBAT7U).
     DataBat7Upper = 574,
+    /// 750CL-only data BAT pair 7 lower register (DBAT7L).
     DataBat7Lower = 575,
+    /// Paired-single graphics quantization register 0 (GQR0).
     GraphicsQuantization0 = 912,
+    /// Paired-single graphics quantization register 1 (GQR1).
     GraphicsQuantization1 = 913,
+    /// Paired-single graphics quantization register 2 (GQR2).
     GraphicsQuantization2 = 914,
+    /// Paired-single graphics quantization register 3 (GQR3).
     GraphicsQuantization3 = 915,
+    /// Paired-single graphics quantization register 4 (GQR4).
     GraphicsQuantization4 = 916,
+    /// Paired-single graphics quantization register 5 (GQR5).
     GraphicsQuantization5 = 917,
+    /// Paired-single graphics quantization register 6 (GQR6).
     GraphicsQuantization6 = 918,
+    /// Paired-single graphics quantization register 7 (GQR7).
     GraphicsQuantization7 = 919,
+    /// Hardware implementation-dependent register 2 (HID2).
     HardwareImplementation2 = 920,
+    /// Write-pipe address register (WPAR).
     WritePipeAddress = 921,
+    /// Direct-memory-access upper register (DMA_U).
     DmaUpper = 922,
+    /// Direct-memory-access lower register (DMA_L).
     DmaLower = 923,
+    /// User monitor-mode control register 0 (UMMCR0).
     UserMonitorModeControl0 = 936,
+    /// User performance-monitor counter 1 (UPMC1).
     UserPerformanceMonitorCounter1 = 937,
+    /// User performance-monitor counter 2 (UPMC2).
     UserPerformanceMonitorCounter2 = 938,
+    /// User sampled-instruction address register (USIA).
     UserSampledInstructionAddress = 939,
+    /// User monitor-mode control register 1 (UMMCR1).
     UserMonitorModeControl1 = 940,
+    /// User performance-monitor counter 3 (UPMC3).
     UserPerformanceMonitorCounter3 = 941,
+    /// User performance-monitor counter 4 (UPMC4).
     UserPerformanceMonitorCounter4 = 942,
+    /// User sampled-data address register (USDA).
     UserSampledDataAddress = 943,
+    /// Supervisor monitor-mode control register 0 (MMCR0).
     MonitorModeControl0 = 952,
+    /// Supervisor performance-monitor counter 1 (PMC1).
     PerformanceMonitorCounter1 = 953,
+    /// Supervisor performance-monitor counter 2 (PMC2).
     PerformanceMonitorCounter2 = 954,
+    /// Sampled-instruction address register (SIA).
     SampledInstructionAddress = 955,
+    /// Supervisor monitor-mode control register 1 (MMCR1).
     MonitorModeControl1 = 956,
+    /// Supervisor performance-monitor counter 3 (PMC3).
     PerformanceMonitorCounter3 = 957,
+    /// Supervisor performance-monitor counter 4 (PMC4).
     PerformanceMonitorCounter4 = 958,
+    /// Sampled-data address register (SDA).
     SampledDataAddress = 959,
+    /// Hardware implementation-dependent register 0 (HID0).
     HardwareImplementation0 = 1008,
+    /// Hardware implementation-dependent register 1 (HID1).
     HardwareImplementation1 = 1009,
+    /// Instruction-address breakpoint register (IABR).
     InstructionAddressBreakpoint = 1010,
+    /// 750CL-only hardware implementation-dependent register 4 (HID4).
     HardwareImplementation4 = 1011,
+    /// 750CL-only thermal data-cache lower register (TDCL).
     ThermalDataCacheLower = 1012,
+    /// Data-address breakpoint register (DABR).
     DataAddressBreakpoint = 1013,
+    /// Level-two cache control register (L2CR).
     L2CacheControl = 1017,
+    /// 750CL-only thermal data-cache upper register (TDCH).
     ThermalDataCacheUpper = 1018,
+    /// Instruction-cache throttling control register (ICTC).
     InstructionCacheThrottlingControl = 1019,
+    /// Thermal management register 1 (THRM1).
     ThermalManagement1 = 1020,
+    /// Thermal management register 2 (THRM2).
     ThermalManagement2 = 1021,
+    /// Thermal management register 3 (THRM3).
     ThermalManagement3 = 1022,
 }
 
 impl SpecialPurposeRegister {
+    /// Returns the ten-bit architectural SPR selector.
     pub const fn selector(self) -> u16 {
         self as u16
     }
@@ -373,11 +473,14 @@ impl SpecialPurposeRegister {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u16)]
 pub enum TimeBaseRegister {
+    /// Lower 32-bit time-base half (TBL).
     Lower = 268,
+    /// Upper 32-bit time-base half (TBU).
     Upper = 269,
 }
 
 impl TimeBaseRegister {
+    /// Returns the ten-bit architectural time-base selector.
     pub const fn selector(self) -> u16 {
         self as u16
     }
@@ -396,6 +499,7 @@ impl TimeBaseRegister {
 pub struct StringByteCount(u8);
 
 impl StringByteCount {
+    /// Constructs a count from one through 32 bytes.
     pub const fn new(bytes: u8) -> Option<Self> {
         if bytes >= 1 && bytes <= 32 {
             Some(Self(bytes))
@@ -404,6 +508,7 @@ impl StringByteCount {
         }
     }
 
+    /// Returns the semantic byte count; the encoded zero field is returned as 32.
     pub const fn bytes(self) -> u8 {
         self.0
     }
@@ -420,7 +525,9 @@ impl StringByteCount {
 /// Whether a quantized paired-single memory operation transfers one or two values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PairedSingleWidth {
+    /// Transfer both values of the paired-single register.
     Pair,
+    /// Transfer only one value of the paired-single register.
     Single,
 }
 
@@ -437,55 +544,98 @@ impl PairedSingleWidth {
     }
 }
 
+/// A typed operand carried by an [`Instruction`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Operand {
+    /// A general-purpose register operand.
     GeneralRegister(GeneralRegister),
+    /// A floating-point register operand.
     FloatingRegister(FloatingRegister),
+    /// A four-bit condition-register field operand.
     ConditionRegisterField(ConditionRegisterField),
+    /// A single condition-register bit operand.
     ConditionRegisterBit(ConditionRegisterBit),
+    /// A segment-register selector operand.
     SegmentRegister(SegmentRegister),
+    /// A special-purpose-register selector operand.
     SpecialPurposeRegister(SpecialPurposeRegister),
+    /// A time-base-register selector operand.
     TimeBaseRegister(TimeBaseRegister),
+    /// A graphics quantization-register selector operand.
     QuantizationRegister(QuantizationRegister),
+    /// A signed immediate operand.
     SignedImmediate(i16),
+    /// An unsigned immediate operand.
     UnsignedImmediate(u16),
+    /// A signed displacement used by an immediate load or store.
     MemoryOffset(i16),
+    /// An absolute 32-bit branch target resolved against the instruction address.
     BranchTarget(u32),
+    /// A five-bit rotate, shift, or mask position.
     ShiftOrMaskBit(BitIndex),
+    /// A conditional-branch BO field.
     BranchOptions(BranchOptions),
+    /// A trap instruction TO field.
     TrapCondition(TrapCondition),
+    /// The semantic byte count of an immediate string transfer.
     StringByteCount(StringByteCount),
+    /// An `mtcrf` condition-register field mask.
     ConditionRegisterMask(ConditionRegisterMask),
+    /// An `mtfsf` FPSCR field mask.
     FpscrFieldMask(FpscrFieldMask),
+    /// An `mtfsfi` immediate.
     FpscrImmediate(FpscrImmediate),
+    /// The transfer width of a quantized paired-single memory operation.
     PairedSingleWidth(PairedSingleWidth),
 }
 
+/// A discriminant describing the required type of an instruction operand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OperandKind {
+    /// A [`GeneralRegister`] operand.
     GeneralRegister,
+    /// A [`FloatingRegister`] operand.
     FloatingRegister,
+    /// A [`ConditionRegisterField`] operand.
     ConditionRegisterField,
+    /// A [`ConditionRegisterBit`] operand.
     ConditionRegisterBit,
+    /// A [`SegmentRegister`] operand.
     SegmentRegister,
+    /// A [`SpecialPurposeRegister`] operand.
     SpecialPurposeRegister,
+    /// A [`TimeBaseRegister`] operand.
     TimeBaseRegister,
+    /// A [`QuantizationRegister`] operand.
     QuantizationRegister,
+    /// A signed immediate operand.
     SignedImmediate,
+    /// An unsigned immediate operand.
     UnsignedImmediate,
+    /// A signed immediate memory displacement.
     MemoryOffset,
+    /// An absolute branch-target address.
     BranchTarget,
+    /// A rotate, shift, or mask bit position.
     ShiftOrMaskBit,
+    /// A [`BranchOptions`] operand.
     BranchOptions,
+    /// A [`TrapCondition`] operand.
     TrapCondition,
+    /// A [`StringByteCount`] operand.
     StringByteCount,
+    /// A [`ConditionRegisterMask`] operand.
     ConditionRegisterMask,
+    /// A [`FpscrFieldMask`] operand.
     FpscrFieldMask,
+    /// A [`FpscrImmediate`] operand.
     FpscrImmediate,
+    /// A [`PairedSingleWidth`] operand.
     PairedSingleWidth,
 }
 
 impl Operand {
+    /// Returns the operand's type discriminant.
     pub const fn kind(self) -> OperandKind {
         match self {
             Self::GeneralRegister(_) => OperandKind::GeneralRegister,
@@ -512,14 +662,20 @@ impl Operand {
     }
 }
 
+/// Optional instruction bits exposed independently from the base form.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InstructionModifiers {
+    /// Enables the record (`.`) bit for forms that support it.
     pub record: bool,
+    /// Enables overflow exception and summary-overflow updates for supporting forms.
     pub overflow: bool,
+    /// Enables link-register update for a branch form.
     pub link: bool,
+    /// Selects absolute rather than relative addressing for an immediate branch form.
     pub absolute: bool,
 }
 
+/// One validated Gekko or PowerPC 750CL instruction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instruction {
     form: InstructionForm,
@@ -528,6 +684,10 @@ pub struct Instruction {
 }
 
 impl Instruction {
+    /// Constructs an instruction without optional modifiers.
+    ///
+    /// Operand count, operand kinds, register access direction, and
+    /// architecturally constrained register relationships are validated.
     pub fn new(
         form: InstructionForm,
         operands: impl Into<Vec<Operand>>,
@@ -535,6 +695,7 @@ impl Instruction {
         Self::with_modifiers(form, InstructionModifiers::default(), operands)
     }
 
+    /// Constructs and validates an instruction with explicit modifiers.
     pub fn with_modifiers(
         form: InstructionForm,
         modifiers: InstructionModifiers,
@@ -594,14 +755,17 @@ impl Instruction {
         })
     }
 
+    /// Returns the executable instruction form.
     pub const fn form(&self) -> InstructionForm {
         self.form
     }
 
+    /// Returns the validated optional modifiers.
     pub const fn modifiers(&self) -> InstructionModifiers {
         self.modifiers
     }
 
+    /// Returns operands in architectural syntax order.
     pub fn operands(&self) -> &[Operand] {
         &self.operands
     }
@@ -813,14 +977,20 @@ pub(crate) struct ModifierSupport {
 
 macro_rules! define_forms {
     ($($form:ident => ($mnemonic:literal, $mask:expr, $bits:expr, [$($field:ident),*]);)+) => {
+        /// An executable instruction form in the shared Gekko/750CL catalog.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum InstructionForm {
-            $($form,)+
+            $(
+                #[doc = concat!("The `", $mnemonic, "` instruction form.")]
+                $form,
+            )+
         }
 
         impl InstructionForm {
+            /// Every executable form in deterministic decode-priority order.
             pub const ALL: [Self; crate::DECLARED_FORM_COUNT] = [$(Self::$form,)+];
 
+            /// Returns the canonical manual mnemonic, including fixed suffixes.
             pub const fn mnemonic(self) -> &'static str {
                 match self {
                     $(Self::$form => $mnemonic,)+

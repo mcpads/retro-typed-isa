@@ -31,8 +31,13 @@
 //! [dolphin-dcba]: https://github.com/dolphin-emu/dolphin/blob/66d8a892203d76a1f7349ed07526089b828e3835/Source/Core/Core/PowerPC/Interpreter/Interpreter_LoadStore.cpp#L463-L466
 //! [devkit-table]: https://github.com/devkitPro/binutils-gdb/blob/55113f8e40d341b80d6f4b73cefeb2d3f0c134b1/opcodes/ppc-opc.c
 
+#![deny(missing_docs)]
+
+/// Stable profile identifier for the IBM Gekko instruction set.
 pub const GEKKO_PROFILE_ID: &str = "powerpc-gekko";
+/// Stable profile identifier for the IBM PowerPC 750CL instruction set.
 pub const POWERPC_750CL_PROFILE_ID: &str = "powerpc-750cl";
+/// Number of executable instruction forms declared by both profiles.
 pub const DECLARED_FORM_COUNT: usize = 222;
 
 mod assembler;

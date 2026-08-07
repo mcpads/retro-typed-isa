@@ -11,74 +11,166 @@ use crate::instruction::{
     TimeBaseRegister, TrapCondition,
 };
 
+/// IBM PowerPC 750CL protocol profile.
+///
+/// This profile admits the complete 750CL SPR map, including registers not
+/// implemented by Gekko.
 #[derive(Debug, Clone, Copy)]
 pub struct PowerPc750Cl;
 
+/// IBM Gekko protocol profile.
+///
+/// Instruction forms match [`PowerPc750Cl`], while unavailable 750CL-only
+/// special-purpose registers are rejected.
 #[derive(Debug, Clone, Copy)]
 pub struct PowerPcGekko;
 
+/// Failure to decode one fixed-width instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    /// The supplied instruction address is not four-byte aligned.
     #[error("PowerPC Gekko/750CL instruction address {address:#018x} is not four-byte aligned")]
-    UnalignedAddress { address: u64 },
+    UnalignedAddress {
+        /// Supplied instruction address.
+        address: u64,
+    },
+    /// The supplied instruction address does not fit the 32-bit address space.
     #[error("PowerPC Gekko/750CL address {address:#018x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
+    AddressOutOfRange {
+        /// Supplied instruction address.
+        address: u64,
+    },
+    /// Fewer than four source bytes were available.
     #[error("truncated PowerPC Gekko/750CL instruction: needed 4 bytes, got {got}")]
-    UnexpectedEnd { got: usize },
+    UnexpectedEnd {
+        /// Number of bytes available from the requested position.
+        got: usize,
+    },
+    /// The word is reserved or not part of the declared instruction catalog.
     #[error("reserved or out-of-profile PowerPC Gekko/750CL instruction word {word:#010x}")]
-    ReservedWord { word: u32 },
+    ReservedWord {
+        /// Rejected instruction word.
+        word: u32,
+    },
+    /// A valid 750CL instruction names an SPR that Gekko does not provide.
     #[error("special-purpose register {register:?} is not available on IBM Gekko")]
-    GekkoUnavailableSpecialPurposeRegister { register: SpecialPurposeRegister },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum EncodeError {
-    #[error("PowerPC Gekko/750CL instruction address {address:#018x} is not four-byte aligned")]
-    UnalignedAddress { address: u64 },
-    #[error("PowerPC Gekko/750CL address {address:#018x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
-    #[error("instruction has {actual} operands; {expected} required")]
-    OperandCount { actual: usize, expected: usize },
-    #[error("operand {index} has kind {actual:?}; expected {expected:?}")]
-    OperandKind {
-        index: usize,
-        expected: OperandKind,
-        actual: OperandKind,
-    },
-    #[error("modifiers {modifiers:?} are not valid for {form:?}")]
-    InvalidModifiers {
-        form: InstructionForm,
-        modifiers: InstructionModifiers,
-    },
-    #[error("{form:?} cannot access special-purpose register {register:?} in that direction")]
-    InvalidSpecialPurposeAccess {
-        form: InstructionForm,
+    GekkoUnavailableSpecialPurposeRegister {
+        /// Register unavailable in the Gekko profile.
         register: SpecialPurposeRegister,
     },
+}
+
+/// Failure to construct or encode one instruction.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum EncodeError {
+    /// The supplied instruction address is not four-byte aligned.
+    #[error("PowerPC Gekko/750CL instruction address {address:#018x} is not four-byte aligned")]
+    UnalignedAddress {
+        /// Supplied instruction address.
+        address: u64,
+    },
+    /// The supplied instruction address does not fit the 32-bit address space.
+    #[error("PowerPC Gekko/750CL address {address:#018x} exceeds the 32-bit address space")]
+    AddressOutOfRange {
+        /// Supplied instruction address.
+        address: u64,
+    },
+    /// The form received the wrong number of operands.
+    #[error("instruction has {actual} operands; {expected} required")]
+    OperandCount {
+        /// Number of supplied operands.
+        actual: usize,
+        /// Number of operands required by the form.
+        expected: usize,
+    },
+    /// An operand's typed variant does not match the form's field.
+    #[error("operand {index} has kind {actual:?}; expected {expected:?}")]
+    OperandKind {
+        /// Zero-based operand position.
+        index: usize,
+        /// Operand kind required by the form.
+        expected: OperandKind,
+        /// Operand kind that was supplied.
+        actual: OperandKind,
+    },
+    /// One or more optional bits are unavailable on the chosen form.
+    #[error("modifiers {modifiers:?} are not valid for {form:?}")]
+    InvalidModifiers {
+        /// Instruction form being constructed.
+        form: InstructionForm,
+        /// Rejected modifier set.
+        modifiers: InstructionModifiers,
+    },
+    /// The instruction attempts a read-only or write-only SPR in the wrong direction.
+    #[error("{form:?} cannot access special-purpose register {register:?} in that direction")]
+    InvalidSpecialPurposeAccess {
+        /// Instruction form performing the access.
+        form: InstructionForm,
+        /// Register whose access direction is invalid.
+        register: SpecialPurposeRegister,
+    },
+    /// An update-form load or store uses general register zero as its base.
     #[error("{form:?} requires a nonzero update base register")]
-    ZeroUpdateBase { form: InstructionForm },
+    ZeroUpdateBase {
+        /// Update-form instruction.
+        form: InstructionForm,
+    },
+    /// An integer update-form load aliases its destination and base registers.
     #[error("{form:?} update base {register:?} aliases its integer load destination")]
     UpdateBaseAliasesDestination {
+        /// Update-form load instruction.
         form: InstructionForm,
+        /// Aliased destination and base register.
         register: GeneralRegister,
     },
+    /// A multiple or string load would overwrite a register used for addressing.
     #[error("{form:?} loads through address register {register:?}")]
     LoadRangeIncludesAddress {
+        /// Multiple or string load instruction.
         form: InstructionForm,
+        /// Address register included in the destination range.
         register: GeneralRegister,
     },
+    /// An indexed string load uses its first destination as an address register.
     #[error("Lswx destination {register:?} aliases an address register")]
-    StringLoadDestinationAliasesAddress { register: GeneralRegister },
+    StringLoadDestinationAliasesAddress {
+        /// Destination register that aliases a base or index register.
+        register: GeneralRegister,
+    },
+    /// A `bcctr` BO field incorrectly requests count-register decrement and testing.
     #[error("Bcctr branch options {options:?} request a count-register decrement")]
-    CountRegisterBranchDecrementsCount { options: BranchOptions },
+    CountRegisterBranchDecrementsCount {
+        /// Rejected branch-options field.
+        options: BranchOptions,
+    },
+    /// A branch target is not four-byte aligned.
     #[error("control-flow target {target:#010x} is not four-byte aligned")]
-    UnalignedTarget { target: u32 },
+    UnalignedTarget {
+        /// Rejected absolute target address.
+        target: u32,
+    },
+    /// A branch displacement cannot represent the requested target.
     #[error("branch at {address:#010x} cannot reach {target:#010x}")]
-    BranchOutOfRange { address: u32, target: u32 },
+    BranchOutOfRange {
+        /// Address of the branch instruction.
+        address: u32,
+        /// Requested absolute target address.
+        target: u32,
+    },
+    /// A signed immediate does not fit its instruction field.
     #[error("signed immediate {value} does not fit the {bits}-bit field")]
-    ImmediateOutOfRange { value: i16, bits: u8 },
+    ImmediateOutOfRange {
+        /// Rejected immediate value.
+        value: i16,
+        /// Width of the signed field.
+        bits: u8,
+    },
+    /// An instruction names a 750CL-only SPR under the Gekko profile.
     #[error("special-purpose register {register:?} is not available on IBM Gekko")]
-    GekkoUnavailableSpecialPurposeRegister { register: SpecialPurposeRegister },
+    GekkoUnavailableSpecialPurposeRegister {
+        /// Register unavailable in the Gekko profile.
+        register: SpecialPurposeRegister,
+    },
 }
 
 fn decode_common_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
@@ -112,20 +204,26 @@ fn decode_common_bytes(source: &[u8], address: u64) -> Result<Instruction, Decod
     )
 }
 
+/// Decodes one PowerPC 750CL instruction word at `address`.
 pub fn decode_750cl_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
     decode_common_word(word, address)
 }
 
+/// Decodes the first four big-endian bytes as a PowerPC 750CL instruction.
 pub fn decode_750cl_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
     decode_common_bytes(source, address)
 }
 
+/// Decodes one IBM Gekko instruction word at `address`.
+///
+/// This additionally rejects SPR selectors that exist only on the 750CL.
 pub fn decode_gekko_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
     let instruction = decode_common_word(word, address)?;
     validate_gekko_decode(&instruction)?;
     Ok(instruction)
 }
 
+/// Decodes the first four big-endian bytes as an IBM Gekko instruction.
 pub fn decode_gekko_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
@@ -162,19 +260,25 @@ fn encode_common_word(instruction: &Instruction, address: u64) -> Result<u32, En
     Ok(word)
 }
 
+/// Encodes a validated instruction as a PowerPC 750CL instruction word.
 pub fn encode_750cl_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
     encode_common_word(instruction, address)
 }
 
+/// Encodes a validated instruction as four big-endian PowerPC 750CL bytes.
 pub fn encode_750cl_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
     Ok(encode_common_word(instruction, address)?.to_be_bytes())
 }
 
+/// Encodes a validated instruction as an IBM Gekko instruction word.
+///
+/// This additionally rejects SPR selectors that exist only on the 750CL.
 pub fn encode_gekko_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
     validate_gekko_encode(instruction)?;
     encode_common_word(instruction, address)
 }
 
+/// Encodes a validated instruction as four big-endian IBM Gekko bytes.
 pub fn encode_gekko_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
     Ok(encode_gekko_word(instruction, address)?.to_be_bytes())
 }
