@@ -8,95 +8,149 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A canonically encoded instruction and its absolute placement address.
 pub struct PlacedInstruction {
+    /// The absolute instruction address.
     pub address: u32,
+    /// The typed instruction.
     pub instruction: Instruction,
+    /// The exact canonical big-endian instruction bytes.
     pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A verified MC68000 program and its per-instruction placements.
 pub struct AssembledProgram {
+    /// The first output address.
     pub origin: u32,
+    /// The exact canonical big-endian instruction bytes.
     pub bytes: Vec<u8>,
+    /// The verified instruction placements.
     pub instructions: Vec<PlacedInstruction>,
 }
 
 impl AssembledProgram {
+    /// Returns the first output address.
     pub const fn origin(&self) -> u32 {
         self.origin
     }
 
+    /// Borrows the complete program bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the program and returns its complete byte stream.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns the verified instruction placements.
     pub fn instructions(&self) -> &[PlacedInstruction] {
         &self.instructions
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while resolving, encoding, or verifying an assembly unit.
 pub enum AssemblerError {
     #[error("MC68000 program origin 0x{origin:08X} is not word-aligned")]
-    UnalignedOrigin { origin: u32 },
+    /// The program origin is not word-aligned.
+    UnalignedOrigin {
+        /// The rejected origin.
+        origin: u32,
+    },
     #[error("duplicate label {label:?}")]
-    DuplicateLabel { label: String },
+    /// A label name was declared more than once.
+    DuplicateLabel {
+        /// The duplicate label.
+        label: String,
+    },
     #[error("undefined label {label:?}")]
-    UndefinedLabel { label: String },
+    /// A symbolic branch references an undeclared label.
+    UndefinedLabel {
+        /// The missing label.
+        label: String,
+    },
     #[error(
         "branch at 0x{address:08X} cannot reach 0x{target:08X} with a signed 16-bit displacement"
     )]
-    BranchOutOfRange { address: u32, target: u32 },
+    /// A symbolic branch target does not fit a signed word displacement.
+    BranchOutOfRange {
+        /// The branch instruction address.
+        address: u32,
+        /// The requested target address.
+        target: u32,
+    },
     #[error("address overflow from 0x{origin:08X} at node {node_index}")]
-    AddressOverflow { origin: u32, node_index: usize },
+    /// Program placement exceeds the 32-bit address space.
+    AddressOverflow {
+        /// The assembly origin.
+        origin: u32,
+        /// The node being placed when overflow occurred.
+        node_index: usize,
+    },
     #[error(transparent)]
+    /// A typed instruction could not be encoded.
     Encode(#[from] EncodeError),
     #[error("decode failed at 0x{address:08X}: {source}")]
+    /// Verification could not decode an instruction from the emitted stream.
     Decode {
+        /// The absolute instruction address.
         address: u32,
         #[source]
+        /// The underlying decode failure.
         source: DecodeError,
     },
     #[error(
         "semantic byte round trip changed instruction at 0x{address:08X}: expected {expected:?}, decoded {actual:?}"
     )]
+    /// Emitted bytes decoded to a different typed instruction.
     SemanticRoundTripMismatch {
+        /// The absolute instruction address.
         address: u32,
+        /// The instruction submitted to the assembler.
         expected: Instruction,
+        /// The instruction recovered from emitted bytes.
         actual: Instruction,
     },
     #[error("instruction at 0x{address:08X} is not canonically encoded")]
+    /// Input bytes decode but are not the canonical lowering of that typed instruction.
     NonCanonicalEncoding {
+        /// The absolute instruction address.
         address: u32,
+        /// The canonical encoding.
         canonical: Vec<u8>,
+        /// The instruction recovered from emitted bytes.
         actual: Vec<u8>,
     },
 }
 
 #[derive(Debug, Clone, Default)]
+/// A checked MC68000 assembler with symbolic branches.
 pub struct Assembler {
     nodes: Vec<Node>,
 }
 
 impl Assembler {
+    /// Creates an empty assembly unit.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Declares a label at the current output address.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Appends an already-typed instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Appends typed instructions in iteration order.
     pub fn emit_all(&mut self, instructions: impl IntoIterator<Item = Instruction>) -> &mut Self {
         self.nodes
             .extend(instructions.into_iter().map(Node::Instruction));
@@ -141,6 +195,7 @@ impl Assembler {
         self
     }
 
+    /// Resolves labels, encodes every instruction, and verifies the complete placed byte stream.
     pub fn assemble(&self, origin: u32) -> Result<AssembledProgram, AssemblerError> {
         if origin & 1 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });

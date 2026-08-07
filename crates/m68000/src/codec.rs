@@ -3,53 +3,98 @@ use thiserror::Error;
 use crate::instruction::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One decoded instruction and the number of source bytes it consumed.
 pub struct DecodedInstruction {
+    /// The decoded typed instruction.
     pub instruction: Instruction,
+    /// The number of input bytes consumed.
     pub byte_len: usize,
 }
 
 /// Classification of every possible first instruction word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecodedWord {
+    /// The first word begins a supported instruction form.
     Instruction(InstructionForm),
+    /// The first word is reserved or requires extensions that do not produce a valid form.
     Reserved,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while decoding an MC68000 instruction.
 pub enum DecodeError {
     #[error("MC68000 instruction needs at least {needed} bytes, got {available}")]
-    TruncatedInput { needed: usize, available: usize },
+    /// The input ends before the opcode's extension words are complete.
+    TruncatedInput {
+        /// The minimum total input length required.
+        needed: usize,
+        /// The available input length.
+        available: usize,
+    },
     #[error("reserved MC68000 instruction word 0x{word:04X}")]
-    ReservedOpcode { word: u16 },
+    /// The first word is reserved or belongs to an excluded processor generation.
+    ReservedOpcode {
+        /// The rejected first word.
+        word: u16,
+    },
     #[error("reserved MC68000 extension word 0x{word:04X}")]
-    ReservedExtension { word: u16 },
+    /// An extension word uses a field combination reserved on the MC68000.
+    ReservedExtension {
+        /// The rejected extension word.
+        word: u16,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned when a typed instruction has no legal MC68000 encoding.
 pub enum EncodeError {
     #[error("{mnemonic:?} does not support {size:?} operands")]
+    /// The instruction family does not define the requested operand size.
     InvalidSize {
+        /// The instruction family being encoded.
         mnemonic: Mnemonic,
+        /// The rejected operand size.
         size: OperandSize,
     },
     #[error("{mnemonic:?} does not support {mode:?} addressing")]
+    /// The instruction family does not admit the supplied effective address.
     InvalidEffectiveAddress {
+        /// The instruction family being encoded.
         mnemonic: Mnemonic,
+        /// The rejected effective-address mode.
         mode: AddressingMode,
     },
     #[error("immediate size {actual:?} does not match operand size {expected:?}")]
+    /// An immediate's typed width differs from the instruction width.
     ImmediateSizeMismatch {
+        /// The operand size required by the instruction.
         expected: OperandSize,
+        /// The immediate's carried size.
         actual: OperandSize,
     },
     #[error("{mnemonic:?} immediate {value} is outside 1..=8")]
-    InvalidQuickImmediate { mnemonic: Mnemonic, value: u8 },
+    /// A quick immediate is outside its architectural range.
+    InvalidQuickImmediate {
+        /// The instruction family being encoded.
+        mnemonic: Mnemonic,
+        /// The rejected immediate value.
+        value: u8,
+    },
     #[error("conditional branch selector cannot use condition {condition:?}")]
-    InvalidBranchCondition { condition: Condition },
+    /// A conditional-only instruction was given an unconditional selector.
+    InvalidBranchCondition {
+        /// The rejected condition.
+        condition: Condition,
+    },
     #[error("byte branch displacement zero selects the word-displacement encoding")]
+    /// A zero byte displacement would select the word-displacement encoding instead.
     ZeroByteBranchDisplacement,
     #[error("trap vector {vector} is outside 0..=15")]
-    InvalidTrapVector { vector: u8 },
+    /// A trap vector exceeds its four-bit encoding.
+    InvalidTrapVector {
+        /// The rejected vector.
+        vector: u8,
+    },
 }
 
 struct Reader<'a> {

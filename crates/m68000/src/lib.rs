@@ -4,6 +4,8 @@
 //! MC68010-only `BKPT`, `MOVEC`, `MOVES`, or `RTD` instructions, and it does
 //! not execute instructions or model cycle timing.
 
+#![deny(missing_docs)]
+
 mod assembler;
 mod codec;
 mod instruction;

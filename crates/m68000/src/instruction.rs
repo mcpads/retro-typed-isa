@@ -4,18 +4,28 @@ use crate::classify_word;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+/// One of the eight MC68000 data registers.
 pub enum DataRegister {
+    /// The d0 form.
     D0,
+    /// The d1 form.
     D1,
+    /// The d2 form.
     D2,
+    /// The d3 form.
     D3,
+    /// The d4 form.
     D4,
+    /// The d5 form.
     D5,
+    /// The d6 form.
     D6,
+    /// The d7 form.
     D7,
 }
 
 impl DataRegister {
+    /// The complete all set or constant.
     pub const ALL: [Self; 8] = [
         Self::D0,
         Self::D1,
@@ -38,18 +48,28 @@ impl DataRegister {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+/// One of the eight MC68000 address registers.
 pub enum AddressRegister {
+    /// The a0 form.
     A0,
+    /// The a1 form.
     A1,
+    /// The a2 form.
     A2,
+    /// The a3 form.
     A3,
+    /// The a4 form.
     A4,
+    /// The a5 form.
     A5,
+    /// The a6 form.
     A6,
+    /// The a7 form.
     A7,
 }
 
 impl AddressRegister {
+    /// The complete all set or constant.
     pub const ALL: [Self; 8] = [
         Self::A0,
         Self::A1,
@@ -71,21 +91,31 @@ impl AddressRegister {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A data or address register usable by a register mask or index operand.
 pub enum Register {
+    /// The data form.
     Data(DataRegister),
+    /// The address form.
     Address(AddressRegister),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The byte, word, or long-word width of an integer operand.
 pub enum OperandSize {
+    /// The byte form.
     Byte,
+    /// The word form.
     Word,
+    /// The long form.
     Long,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The word or long-word width of an address-register operation.
 pub enum AddressSize {
+    /// The word form.
     Word,
+    /// The long form.
     Long,
 }
 
@@ -99,13 +129,18 @@ impl From<AddressSize> for OperandSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// An immediate value whose Rust variant preserves its encoded width.
 pub enum Immediate {
+    /// The byte form.
     Byte(u8),
+    /// The word form.
     Word(u16),
+    /// The long form.
     Long(u32),
 }
 
 impl Immediate {
+    /// Returns the encoded width carried by this immediate.
     pub const fn size(self) -> OperandSize {
         match self {
             Self::Byte(_) => OperandSize::Byte,
@@ -116,44 +151,71 @@ impl Immediate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The word or long-word interpretation of a brief-extension index register.
 pub enum IndexSize {
+    /// The word form.
     Word,
+    /// The long form.
     Long,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The register and width stored in an MC68000 brief index extension.
 pub struct IndexRegister {
+    /// The selected register.
     pub register: Register,
+    /// The operand or index width.
     pub size: IndexSize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A complete typed MC68000 effective address, including extension values.
 pub enum EffectiveAddress {
+    /// The data register form.
     DataRegister(DataRegister),
+    /// The address register form.
     AddressRegister(AddressRegister),
+    /// The address indirect form.
     AddressIndirect(AddressRegister),
+    /// The address postincrement form.
     AddressPostincrement(AddressRegister),
+    /// The address predecrement form.
     AddressPredecrement(AddressRegister),
+    /// The address displacement form.
     AddressDisplacement {
+        /// The selected register.
         register: AddressRegister,
+        /// The encoded signed displacement.
         displacement: i16,
     },
+    /// The address index form.
     AddressIndex {
+        /// The selected register.
         register: AddressRegister,
+        /// The brief-extension index register.
         index: IndexRegister,
+        /// The encoded signed displacement.
         displacement: i8,
     },
+    /// The absolute word form.
     AbsoluteWord(u16),
+    /// The absolute long form.
     AbsoluteLong(u32),
+    /// The program counter displacement form.
     ProgramCounterDisplacement(i16),
+    /// The program counter index form.
     ProgramCounterIndex {
+        /// The brief-extension index register.
         index: IndexRegister,
+        /// The encoded signed displacement.
         displacement: i8,
     },
+    /// The immediate form.
     Immediate(Immediate),
 }
 
 impl EffectiveAddress {
+    /// Returns the structural addressing mode.
     pub const fn mode(self) -> AddressingMode {
         match self {
             Self::DataRegister(_) => AddressingMode::DataRegisterDirect,
@@ -173,6 +235,7 @@ impl EffectiveAddress {
         }
     }
 
+    /// Returns the static-analysis operand classification.
     pub const fn operand_kind(self) -> OperandKind {
         match self {
             Self::DataRegister(_) => OperandKind::DataRegister,
@@ -194,23 +257,38 @@ impl EffectiveAddress {
 /// The fourteen addressing modes documented for the MC68000 profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AddressingMode {
+    /// The data register direct form.
     DataRegisterDirect,
+    /// The address register direct form.
     AddressRegisterDirect,
+    /// The address register indirect form.
     AddressRegisterIndirect,
+    /// The address register indirect postincrement form.
     AddressRegisterIndirectPostincrement,
+    /// The address register indirect predecrement form.
     AddressRegisterIndirectPredecrement,
+    /// The address register indirect displacement form.
     AddressRegisterIndirectDisplacement,
+    /// The address register indirect index form.
     AddressRegisterIndirectIndex,
+    /// The absolute short form.
     AbsoluteShort,
+    /// The absolute long form.
     AbsoluteLong,
+    /// The program counter relative displacement form.
     ProgramCounterRelativeDisplacement,
+    /// The program counter relative index form.
     ProgramCounterRelativeIndex,
+    /// The immediate form.
     Immediate,
+    /// The quick immediate form.
     QuickImmediate,
+    /// The implied form.
     Implied,
 }
 
 impl AddressingMode {
+    /// The complete all set or constant.
     pub const ALL: [Self; 14] = [
         Self::DataRegisterDirect,
         Self::AddressRegisterDirect,
@@ -235,44 +313,72 @@ impl AddressingMode {
 /// operands whose identity changes the instruction form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OperandKind {
+    /// The data register form.
     DataRegister,
+    /// The address register form.
     AddressRegister,
+    /// The address indirect form.
     AddressIndirect,
+    /// The address postincrement form.
     AddressPostincrement,
+    /// The address predecrement form.
     AddressPredecrement,
+    /// The address displacement form.
     AddressDisplacement,
+    /// The address index form.
     AddressIndex,
+    /// The absolute word form.
     AbsoluteWord,
+    /// The absolute long form.
     AbsoluteLong,
+    /// The program counter displacement form.
     ProgramCounterDisplacement,
+    /// The program counter index form.
     ProgramCounterIndex,
+    /// The immediate form.
     Immediate,
+    /// The quick immediate form.
     QuickImmediate,
+    /// The register list form.
     RegisterList,
+    /// The user stack pointer form.
     UserStackPointer,
+    /// The condition code register form.
     ConditionCodeRegister,
+    /// The status register form.
     StatusRegister,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Selects whether a data register is the source or destination of an ALU form.
 pub enum DataDirection {
+    /// The to data register form.
     ToDataRegister,
+    /// The to effective address form.
     ToEffectiveAddress,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The two data registers used by decimal and extended arithmetic.
 pub enum RegisterPair {
+    /// The data form.
     Data {
+        /// The source operand.
         source: DataRegister,
+        /// The destination operand.
         destination: DataRegister,
     },
+    /// The address predecrement form.
     AddressPredecrement {
+        /// The source operand.
         source: AddressRegister,
+        /// The destination operand.
         destination: AddressRegister,
     },
 }
 
 impl RegisterPair {
+    /// Returns the source operand classification for this register pair.
     pub const fn source_operand_kind(self) -> OperandKind {
         match self {
             Self::Data { .. } => OperandKind::DataRegister,
@@ -280,6 +386,7 @@ impl RegisterPair {
         }
     }
 
+    /// Returns the destination operand classification for this register pair.
     pub const fn destination_operand_kind(self) -> OperandKind {
         self.source_operand_kind()
     }
@@ -287,26 +394,44 @@ impl RegisterPair {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+/// An MC68000 condition-code selector.
 pub enum Condition {
+    /// The true form.
     True,
+    /// The false form.
     False,
+    /// The high form.
     High,
+    /// The low or same form.
     LowOrSame,
+    /// The carry clear form.
     CarryClear,
+    /// The carry set form.
     CarrySet,
+    /// The not equal form.
     NotEqual,
+    /// The equal form.
     Equal,
+    /// The overflow clear form.
     OverflowClear,
+    /// The overflow set form.
     OverflowSet,
+    /// The plus form.
     Plus,
+    /// The minus form.
     Minus,
+    /// The greater or equal form.
     GreaterOrEqual,
+    /// The less than form.
     LessThan,
+    /// The greater than form.
     GreaterThan,
+    /// The less or equal form.
     LessOrEqual,
 }
 
 impl Condition {
+    /// The complete all set or constant.
     pub const ALL: [Self; 16] = [
         Self::True,
         Self::False,
@@ -336,118 +461,177 @@ impl Condition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The unconditional, subroutine, or conditional branch family.
 pub enum BranchKind {
+    /// The always form.
     Always,
+    /// The subroutine form.
     Subroutine,
+    /// The conditional form.
     Conditional(Condition),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A branch displacement with an explicit byte or word encoding width.
 pub enum BranchDisplacement {
+    /// The byte form.
     Byte(i8),
+    /// The word form.
     Word(i16),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A bit-test or bit-modification operation.
 pub enum BitOperation {
+    /// The test form.
     Test,
+    /// The change form.
     Change,
+    /// The clear form.
     Clear,
+    /// The set form.
     Set,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The immediate or data-register source of a bit number.
 pub enum BitNumber {
+    /// The data register form.
     DataRegister(DataRegister),
+    /// The immediate form.
     Immediate(u8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Selects signed or unsigned integer division.
 pub enum DivisionSign {
+    /// The unsigned form.
     Unsigned,
+    /// The signed form.
     Signed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Selects signed or unsigned integer multiplication.
 pub enum MultiplicationSign {
+    /// The unsigned form.
     Unsigned,
+    /// The signed form.
     Signed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A legal register-pair class for `EXG`.
 pub enum ExchangeRegisters {
+    /// The data form.
     Data {
+        /// The source operand.
         source: DataRegister,
+        /// The destination operand.
         destination: DataRegister,
     },
+    /// The address form.
     Address {
+        /// The source operand.
         source: AddressRegister,
+        /// The destination operand.
         destination: AddressRegister,
     },
+    /// The data address form.
     DataAddress {
+        /// The data-register operand.
         data: DataRegister,
+        /// The absolute address.
         address: AddressRegister,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The byte, word, or long-word size used by sign extension.
 pub enum ExtendSize {
+    /// The byte to word form.
     ByteToWord,
+    /// The word to long form.
     WordToLong,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A shift or rotate operation.
 pub enum ShiftOperation {
+    /// The arithmetic form.
     Arithmetic,
+    /// The logical form.
     Logical,
+    /// The rotate with extend form.
     RotateWithExtend,
+    /// The rotate form.
     Rotate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The left or right direction of a shift or rotate.
 pub enum ShiftDirection {
+    /// The right form.
     Right,
+    /// The left form.
     Left,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The immediate or register source of a shift count.
 pub enum ShiftCount {
+    /// The immediate form.
     Immediate(u8),
+    /// The data register form.
     DataRegister(DataRegister),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Selects the direction of a `MOVEM` transfer.
 pub enum MoveMultipleDirection {
+    /// The registers to memory form.
     RegistersToMemory,
+    /// The memory to registers form.
     MemoryToRegisters,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Selects the direction of a `MOVEP` transfer.
 pub enum MovePeripheralDirection {
+    /// The memory to register form.
     MemoryToRegister,
+    /// The register to memory form.
     RegisterToMemory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Selects the direction of a user-stack-pointer transfer.
 pub enum UserStackPointerDirection {
+    /// The address register to user stack pointer form.
     AddressRegisterToUserStackPointer,
+    /// The user stack pointer to address register form.
     UserStackPointerToAddressRegister,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+/// A sixteen-bit data/address register mask used by `MOVEM`.
 pub struct RegisterMask(u16);
 
 impl RegisterMask {
+    /// The complete empty set or constant.
     pub const EMPTY: Self = Self(0);
 
+    /// Constructs a register mask from its raw sixteen-bit representation.
     pub const fn from_bits(bits: u16) -> Self {
         Self(bits)
     }
 
+    /// Returns the raw sixteen-bit register mask.
     pub const fn bits(self) -> u16 {
         self.0
     }
 
+    /// Returns whether the mask contains the selected register.
     pub fn contains(self, register: Register) -> bool {
         let bit = match register {
             Register::Data(register) => register.bits(),
@@ -456,6 +640,7 @@ impl RegisterMask {
         self.0 & (1 << bit) != 0
     }
 
+    /// Adds the selected register to the mask.
     pub fn insert(&mut self, register: Register) {
         let bit = match register {
             Register::Data(register) => register.bits(),
@@ -466,363 +651,654 @@ impl RegisterMask {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A complete typed instruction admitted by the MC68000 profile.
 pub enum Instruction {
+    /// The add decimal form.
     AddDecimal {
+        /// The operands operand.
         operands: RegisterPair,
     },
+    /// The add form.
     Add {
+        /// The operand or index width.
         size: OperandSize,
+        /// The selected transfer or data direction.
         direction: DataDirection,
+        /// The data register operand.
         data_register: DataRegister,
+        /// The effective address operand.
         effective_address: EffectiveAddress,
     },
+    /// The add address form.
     AddAddress {
+        /// The operand or index width.
         size: AddressSize,
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: AddressRegister,
     },
+    /// The add immediate form.
     AddImmediate {
+        /// The operand or index width.
         size: OperandSize,
+        /// The typed immediate operand.
         immediate: Immediate,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The add quick form.
     AddQuick {
+        /// The operand or index width.
         size: OperandSize,
+        /// The typed immediate operand.
         immediate: u8,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The add extend form.
     AddExtend {
+        /// The operand or index width.
         size: OperandSize,
+        /// The operands operand.
         operands: RegisterPair,
     },
+    /// The and form.
     And {
+        /// The operand or index width.
         size: OperandSize,
+        /// The selected transfer or data direction.
         direction: DataDirection,
+        /// The data register operand.
         data_register: DataRegister,
+        /// The effective address operand.
         effective_address: EffectiveAddress,
     },
+    /// The and immediate form.
     AndImmediate {
+        /// The operand or index width.
         size: OperandSize,
+        /// The typed immediate operand.
         immediate: Immediate,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The and immediate to condition code form.
     AndImmediateToConditionCode(u8),
+    /// The and immediate to status form.
     AndImmediateToStatus(u16),
+    /// The shift register form.
     ShiftRegister {
+        /// The selected arithmetic, bit, shift, or rotate operation.
         operation: ShiftOperation,
+        /// The selected transfer or data direction.
         direction: ShiftDirection,
+        /// The operand or index width.
         size: OperandSize,
+        /// The immediate or register shift count.
         count: ShiftCount,
+        /// The destination operand.
         destination: DataRegister,
     },
+    /// The shift memory form.
     ShiftMemory {
+        /// The selected arithmetic, bit, shift, or rotate operation.
         operation: ShiftOperation,
+        /// The selected transfer or data direction.
         direction: ShiftDirection,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The branch form.
     Branch {
+        /// The selected branch or operand kind.
         kind: BranchKind,
+        /// The encoded signed displacement.
         displacement: BranchDisplacement,
     },
+    /// The bit form.
     Bit {
+        /// The selected arithmetic, bit, shift, or rotate operation.
         operation: BitOperation,
+        /// The bit number operand.
         bit_number: BitNumber,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The check form.
     Check {
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: DataRegister,
     },
+    /// The clear form.
     Clear {
+        /// The operand or index width.
         size: OperandSize,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The compare form.
     Compare {
+        /// The operand or index width.
         size: OperandSize,
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: DataRegister,
     },
+    /// The compare address form.
     CompareAddress {
+        /// The operand or index width.
         size: AddressSize,
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: AddressRegister,
     },
+    /// The compare immediate form.
     CompareImmediate {
+        /// The operand or index width.
         size: OperandSize,
+        /// The typed immediate operand.
         immediate: Immediate,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The compare memory form.
     CompareMemory {
+        /// The operand or index width.
         size: OperandSize,
+        /// The source operand.
         source: AddressRegister,
+        /// The destination operand.
         destination: AddressRegister,
     },
+    /// The decrement branch form.
     DecrementBranch {
+        /// The condition-code selector.
         condition: Condition,
+        /// The selected register.
         register: DataRegister,
+        /// The encoded signed displacement.
         displacement: i16,
     },
+    /// The divide form.
     Divide {
+        /// Whether signed or unsigned arithmetic is selected.
         sign: DivisionSign,
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: DataRegister,
     },
+    /// The exclusive or form.
     ExclusiveOr {
+        /// The operand or index width.
         size: OperandSize,
+        /// The source operand.
         source: DataRegister,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The exclusive or immediate form.
     ExclusiveOrImmediate {
+        /// The operand or index width.
         size: OperandSize,
+        /// The typed immediate operand.
         immediate: Immediate,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The exclusive or immediate to condition code form.
     ExclusiveOrImmediateToConditionCode(u8),
+    /// The exclusive or immediate to status form.
     ExclusiveOrImmediateToStatus(u16),
+    /// The exchange form.
     Exchange {
+        /// The register mask.
         registers: ExchangeRegisters,
     },
+    /// The extend form.
     Extend {
+        /// The operand or index width.
         size: ExtendSize,
+        /// The selected register.
         register: DataRegister,
     },
+    /// The illegal form.
     Illegal,
+    /// The jump form.
     Jump {
+        /// The computed control-flow target.
         target: EffectiveAddress,
     },
+    /// The jump subroutine form.
     JumpSubroutine {
+        /// The computed control-flow target.
         target: EffectiveAddress,
     },
+    /// The load effective address form.
     LoadEffectiveAddress {
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: AddressRegister,
     },
+    /// The link form.
     Link {
+        /// The selected register.
         register: AddressRegister,
+        /// The encoded signed displacement.
         displacement: i16,
     },
+    /// The move form.
     Move {
+        /// The operand or index width.
         size: OperandSize,
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The move address form.
     MoveAddress {
+        /// The operand or index width.
         size: AddressSize,
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: AddressRegister,
     },
+    /// The move to condition code form.
     MoveToConditionCode {
+        /// The source operand.
         source: EffectiveAddress,
     },
+    /// The move from status form.
     MoveFromStatus {
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The move to status form.
     MoveToStatus {
+        /// The source operand.
         source: EffectiveAddress,
     },
+    /// The move user stack pointer form.
     MoveUserStackPointer {
+        /// The selected transfer or data direction.
         direction: UserStackPointerDirection,
+        /// The selected register.
         register: AddressRegister,
     },
+    /// The move multiple form.
     MoveMultiple {
+        /// The operand or index width.
         size: AddressSize,
+        /// The selected transfer or data direction.
         direction: MoveMultipleDirection,
+        /// The register mask.
         registers: RegisterMask,
+        /// The effective address operand.
         effective_address: EffectiveAddress,
     },
+    /// The move peripheral form.
     MovePeripheral {
+        /// The operand or index width.
         size: AddressSize,
+        /// The selected transfer or data direction.
         direction: MovePeripheralDirection,
+        /// The data register operand.
         data_register: DataRegister,
+        /// The address register operand.
         address_register: AddressRegister,
+        /// The encoded signed displacement.
         displacement: i16,
     },
+    /// The move quick form.
     MoveQuick {
+        /// The typed immediate operand.
         immediate: i8,
+        /// The destination operand.
         destination: DataRegister,
     },
+    /// The multiply form.
     Multiply {
+        /// Whether signed or unsigned arithmetic is selected.
         sign: MultiplicationSign,
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: DataRegister,
     },
+    /// The negate decimal form.
     NegateDecimal {
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The negate form.
     Negate {
+        /// The operand or index width.
         size: OperandSize,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The negate extend form.
     NegateExtend {
+        /// The operand or index width.
         size: OperandSize,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The nop form.
     Nop,
+    /// The not form.
     Not {
+        /// The operand or index width.
         size: OperandSize,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The or form.
     Or {
+        /// The operand or index width.
         size: OperandSize,
+        /// The selected transfer or data direction.
         direction: DataDirection,
+        /// The data register operand.
         data_register: DataRegister,
+        /// The effective address operand.
         effective_address: EffectiveAddress,
     },
+    /// The or immediate form.
     OrImmediate {
+        /// The operand or index width.
         size: OperandSize,
+        /// The typed immediate operand.
         immediate: Immediate,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The or immediate to condition code form.
     OrImmediateToConditionCode(u8),
+    /// The or immediate to status form.
     OrImmediateToStatus(u16),
+    /// The push effective address form.
     PushEffectiveAddress {
+        /// The source operand.
         source: EffectiveAddress,
     },
+    /// The reset form.
     Reset,
+    /// The return from exception form.
     ReturnFromException,
+    /// The return and restore form.
     ReturnAndRestore,
+    /// The return from subroutine form.
     ReturnFromSubroutine,
+    /// The subtract decimal form.
     SubtractDecimal {
+        /// The operands operand.
         operands: RegisterPair,
     },
+    /// The set condition form.
     SetCondition {
+        /// The condition-code selector.
         condition: Condition,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The stop form.
     Stop {
+        /// The status operand.
         status: u16,
     },
+    /// The subtract form.
     Subtract {
+        /// The operand or index width.
         size: OperandSize,
+        /// The selected transfer or data direction.
         direction: DataDirection,
+        /// The data register operand.
         data_register: DataRegister,
+        /// The effective address operand.
         effective_address: EffectiveAddress,
     },
+    /// The subtract address form.
     SubtractAddress {
+        /// The operand or index width.
         size: AddressSize,
+        /// The source operand.
         source: EffectiveAddress,
+        /// The destination operand.
         destination: AddressRegister,
     },
+    /// The subtract immediate form.
     SubtractImmediate {
+        /// The operand or index width.
         size: OperandSize,
+        /// The typed immediate operand.
         immediate: Immediate,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The subtract quick form.
     SubtractQuick {
+        /// The operand or index width.
         size: OperandSize,
+        /// The typed immediate operand.
         immediate: u8,
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The subtract extend form.
     SubtractExtend {
+        /// The operand or index width.
         size: OperandSize,
+        /// The operands operand.
         operands: RegisterPair,
     },
+    /// The swap form.
     Swap {
+        /// The selected register.
         register: DataRegister,
     },
+    /// The test and set form.
     TestAndSet {
+        /// The destination operand.
         destination: EffectiveAddress,
     },
+    /// The trap form.
     Trap {
+        /// The trap vector number.
         vector: u8,
     },
+    /// The trap on overflow form.
     TrapOnOverflow,
+    /// The test form.
     Test {
+        /// The operand or index width.
         size: OperandSize,
+        /// The source operand.
         source: EffectiveAddress,
     },
+    /// The unlink form.
     Unlink {
+        /// The selected register.
         register: AddressRegister,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The semantic instruction family used by static analysis.
 pub enum Mnemonic {
+    /// The abcd form.
     Abcd,
+    /// The add form.
     Add,
+    /// The adda form.
     Adda,
+    /// The addi form.
     Addi,
+    /// The addq form.
     Addq,
+    /// The addx form.
     Addx,
+    /// The and form.
     And,
+    /// The andi form.
     Andi,
+    /// The asl form.
     Asl,
+    /// The asr form.
     Asr,
+    /// The bcc form.
     Bcc,
+    /// The bchg form.
     Bchg,
+    /// The bclr form.
     Bclr,
+    /// The bra form.
     Bra,
+    /// The bset form.
     Bset,
+    /// The bsr form.
     Bsr,
+    /// The btst form.
     Btst,
+    /// The chk form.
     Chk,
+    /// The clr form.
     Clr,
+    /// The cmp form.
     Cmp,
+    /// The cmpa form.
     Cmpa,
+    /// The cmpi form.
     Cmpi,
+    /// The cmpm form.
     Cmpm,
+    /// The dbcc form.
     Dbcc,
+    /// The divs form.
     Divs,
+    /// The divu form.
     Divu,
+    /// The eor form.
     Eor,
+    /// The eori form.
     Eori,
+    /// The exg form.
     Exg,
+    /// The ext form.
     Ext,
+    /// The illegal form.
     Illegal,
+    /// The jmp form.
     Jmp,
+    /// The jsr form.
     Jsr,
+    /// The lea form.
     Lea,
+    /// The link form.
     Link,
+    /// The lsl form.
     Lsl,
+    /// The lsr form.
     Lsr,
+    /// The move form.
     Move,
+    /// The movea form.
     Movea,
+    /// The movem form.
     Movem,
+    /// The movep form.
     Movep,
+    /// The moveq form.
     Moveq,
+    /// The muls form.
     Muls,
+    /// The mulu form.
     Mulu,
+    /// The nbcd form.
     Nbcd,
+    /// The neg form.
     Neg,
+    /// The negx form.
     Negx,
+    /// The nop form.
     Nop,
+    /// The not form.
     Not,
+    /// The or form.
     Or,
+    /// The ori form.
     Ori,
+    /// The pea form.
     Pea,
+    /// The reset form.
     Reset,
+    /// The rol form.
     Rol,
+    /// The ror form.
     Ror,
+    /// The roxl form.
     Roxl,
+    /// The roxr form.
     Roxr,
+    /// The rte form.
     Rte,
+    /// The rtr form.
     Rtr,
+    /// The rts form.
     Rts,
+    /// The sbcd form.
     Sbcd,
+    /// The scc form.
     Scc,
+    /// The stop form.
     Stop,
+    /// The sub form.
     Sub,
+    /// The suba form.
     Suba,
+    /// The subi form.
     Subi,
+    /// The subq form.
     Subq,
+    /// The subx form.
     Subx,
+    /// The swap form.
     Swap,
+    /// The tas form.
     Tas,
+    /// The trap form.
     Trap,
+    /// The trapv form.
     Trapv,
+    /// The tst form.
     Tst,
+    /// The unlk form.
     Unlk,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// An operand-independent MC68000 form with size and operand classifications.
 pub struct InstructionForm {
+    /// The semantic instruction family.
     pub mnemonic: Mnemonic,
+    /// The operand or index width.
     pub size: Option<OperandSize>,
+    /// The source operand.
     pub source: Option<OperandKind>,
+    /// The destination operand.
     pub destination: Option<OperandKind>,
 }
 
 impl InstructionForm {
+    /// Returns the complete set of supported instruction forms.
     pub fn all() -> Vec<Self> {
         let mut forms = BTreeSet::new();
         for word in u16::MIN..=u16::MAX {
@@ -835,6 +1311,7 @@ impl InstructionForm {
 }
 
 impl Instruction {
+    /// Returns the operand-independent instruction form.
     pub fn form(&self) -> InstructionForm {
         let form = |mnemonic, size, source, destination| InstructionForm {
             mnemonic,
@@ -1303,6 +1780,7 @@ impl Instruction {
         }
     }
 
+    /// Computes the instruction's static control-flow effect at the supplied address.
     pub fn control_flow(&self, address: u32) -> Result<ControlFlow, crate::EncodeError> {
         let byte_len = u32::try_from(crate::encode_bytes(self)?.len())
             .expect("an MC68000 instruction length fits in u32");
@@ -1389,26 +1867,43 @@ fn direct_target(target: EffectiveAddress, pc_base: u32) -> Option<u32> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The statically determined control-flow effect of an instruction.
 pub enum ControlFlow {
+    /// The fall through form.
     FallThrough {
+        /// The next operand.
         next: u32,
     },
+    /// The branch form.
     Branch {
+        /// The computed control-flow target.
         target: u32,
+        /// The address reached when control flow does not transfer.
         fallthrough: Option<u32>,
     },
+    /// The call form.
     Call {
+        /// The computed control-flow target.
         target: Option<u32>,
+        /// The return address recorded by a subroutine call.
         return_address: u32,
     },
+    /// The jump form.
     Jump {
+        /// The computed control-flow target.
         target: Option<u32>,
     },
+    /// The return form.
     Return,
+    /// The exception return form.
     ExceptionReturn,
+    /// The interrupt form.
     Interrupt,
+    /// The conditional interrupt form.
     ConditionalInterrupt {
+        /// The address reached when control flow does not transfer.
         fallthrough: u32,
     },
+    /// The stop form.
     Stop,
 }
