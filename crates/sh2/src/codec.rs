@@ -5,20 +5,44 @@ use crate::instruction::{Instruction, Register};
 /// Classification of every possible 16-bit word in the SH-2 encoding space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecodedWord {
+    /// A word assigned to a declared SH-2 instruction.
     Instruction(Instruction),
-    Unknown { word: u16 },
+    /// A reserved or out-of-profile word.
+    Unknown {
+        /// Unassigned instruction word.
+        word: u16,
+    },
 }
 
+/// Failure to decode one word or a placed instruction stream.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    /// Fewer than two bytes were available.
     #[error("SH-2 instruction requires two bytes, got {len}")]
-    TruncatedInput { len: usize },
+    TruncatedInput {
+        /// Supplied byte length.
+        len: usize,
+    },
+    /// The word is reserved or outside the declared SH-2 profile.
     #[error("reserved SH-2 instruction word 0x{word:04X}")]
-    UnknownWord { word: u16 },
+    UnknownWord {
+        /// Rejected instruction word.
+        word: u16,
+    },
+    /// A placed instruction address is not two-byte aligned.
     #[error("SH-2 instruction address 0x{address:08X} is not two-byte aligned")]
-    UnalignedInstructionAddress { address: u32 },
+    UnalignedInstructionAddress {
+        /// Rejected instruction address.
+        address: u32,
+    },
+    /// A placed instruction address overflows 32 bits.
     #[error("SH-2 address overflow from 0x{origin:08X} at instruction {index}")]
-    AddressOverflow { origin: u32, index: usize },
+    AddressOverflow {
+        /// Stream origin.
+        origin: u32,
+        /// Zero-based instruction index.
+        index: usize,
+    },
 }
 
 /// Sign-extend an 8-bit value to i8.
@@ -719,6 +743,7 @@ fn decode_cxxx(opcode: u16, d8: u8) -> DecodedWord {
 }
 
 /// Decode one natural SH-2 instruction word, failing closed for reserved words.
+/// Decodes one assigned SH-2 instruction word.
 pub fn decode_word(word: u16) -> Result<Instruction, DecodeError> {
     match classify_word(word) {
         DecodedWord::Instruction(instruction) => Ok(instruction),
@@ -727,6 +752,7 @@ pub fn decode_word(word: u16) -> Result<Instruction, DecodeError> {
 }
 
 /// Decode one instruction from the first two bytes in SH-2 big-endian order.
+/// Decodes the first two bytes as one big-endian SH-2 instruction.
 pub fn decode_bytes(bytes: &[u8]) -> Result<Instruction, DecodeError> {
     let Some(bytes) = bytes.get(..2) else {
         return Err(DecodeError::TruncatedInput { len: bytes.len() });

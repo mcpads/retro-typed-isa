@@ -5,28 +5,47 @@ use std::fmt;
 pub struct Register(u8);
 
 impl Register {
+    /// General-purpose register R0.
     pub const R0: Self = Self(0);
+    /// General-purpose register R1.
     pub const R1: Self = Self(1);
+    /// General-purpose register R2.
     pub const R2: Self = Self(2);
+    /// General-purpose register R3.
     pub const R3: Self = Self(3);
+    /// General-purpose register R4.
     pub const R4: Self = Self(4);
+    /// General-purpose register R5.
     pub const R5: Self = Self(5);
+    /// General-purpose register R6.
     pub const R6: Self = Self(6);
+    /// General-purpose register R7.
     pub const R7: Self = Self(7);
+    /// General-purpose register R8.
     pub const R8: Self = Self(8);
+    /// General-purpose register R9.
     pub const R9: Self = Self(9);
+    /// General-purpose register R10.
     pub const R10: Self = Self(10);
+    /// General-purpose register R11.
     pub const R11: Self = Self(11);
+    /// General-purpose register R12.
     pub const R12: Self = Self(12);
+    /// General-purpose register R13.
     pub const R13: Self = Self(13);
+    /// General-purpose register R14.
     pub const R14: Self = Self(14);
+    /// General-purpose register R15.
     pub const R15: Self = Self(15);
+    /// Stack-pointer alias for R15.
     pub const SP: Self = Self::R15;
 
+    /// Constructs a register from a four-bit index.
     pub const fn new(index: u8) -> Option<Self> {
         if index < 16 { Some(Self(index)) } else { None }
     }
 
+    /// Returns the architectural register index.
     pub const fn index(self) -> u8 {
         self.0
     }
@@ -56,239 +75,681 @@ impl fmt::Display for Register {
 pub enum Instruction {
     // === Data transfer ===
     /// MOV #imm, Rn (Enii -- 8-bit sign-extended immediate)
-    MovImm { imm: i8, rn: Register },
+    MovImm {
+        /// Immediate value.
+        imm: i8,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.W @(disp,PC), Rn (9ndd)
-    MovWPcRel { disp: u8, rn: Register },
+    MovWPcRel {
+        /// Encoded displacement field.
+        disp: u8,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.L @(disp,PC), Rn (Dndd)
-    MovLPcRel { disp: u8, rn: Register },
+    MovLPcRel {
+        /// Encoded displacement field.
+        disp: u8,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV Rm, Rn (6nm3)
-    MovReg { rm: Register, rn: Register },
+    MovReg {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.B Rm, @Rn (2nm0)
-    MovBStore { rm: Register, rn: Register },
+    MovBStore {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.W Rm, @Rn (2nm1)
-    MovWStore { rm: Register, rn: Register },
+    MovWStore {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.L Rm, @Rn (2nm2)
-    MovLStore { rm: Register, rn: Register },
+    MovLStore {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.B @Rm, Rn (6nm0)
-    MovBLoad { rm: Register, rn: Register },
+    MovBLoad {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.W @Rm, Rn (6nm1)
-    MovWLoad { rm: Register, rn: Register },
+    MovWLoad {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.L @Rm, Rn (6nm2)
-    MovLLoad { rm: Register, rn: Register },
+    MovLLoad {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.B Rm, @-Rn (2nm4)
-    MovBStorePreDec { rm: Register, rn: Register },
+    MovBStorePreDec {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.W Rm, @-Rn (2nm5)
-    MovWStorePreDec { rm: Register, rn: Register },
+    MovWStorePreDec {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.L Rm, @-Rn (2nm6)
-    MovLStorePreDec { rm: Register, rn: Register },
+    MovLStorePreDec {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.B @Rm+, Rn (6nm4)
-    MovBLoadPostInc { rm: Register, rn: Register },
+    MovBLoadPostInc {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.W @Rm+, Rn (6nm5)
-    MovWLoadPostInc { rm: Register, rn: Register },
+    MovWLoadPostInc {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.L @Rm+, Rn (6nm6)
-    MovLLoadPostInc { rm: Register, rn: Register },
+    MovLLoadPostInc {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.B @(R0,Rm), Rn (0nmC)
-    MovBR0LoadIndexed { rm: Register, rn: Register },
+    MovBR0LoadIndexed {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.W @(R0,Rm), Rn (0nmD)
-    MovWR0LoadIndexed { rm: Register, rn: Register },
+    MovWR0LoadIndexed {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.L @(R0,Rm), Rn (0nmE)
-    MovLR0LoadIndexed { rm: Register, rn: Register },
+    MovLR0LoadIndexed {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.B Rm, @(R0,Rn) (0nm4)
-    MovBR0StoreIndexed { rm: Register, rn: Register },
+    MovBR0StoreIndexed {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.W Rm, @(R0,Rn) (0nm5)
-    MovWR0StoreIndexed { rm: Register, rn: Register },
+    MovWR0StoreIndexed {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.L Rm, @(R0,Rn) (0nm6)
-    MovLR0StoreIndexed { rm: Register, rn: Register },
+    MovLR0StoreIndexed {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.B R0, @(disp,Rn) (80nd)
-    MovBDispStore { disp: u8, rn: Register },
+    MovBDispStore {
+        /// Encoded displacement field.
+        disp: u8,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.W R0, @(disp,Rn) (81nd)
-    MovWDispStore { disp: u8, rn: Register },
+    MovWDispStore {
+        /// Encoded displacement field.
+        disp: u8,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MOV.L Rm, @(disp,Rn) (1nmd)
     MovLDispStore {
+        /// Encoded displacement field.
         disp: u8,
+        /// Architectural Rm register field.
         rm: Register,
+        /// Architectural Rn register field.
         rn: Register,
     },
     /// MOV.B @(disp,Rm), R0 (84md)
-    MovBDispLoad { disp: u8, rm: Register },
+    MovBDispLoad {
+        /// Encoded displacement field.
+        disp: u8,
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// MOV.W @(disp,Rm), R0 (85md)
-    MovWDispLoad { disp: u8, rm: Register },
+    MovWDispLoad {
+        /// Encoded displacement field.
+        disp: u8,
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// MOV.L @(disp,Rm), Rn (5nmd)
     MovLDispLoad {
+        /// Encoded displacement field.
         disp: u8,
+        /// Architectural Rm register field.
         rm: Register,
+        /// Architectural Rn register field.
         rn: Register,
     },
     /// MOV.B R0, @(disp,GBR) (C0dd)
-    MovBGbrStore { disp: u8 },
+    MovBGbrStore {
+        /// Encoded displacement field.
+        disp: u8,
+    },
     /// MOV.B @(disp,GBR), R0 (C4dd)
-    MovBGbrLoad { disp: u8 },
+    MovBGbrLoad {
+        /// Encoded displacement field.
+        disp: u8,
+    },
     /// MOV.W R0, @(disp,GBR) (C1dd)
-    MovWGbrStore { disp: u8 },
+    MovWGbrStore {
+        /// Encoded displacement field.
+        disp: u8,
+    },
     /// MOV.W @(disp,GBR), R0 (C5dd)
-    MovWGbrLoad { disp: u8 },
+    MovWGbrLoad {
+        /// Encoded displacement field.
+        disp: u8,
+    },
     /// MOV.L R0, @(disp,GBR) (C2dd)
-    MovLGbrStore { disp: u8 },
+    MovLGbrStore {
+        /// Encoded displacement field.
+        disp: u8,
+    },
     /// MOV.L @(disp,GBR), R0 (C6dd)
-    MovLGbrLoad { disp: u8 },
+    MovLGbrLoad {
+        /// Encoded displacement field.
+        disp: u8,
+    },
     /// MOVA @(disp,PC), R0 (C7dd)
-    Mova { disp: u8 },
+    Mova {
+        /// Encoded displacement field.
+        disp: u8,
+    },
     /// MOVT Rn (0n29)
-    MovT { rn: Register },
+    MovT {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
 
     // === Arithmetic ===
     /// ADD Rm, Rn (3nmc)
-    Add { rm: Register, rn: Register },
+    Add {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// ADD #imm, Rn (7nii)
-    AddImm { imm: i8, rn: Register },
+    AddImm {
+        /// Immediate value.
+        imm: i8,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// ADDC Rm, Rn (3nme)
-    Addc { rm: Register, rn: Register },
+    Addc {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// ADDV Rm, Rn (3nmf)
-    Addv { rm: Register, rn: Register },
+    Addv {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SUB Rm, Rn (3nm8)
-    Sub { rm: Register, rn: Register },
+    Sub {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SUBC Rm, Rn (3nma)
-    Subc { rm: Register, rn: Register },
+    Subc {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SUBV Rm, Rn (3nmb)
-    Subv { rm: Register, rn: Register },
+    Subv {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// NEG Rm, Rn (6nmb)
-    Neg { rm: Register, rn: Register },
+    Neg {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// NEGC Rm, Rn (6nma)
-    Negc { rm: Register, rn: Register },
+    Negc {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// DT Rn (4n10)
-    Dt { rn: Register },
+    Dt {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MUL.L Rm, Rn (0nm7)
-    MulL { rm: Register, rn: Register },
+    MulL {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MULS.W Rm, Rn (2nmf)
-    MulS { rm: Register, rn: Register },
+    MulS {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MULU.W Rm, Rn (2nme)
-    MulU { rm: Register, rn: Register },
+    MulU {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// DMULS.L Rm, Rn (3nmd)
-    DmulS { rm: Register, rn: Register },
+    DmulS {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// DMULU.L Rm, Rn (3nm5)
-    DmulU { rm: Register, rn: Register },
+    DmulU {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// DIV0S Rm, Rn (2nm7)
-    Div0S { rm: Register, rn: Register },
+    Div0S {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// DIV0U (0019)
     Div0U,
     /// DIV1 Rm, Rn (3nm4)
-    Div1 { rm: Register, rn: Register },
+    Div1 {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MAC.L @Rm+, @Rn+ (0nmf)
-    MacL { rm: Register, rn: Register },
+    MacL {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// MAC.W @Rm+, @Rn+ (4nmf)
-    MacW { rm: Register, rn: Register },
+    MacW {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
 
     // === Logical ===
     /// AND Rm, Rn (2nm9)
-    And { rm: Register, rn: Register },
+    And {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// AND #imm, R0 (C9ii)
-    AndImm { imm: u8 },
+    AndImm {
+        /// Immediate value.
+        imm: u8,
+    },
     /// AND.B #imm, @(R0,GBR) (CDii)
-    AndB { imm: u8 },
+    AndB {
+        /// Immediate value.
+        imm: u8,
+    },
     /// OR Rm, Rn (2nmb)
-    Or { rm: Register, rn: Register },
+    Or {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// OR #imm, R0 (CBii)
-    OrImm { imm: u8 },
+    OrImm {
+        /// Immediate value.
+        imm: u8,
+    },
     /// OR.B #imm, @(R0,GBR) (CFii)
-    OrB { imm: u8 },
+    OrB {
+        /// Immediate value.
+        imm: u8,
+    },
     /// XOR Rm, Rn (2nma)
-    Xor { rm: Register, rn: Register },
+    Xor {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// XOR #imm, R0 (CAii)
-    XorImm { imm: u8 },
+    XorImm {
+        /// Immediate value.
+        imm: u8,
+    },
     /// XOR.B #imm, @(R0,GBR) (CEii)
-    XorB { imm: u8 },
+    XorB {
+        /// Immediate value.
+        imm: u8,
+    },
     /// NOT Rm, Rn (6nm7)
-    Not { rm: Register, rn: Register },
+    Not {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// TST Rm, Rn (2nm8)
-    Tst { rm: Register, rn: Register },
+    Tst {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// TST #imm, R0 (C8ii)
-    TstImm { imm: u8 },
+    TstImm {
+        /// Immediate value.
+        imm: u8,
+    },
     /// TST.B #imm, @(R0,GBR) (CCii)
-    TstB { imm: u8 },
+    TstB {
+        /// Immediate value.
+        imm: u8,
+    },
 
     // === Shifts ===
     /// SHLL Rn (4n00)
-    Shll { rn: Register },
+    Shll {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHLR Rn (4n01)
-    Shlr { rn: Register },
+    Shlr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHAL Rn (4n20)
-    Shal { rn: Register },
+    Shal {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHAR Rn (4n21)
-    Shar { rn: Register },
+    Shar {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHLL2 Rn (4n08)
-    Shll2 { rn: Register },
+    Shll2 {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHLR2 Rn (4n09)
-    Shlr2 { rn: Register },
+    Shlr2 {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHLL8 Rn (4n18)
-    Shll8 { rn: Register },
+    Shll8 {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHLR8 Rn (4n19)
-    Shlr8 { rn: Register },
+    Shlr8 {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHLL16 Rn (4n28)
-    Shll16 { rn: Register },
+    Shll16 {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SHLR16 Rn (4n29)
-    Shlr16 { rn: Register },
+    Shlr16 {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// ROTL Rn (4n04)
-    Rotl { rn: Register },
+    Rotl {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// ROTR Rn (4n05)
-    Rotr { rn: Register },
+    Rotr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// ROTCL Rn (4n24)
-    Rotcl { rn: Register },
+    Rotcl {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// ROTCR Rn (4n25)
-    Rotcr { rn: Register },
+    Rotcr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
 
     // === Sign/zero extension ===
     /// EXTS.B Rm, Rn (6nme)
-    ExtsB { rm: Register, rn: Register },
+    ExtsB {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// EXTS.W Rm, Rn (6nmf)
-    ExtsW { rm: Register, rn: Register },
+    ExtsW {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// EXTU.B Rm, Rn (6nmc)
-    ExtuB { rm: Register, rn: Register },
+    ExtuB {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// EXTU.W Rm, Rn (6nmd)
-    ExtuW { rm: Register, rn: Register },
+    ExtuW {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SWAP.B Rm, Rn (6nm8)
-    SwapB { rm: Register, rn: Register },
+    SwapB {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// SWAP.W Rm, Rn (6nm9)
-    SwapW { rm: Register, rn: Register },
+    SwapW {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// XTRCT Rm, Rn (2nmd)
-    Xtrct { rm: Register, rn: Register },
+    Xtrct {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
 
     // === Comparisons (set T-bit) ===
     /// CMP/EQ Rm, Rn (3nm0)
-    CmpEq { rm: Register, rn: Register },
+    CmpEq {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// CMP/EQ #imm, R0 (88ii)
-    CmpEqImm { imm: i8 },
+    CmpEqImm {
+        /// Immediate value.
+        imm: i8,
+    },
     /// CMP/GE Rm, Rn (3nm3)
-    CmpGe { rm: Register, rn: Register },
+    CmpGe {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// CMP/GT Rm, Rn (3nm7)
-    CmpGt { rm: Register, rn: Register },
+    CmpGt {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// CMP/HI Rm, Rn (3nm6)
-    CmpHi { rm: Register, rn: Register },
+    CmpHi {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// CMP/HS Rm, Rn (3nm2)
-    CmpHs { rm: Register, rn: Register },
+    CmpHs {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// CMP/PL Rn (4n15)
-    CmpPl { rn: Register },
+    CmpPl {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// CMP/PZ Rn (4n11)
-    CmpPz { rn: Register },
+    CmpPz {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// CMP/STR Rm, Rn (2nmc)
-    CmpStr { rm: Register, rn: Register },
+    CmpStr {
+        /// Architectural Rm register field.
+        rm: Register,
+        /// Architectural Rn register field.
+        rn: Register,
+    },
 
     // === Branches ===
     /// BT disp (89dd) -- no delay slot
-    Bt { disp: i8 },
+    Bt {
+        /// Encoded displacement field.
+        disp: i8,
+    },
     /// BF disp (8Bdd) -- no delay slot
-    Bf { disp: i8 },
+    Bf {
+        /// Encoded displacement field.
+        disp: i8,
+    },
     /// BT/S disp (8Ddd) -- delay slot
-    Bts { disp: i8 },
+    Bts {
+        /// Encoded displacement field.
+        disp: i8,
+    },
     /// BF/S disp (8Fdd) -- delay slot
-    Bfs { disp: i8 },
+    Bfs {
+        /// Encoded displacement field.
+        disp: i8,
+    },
     /// BRA disp (Addd) -- 12-bit signed
-    Bra { disp: i16 },
+    Bra {
+        /// Encoded displacement field.
+        disp: i16,
+    },
     /// BSR disp (Bddd) -- 12-bit signed
-    Bsr { disp: i16 },
+    Bsr {
+        /// Encoded displacement field.
+        disp: i16,
+    },
     /// JMP @Rm (4n2b)
-    Jmp { rm: Register },
+    Jmp {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// JSR @Rm (4n0b)
-    Jsr { rm: Register },
+    Jsr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// RTS (000B)
     Rts,
     /// RTE (002B)
@@ -296,53 +757,125 @@ pub enum Instruction {
 
     // === System register transfer ===
     /// LDC Rm, GBR (4n1e)
-    LdcGbr { rm: Register },
+    LdcGbr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDC Rm, VBR (4n2e)
-    LdcVbr { rm: Register },
+    LdcVbr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDC Rm, SR (4n0e)
-    LdcSr { rm: Register },
+    LdcSr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDC.L @Rm+, GBR (4n17)
-    LdcLGbr { rm: Register },
+    LdcLGbr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDC.L @Rm+, VBR (4n27)
-    LdcLVbr { rm: Register },
+    LdcLVbr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDC.L @Rm+, SR (4n07)
-    LdcLSr { rm: Register },
+    LdcLSr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// STC GBR, Rn (0n12)
-    StcGbr { rn: Register },
+    StcGbr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STC VBR, Rn (0n22)
-    StcVbr { rn: Register },
+    StcVbr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STC SR, Rn (0n02)
-    StcSr { rn: Register },
+    StcSr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STC.L GBR, @-Rn (4n13)
-    StcLGbr { rn: Register },
+    StcLGbr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STC.L VBR, @-Rn (4n23)
-    StcLVbr { rn: Register },
+    StcLVbr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STC.L SR, @-Rn (4n03)
-    StcLSr { rn: Register },
+    StcLSr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// LDS Rm, MACH (4n0a)
-    LdsMach { rm: Register },
+    LdsMach {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDS Rm, MACL (4n1a)
-    LdsMacl { rm: Register },
+    LdsMacl {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDS Rm, PR (4n2a)
-    LdsPr { rm: Register },
+    LdsPr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDS.L @Rm+, MACH (4n06)
-    LdsLMach { rm: Register },
+    LdsLMach {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDS.L @Rm+, MACL (4n16)
-    LdsLMacl { rm: Register },
+    LdsLMacl {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// LDS.L @Rm+, PR (4n26)
-    LdsLPr { rm: Register },
+    LdsLPr {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// STS MACH, Rn (0n0a)
-    StsMach { rn: Register },
+    StsMach {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STS MACL, Rn (0n1a)
-    StsMacl { rn: Register },
+    StsMacl {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STS PR, Rn (0n2a)
-    StsPr { rn: Register },
+    StsPr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STS.L MACH, @-Rn (4n02)
-    StsLMach { rn: Register },
+    StsLMach {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STS.L MACL, @-Rn (4n12)
-    StsLMacl { rn: Register },
+    StsLMacl {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
     /// STS.L PR, @-Rn (4n22)
-    StsLPr { rn: Register },
+    StsLPr {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
 
     // === Special ===
     /// NOP (0009)
@@ -356,163 +889,318 @@ pub enum Instruction {
     /// CLRMAC (0028)
     ClrMac,
     /// TRAPA #imm (C3ii)
-    Trapa { imm: u8 },
+    Trapa {
+        /// Immediate value.
+        imm: u8,
+    },
     /// BSRF Rm (0n03) -- Branch to Subroutine Far: PC + 4 + Rm → PC, PC + 4 → PR
-    Bsrf { rm: Register },
+    Bsrf {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// BRAF Rm (0n23) -- Branch Far: PC + 4 + Rm → PC
-    Braf { rm: Register },
+    Braf {
+        /// Architectural Rm register field.
+        rm: Register,
+    },
     /// TAS.B @Rn (4n1B) -- Test And Set byte at @Rn
-    Tas { rn: Register },
+    Tas {
+        /// Architectural Rn register field.
+        rn: Register,
+    },
 }
 
 /// Operand-free semantic forms in the complete SH-2 profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InstructionForm {
+    /// The `MovImm` instruction form.
     MovImm,
+    /// The `MovWPcRel` instruction form.
     MovWPcRel,
+    /// The `MovLPcRel` instruction form.
     MovLPcRel,
+    /// The `MovReg` instruction form.
     MovReg,
+    /// The `MovBStore` instruction form.
     MovBStore,
+    /// The `MovWStore` instruction form.
     MovWStore,
+    /// The `MovLStore` instruction form.
     MovLStore,
+    /// The `MovBLoad` instruction form.
     MovBLoad,
+    /// The `MovWLoad` instruction form.
     MovWLoad,
+    /// The `MovLLoad` instruction form.
     MovLLoad,
+    /// The `MovBStorePreDec` instruction form.
     MovBStorePreDec,
+    /// The `MovWStorePreDec` instruction form.
     MovWStorePreDec,
+    /// The `MovLStorePreDec` instruction form.
     MovLStorePreDec,
+    /// The `MovBLoadPostInc` instruction form.
     MovBLoadPostInc,
+    /// The `MovWLoadPostInc` instruction form.
     MovWLoadPostInc,
+    /// The `MovLLoadPostInc` instruction form.
     MovLLoadPostInc,
+    /// The `MovBR0LoadIndexed` instruction form.
     MovBR0LoadIndexed,
+    /// The `MovWR0LoadIndexed` instruction form.
     MovWR0LoadIndexed,
+    /// The `MovLR0LoadIndexed` instruction form.
     MovLR0LoadIndexed,
+    /// The `MovBR0StoreIndexed` instruction form.
     MovBR0StoreIndexed,
+    /// The `MovWR0StoreIndexed` instruction form.
     MovWR0StoreIndexed,
+    /// The `MovLR0StoreIndexed` instruction form.
     MovLR0StoreIndexed,
+    /// The `MovBDispStore` instruction form.
     MovBDispStore,
+    /// The `MovWDispStore` instruction form.
     MovWDispStore,
+    /// The `MovLDispStore` instruction form.
     MovLDispStore,
+    /// The `MovBDispLoad` instruction form.
     MovBDispLoad,
+    /// The `MovWDispLoad` instruction form.
     MovWDispLoad,
+    /// The `MovLDispLoad` instruction form.
     MovLDispLoad,
+    /// The `MovBGbrStore` instruction form.
     MovBGbrStore,
+    /// The `MovBGbrLoad` instruction form.
     MovBGbrLoad,
+    /// The `MovWGbrStore` instruction form.
     MovWGbrStore,
+    /// The `MovWGbrLoad` instruction form.
     MovWGbrLoad,
+    /// The `MovLGbrStore` instruction form.
     MovLGbrStore,
+    /// The `MovLGbrLoad` instruction form.
     MovLGbrLoad,
+    /// The `Mova` instruction form.
     Mova,
+    /// The `MovT` instruction form.
     MovT,
+    /// The `Add` instruction form.
     Add,
+    /// The `AddImm` instruction form.
     AddImm,
+    /// The `Addc` instruction form.
     Addc,
+    /// The `Addv` instruction form.
     Addv,
+    /// The `Sub` instruction form.
     Sub,
+    /// The `Subc` instruction form.
     Subc,
+    /// The `Subv` instruction form.
     Subv,
+    /// The `Neg` instruction form.
     Neg,
+    /// The `Negc` instruction form.
     Negc,
+    /// The `Dt` instruction form.
     Dt,
+    /// The `MulL` instruction form.
     MulL,
+    /// The `MulS` instruction form.
     MulS,
+    /// The `MulU` instruction form.
     MulU,
+    /// The `DmulS` instruction form.
     DmulS,
+    /// The `DmulU` instruction form.
     DmulU,
+    /// The `Div0S` instruction form.
     Div0S,
+    /// The `Div0U` instruction form.
     Div0U,
+    /// The `Div1` instruction form.
     Div1,
+    /// The `MacL` instruction form.
     MacL,
+    /// The `MacW` instruction form.
     MacW,
+    /// The `And` instruction form.
     And,
+    /// The `AndImm` instruction form.
     AndImm,
+    /// The `AndB` instruction form.
     AndB,
+    /// The `Or` instruction form.
     Or,
+    /// The `OrImm` instruction form.
     OrImm,
+    /// The `OrB` instruction form.
     OrB,
+    /// The `Xor` instruction form.
     Xor,
+    /// The `XorImm` instruction form.
     XorImm,
+    /// The `XorB` instruction form.
     XorB,
+    /// The `Not` instruction form.
     Not,
+    /// The `Tst` instruction form.
     Tst,
+    /// The `TstImm` instruction form.
     TstImm,
+    /// The `TstB` instruction form.
     TstB,
+    /// The `Shll` instruction form.
     Shll,
+    /// The `Shlr` instruction form.
     Shlr,
+    /// The `Shal` instruction form.
     Shal,
+    /// The `Shar` instruction form.
     Shar,
+    /// The `Shll2` instruction form.
     Shll2,
+    /// The `Shlr2` instruction form.
     Shlr2,
+    /// The `Shll8` instruction form.
     Shll8,
+    /// The `Shlr8` instruction form.
     Shlr8,
+    /// The `Shll16` instruction form.
     Shll16,
+    /// The `Shlr16` instruction form.
     Shlr16,
+    /// The `Rotl` instruction form.
     Rotl,
+    /// The `Rotr` instruction form.
     Rotr,
+    /// The `Rotcl` instruction form.
     Rotcl,
+    /// The `Rotcr` instruction form.
     Rotcr,
+    /// The `ExtsB` instruction form.
     ExtsB,
+    /// The `ExtsW` instruction form.
     ExtsW,
+    /// The `ExtuB` instruction form.
     ExtuB,
+    /// The `ExtuW` instruction form.
     ExtuW,
+    /// The `SwapB` instruction form.
     SwapB,
+    /// The `SwapW` instruction form.
     SwapW,
+    /// The `Xtrct` instruction form.
     Xtrct,
+    /// The `CmpEq` instruction form.
     CmpEq,
+    /// The `CmpEqImm` instruction form.
     CmpEqImm,
+    /// The `CmpGe` instruction form.
     CmpGe,
+    /// The `CmpGt` instruction form.
     CmpGt,
+    /// The `CmpHi` instruction form.
     CmpHi,
+    /// The `CmpHs` instruction form.
     CmpHs,
+    /// The `CmpPl` instruction form.
     CmpPl,
+    /// The `CmpPz` instruction form.
     CmpPz,
+    /// The `CmpStr` instruction form.
     CmpStr,
+    /// The `Bt` instruction form.
     Bt,
+    /// The `Bf` instruction form.
     Bf,
+    /// The `Bts` instruction form.
     Bts,
+    /// The `Bfs` instruction form.
     Bfs,
+    /// The `Bra` instruction form.
     Bra,
+    /// The `Bsr` instruction form.
     Bsr,
+    /// The `Jmp` instruction form.
     Jmp,
+    /// The `Jsr` instruction form.
     Jsr,
+    /// The `Rts` instruction form.
     Rts,
+    /// The `Rte` instruction form.
     Rte,
+    /// The `LdcGbr` instruction form.
     LdcGbr,
+    /// The `LdcVbr` instruction form.
     LdcVbr,
+    /// The `LdcSr` instruction form.
     LdcSr,
+    /// The `LdcLGbr` instruction form.
     LdcLGbr,
+    /// The `LdcLVbr` instruction form.
     LdcLVbr,
+    /// The `LdcLSr` instruction form.
     LdcLSr,
+    /// The `StcGbr` instruction form.
     StcGbr,
+    /// The `StcVbr` instruction form.
     StcVbr,
+    /// The `StcSr` instruction form.
     StcSr,
+    /// The `StcLGbr` instruction form.
     StcLGbr,
+    /// The `StcLVbr` instruction form.
     StcLVbr,
+    /// The `StcLSr` instruction form.
     StcLSr,
+    /// The `LdsMach` instruction form.
     LdsMach,
+    /// The `LdsMacl` instruction form.
     LdsMacl,
+    /// The `LdsPr` instruction form.
     LdsPr,
+    /// The `LdsLMach` instruction form.
     LdsLMach,
+    /// The `LdsLMacl` instruction form.
     LdsLMacl,
+    /// The `LdsLPr` instruction form.
     LdsLPr,
+    /// The `StsMach` instruction form.
     StsMach,
+    /// The `StsMacl` instruction form.
     StsMacl,
+    /// The `StsPr` instruction form.
     StsPr,
+    /// The `StsLMach` instruction form.
     StsLMach,
+    /// The `StsLMacl` instruction form.
     StsLMacl,
+    /// The `StsLPr` instruction form.
     StsLPr,
+    /// The `Nop` instruction form.
     Nop,
+    /// The `Sleep` instruction form.
     Sleep,
+    /// The `SetT` instruction form.
     SetT,
+    /// The `ClrT` instruction form.
     ClrT,
+    /// The `ClrMac` instruction form.
     ClrMac,
+    /// The `Trapa` instruction form.
     Trapa,
+    /// The `Bsrf` instruction form.
     Bsrf,
+    /// The `Braf` instruction form.
     Braf,
+    /// The `Tas` instruction form.
     Tas,
 }
 
 impl InstructionForm {
+    /// Complete semantic-form denominator in deterministic catalog order.
     pub const ALL: &'static [Self] = &[
         Self::MovImm,
         Self::MovWPcRel,
@@ -665,7 +1353,7 @@ impl InstructionForm {
 }
 
 impl Instruction {
-    /// Return the operand-free semantic form of this instruction.
+    /// Returns the operand-free semantic form of this instruction.
     pub fn form(&self) -> InstructionForm {
         match self {
             Self::MovImm { .. } => InstructionForm::MovImm,
@@ -934,28 +1622,47 @@ impl Instruction {
 /// Placement-aware static control-flow classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlFlow {
+    /// Sequential fall-through.
     FallThrough {
+        /// Next sequential instruction address.
         next: u32,
     },
+    /// Direct branch with optional fall-through and delay slot.
     Branch {
+        /// Resolved target address when statically known.
         target: u32,
+        /// Sequential successor when the branch is not taken.
         fallthrough: Option<u32>,
+        /// Address of the instruction executed in the delay slot.
         delay_slot: Option<u32>,
     },
+    /// Direct or register-indirect call.
     Call {
+        /// Resolved target address when statically known.
         target: Option<u32>,
+        /// Address written to the procedure register.
         return_address: u32,
+        /// Address of the instruction executed in the delay slot.
         delay_slot: u32,
     },
+    /// Direct or register-indirect jump.
     Jump {
+        /// Resolved target address when statically known.
         target: Option<u32>,
+        /// Address of the instruction executed in the delay slot.
         delay_slot: u32,
     },
+    /// Procedure return.
     Return {
+        /// Address of the instruction executed in the delay slot.
         delay_slot: u32,
     },
+    /// Exception return.
     ExceptionReturn {
+        /// Address of the instruction executed in the delay slot.
         delay_slot: u32,
     },
+    /// Synchronous software interrupt.
+    /// Synchronous software interrupt.
     Interrupt,
 }

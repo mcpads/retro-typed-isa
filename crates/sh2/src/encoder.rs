@@ -6,13 +6,20 @@ use crate::instruction::{Instruction, InstructionForm, Register};
 /// An SH-2 instruction cannot be represented by the declared 16-bit profile.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
+    /// A memory displacement does not fit the selected four-bit field.
     #[error("SH-2 {form:?} displacement {displacement} exceeds its four-bit field")]
     FourBitDisplacementOutOfRange {
+        /// Instruction form whose displacement was rejected.
         form: InstructionForm,
+        /// Rejected displacement value.
         displacement: u8,
     },
+    /// A branch displacement does not fit its signed 12-bit field.
     #[error("SH-2 branch displacement {displacement} exceeds its signed 12-bit field")]
-    TwelveBitDisplacementOutOfRange { displacement: i16 },
+    TwelveBitDisplacementOutOfRange {
+        /// Rejected displacement in instruction words.
+        displacement: i16,
+    },
 }
 
 fn reg(reg: Register) -> u16 {
@@ -213,18 +220,25 @@ pub fn encode_bytes(instruction: &Instruction) -> Result<[u8; 2], EncodeError> {
     Ok(encode_word(instruction)?.to_be_bytes())
 }
 
+/// Failure of placed-program decode and exact byte round-trip verification.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum VerifyError {
+    /// Decoding the placed bytes failed.
     #[error(transparent)]
     Decode(#[from] DecodeError),
+    /// Re-encoding a decoded instruction failed.
     #[error(transparent)]
     Encode(#[from] EncodeError),
+    /// Re-encoding produced different bytes.
     #[error(
         "SH-2 byte round-trip mismatch at instruction {index}: expected {expected:02X?}, got {actual:02X?}"
     )]
     ByteMismatch {
+        /// Zero-based instruction index.
         index: usize,
+        /// Original big-endian instruction bytes.
         expected: [u8; 2],
+        /// Bytes produced by semantic re-encoding.
         actual: [u8; 2],
     },
 }
