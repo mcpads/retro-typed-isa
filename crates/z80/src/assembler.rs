@@ -5,56 +5,68 @@ use thiserror::Error;
 use crate::encoder::{EncodeError, VerifyError, encode_bytes, verify_placed_program};
 use crate::instruction::{Condition, Instruction};
 
+/// Two-pass builder for typed Z80 code and checked label references.
 #[derive(Debug, Clone, Default)]
 pub struct Assembler {
     nodes: Vec<Node>,
 }
 
 impl Assembler {
+    /// Construct an empty assembly program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Define a label at the current byte position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Append one fully typed instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Append a sequence of fully typed instructions in iteration order.
     pub fn emit_all(&mut self, instructions: impl IntoIterator<Item = Instruction>) -> &mut Self {
         self.nodes
             .extend(instructions.into_iter().map(Node::Instruction));
         self
     }
 
+    /// Append an unconditional relative jump to a named label.
     pub fn jr(&mut self, label: impl Into<String>) -> &mut Self {
         self.relative(RelativeBranch::Jr, label)
     }
 
+    /// Append a conditional relative jump to a named label.
     pub fn jr_cond(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.relative(RelativeBranch::JrCond(condition), label)
     }
 
+    /// Append a decrement-B-and-relative-jump instruction to a named label.
     pub fn djnz(&mut self, label: impl Into<String>) -> &mut Self {
         self.relative(RelativeBranch::Djnz, label)
     }
 
+    /// Append an unconditional absolute jump to a named label.
     pub fn jp(&mut self, label: impl Into<String>) -> &mut Self {
         self.absolute(AbsoluteBranch::Jp, label)
     }
 
+    /// Append a conditional absolute jump to a named label.
     pub fn jp_cond(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.absolute(AbsoluteBranch::JpCond(condition), label)
     }
 
+    /// Append an unconditional call to a named label.
     pub fn call(&mut self, label: impl Into<String>) -> &mut Self {
         self.absolute(AbsoluteBranch::Call, label)
     }
 
+    /// Append a conditional call to a named label.
     pub fn call_cond(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.absolute(AbsoluteBranch::CallCond(condition), label)
     }
@@ -75,6 +87,9 @@ impl Assembler {
         self
     }
 
+    /// Resolve labels, lower typed instructions, and verify the complete program.
+    ///
+    /// The output must fit between `origin` and the end of the 16-bit address space.
     pub fn assemble(&self, origin: u16) -> Result<AssembledProgram, AssemblerError> {
         let (labels, length) = self.collect_labels(origin)?;
         let mut instructions = Vec::new();
@@ -228,6 +243,7 @@ impl AbsoluteBranch {
     }
 }
 
+/// Checked assembled bytes and their sequential typed instruction identities.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     origin: u16,
@@ -236,37 +252,65 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Return the address assigned to the first output byte.
     pub fn origin(&self) -> u16 {
         self.origin
     }
 
+    /// Borrow the complete assembled byte sequence.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consume the program and return its complete byte sequence.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Borrow the sequential typed instructions used to produce the bytes.
     pub fn instructions(&self) -> &[Instruction] {
         &self.instructions
     }
 }
 
+/// A fail-closed reason that Z80 assembly did not produce a program.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AssemblerError {
+    /// A label name was defined more than once.
     #[error("duplicate label `{label}`")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Repeated label name.
+        label: String,
+    },
+    /// A label reference names no definition in the program.
     #[error("undefined label `{label}`")]
-    UndefinedLabel { label: String },
+    UndefinedLabel {
+        /// Missing label name.
+        label: String,
+    },
+    /// Origin plus output length exceeds the 16-bit address space.
     #[error("Z80 program from 0x{origin:04X} with {length} bytes exceeds its address space")]
-    AddressOverflow { origin: u16, length: usize },
+    AddressOverflow {
+        /// Address assigned to the first output byte.
+        origin: u16,
+        /// Complete or intermediate output length that does not fit.
+        length: usize,
+    },
+    /// A relative target lies outside the signed 8-bit displacement range.
     #[error("relative branch at 0x{address:04X} cannot reach 0x{target:04X}")]
-    RelativeBranchOutOfRange { address: u16, target: u16 },
+    RelativeBranchOutOfRange {
+        /// Address of the relative branch instruction.
+        address: u16,
+        /// Resolved target address.
+        target: u16,
+    },
+    /// Typed instruction lowering failed.
     #[error(transparent)]
     Encode(EncodeError),
+    /// Sequential decode/re-encode verification failed.
     #[error(transparent)]
     Verify(VerifyError),
+    /// Verified bytes decoded to different semantic instruction identities.
     #[error("Z80 semantic round-trip mismatch")]
     SemanticRoundTripMismatch,
 }

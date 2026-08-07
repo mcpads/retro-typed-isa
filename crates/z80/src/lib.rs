@@ -3,6 +3,9 @@
 //! Undocumented silicon behavior, redundant prefixes, execution state, cycle
 //! timing, and simulation are deliberately outside this profile.
 
+#![deny(missing_docs)]
+
+/// Stable identifier for the exact CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
 mod assembler;

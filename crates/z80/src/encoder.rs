@@ -5,19 +5,35 @@ use crate::{DecodeError, decode_bytes};
 // Error type
 // ---------------------------------------------------------------------------
 
+/// A fail-closed reason that a typed Z80 instruction cannot be lowered.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EncodeError {
+    /// An instruction requires a real byte register but received `(HL)`.
     #[error("{instruction} cannot use byte operand {operand:?}")]
     InvalidByteOperand {
+        /// Stable instruction-family name used in the diagnostic.
         instruction: &'static str,
+        /// Rejected byte operand.
         operand: ByteOperand,
     },
+    /// A BIT, RES, or SET bit number exceeds its three-bit field.
     #[error("bit index {bit} exceeds the Z80 three-bit field")]
-    BitIndexOutOfRange { bit: u8 },
+    BitIndexOutOfRange {
+        /// Rejected bit number.
+        bit: u8,
+    },
+    /// `JR` was given a condition absent from its four-condition encoding subset.
     #[error("condition {condition:?} is unavailable for JR")]
-    InvalidRelativeCondition { condition: Condition },
+    InvalidRelativeCondition {
+        /// Rejected condition selector.
+        condition: Condition,
+    },
+    /// `RST` was given a target other than an eight-byte vector boundary below `0x40`.
     #[error("RST target 0x{target:02X} is not one of 00/08/10/18/20/28/30/38")]
-    InvalidRestartTarget { target: u8 },
+    InvalidRestartTarget {
+        /// Rejected restart target.
+        target: u8,
+    },
 }
 
 fn bit_field(bit: u8) -> Result<u8, EncodeError> {
@@ -397,20 +413,35 @@ pub fn encode_bytes(instruction: &Instruction) -> Result<Vec<u8>, EncodeError> {
     }
 }
 
+/// A fail-closed reason that a placed code sequence did not verify byte-exactly.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum VerifyError {
+    /// Origin plus byte length exceeds the 16-bit address space.
     #[error("Z80 program from 0x{origin:04X} with {length} bytes exceeds its address space")]
-    AddressOverflow { origin: u16, length: usize },
+    AddressOverflow {
+        /// Address assigned to the first program byte.
+        origin: u16,
+        /// Complete byte length that does not fit.
+        length: usize,
+    },
+    /// Sequential decoding failed at one byte offset.
     #[error("Z80 decode failed at byte offset {offset}: {source}")]
     Decode {
+        /// Byte offset at which decoding failed.
         offset: usize,
         #[source]
+        /// Underlying documented-profile decode failure.
         source: DecodeError,
     },
+    /// Canonical typed re-encoding failed.
     #[error(transparent)]
     Encode(#[from] EncodeError),
+    /// Decoding and re-encoding changed the source bytes.
     #[error("Z80 byte round-trip mismatch at byte offset {offset}")]
-    ByteMismatch { offset: usize },
+    ByteMismatch {
+        /// Byte offset of the inconsistent instruction.
+        offset: usize,
+    },
 }
 
 /// Decode and re-encode a complete documented Z80 code byte sequence.

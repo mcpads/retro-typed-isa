@@ -3,10 +3,15 @@ use crate::instruction::*;
 /// Error returned when byte input is not one documented Z80 instruction.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DecodeError {
+    /// The source ends at the reported offset before the instruction is complete.
     #[error("unexpected end of input at offset {0}")]
     UnexpectedEnd(usize),
+    /// Bytes select undocumented silicon behavior or an unsupported redundant form.
     #[error("unsupported or undocumented Z80 encoding: {bytes:02X?}")]
-    UnsupportedEncoding { bytes: Vec<u8> },
+    UnsupportedEncoding {
+        /// Leading source bytes sufficient to identify the rejected encoding.
+        bytes: Vec<u8>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -53,14 +58,17 @@ pub struct DecodedInstruction {
 }
 
 impl DecodedInstruction {
+    /// Borrow the typed instruction identity.
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
     }
 
+    /// Consume the result and return its typed instruction identity.
     pub fn into_instruction(self) -> Instruction {
         self.instruction
     }
 
+    /// Return the exact number of source bytes consumed.
     pub fn length(&self) -> usize {
         self.length
     }

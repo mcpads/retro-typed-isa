@@ -1,14 +1,21 @@
 /// Z80 byte-sized register or the `(HL)` operand in an encoded byte-operand field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ByteOperand {
+    /// B register.
     B,
+    /// C register.
     C,
+    /// D register.
     D,
+    /// E register.
     E,
+    /// H register.
     H,
+    /// L register.
     L,
     /// Indirect through Hl — `(Hl)`
     IndirectHl,
+    /// Accumulator register.
     A,
 }
 
@@ -46,9 +53,13 @@ impl ByteOperand {
 /// Z80 16-bit register pair (rp table, indices 0-3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Register16 {
+    /// BC register pair.
     Bc,
+    /// DE register pair.
     De,
+    /// HL register pair.
     Hl,
+    /// Stack pointer.
     Sp,
 }
 
@@ -79,9 +90,13 @@ impl Register16 {
 /// Af replaces Sp compared to [`Register16`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StackRegister {
+    /// BC register pair.
     Bc,
+    /// DE register pair.
     De,
+    /// HL register pair.
     Hl,
+    /// Accumulator and flags register pair.
     Af,
 }
 
@@ -111,7 +126,9 @@ impl StackRegister {
 /// Ix or Iy index register (used by DD/FD-prefixed instructions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IndexRegister {
+    /// IX index register selected by prefix `DD`.
     Ix,
+    /// IY index register selected by prefix `FD`.
     Iy,
 }
 
@@ -128,13 +145,21 @@ impl IndexRegister {
 /// Z80 condition code (cc table, indices 0-7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Condition {
+    /// Zero flag is clear.
     Nz,
+    /// Zero flag is set.
     Z,
+    /// Carry flag is clear.
     Nc,
+    /// Carry flag is set.
     C,
+    /// Parity is odd or overflow is clear.
     Po,
+    /// Parity is even or overflow is set.
     Pe,
+    /// Sign flag is clear.
     P,
+    /// Sign flag is set.
     M,
 }
 
@@ -172,17 +197,26 @@ impl Condition {
 /// Z80 ALU operation (alu table, indices 0-7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AluOperation {
+    /// Add without carry input.
     Add,
+    /// Add with carry input.
     Adc,
+    /// Subtract without carry input.
     Sub,
+    /// Subtract with carry input.
     Sbc,
+    /// Bitwise AND.
     And,
+    /// Bitwise exclusive OR.
     Xor,
+    /// Bitwise OR.
     Or,
+    /// Compare by subtraction without retaining the result.
     Cp,
 }
 
 impl AluOperation {
+    /// All documented ALU operation selectors.
     pub const ALL: [Self; 8] = [
         Self::Add,
         Self::Adc,
@@ -227,16 +261,24 @@ impl AluOperation {
 /// Documented Z80 rotation/shift operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RotateShiftOperation {
+    /// Rotate left circular.
     Rlc,
+    /// Rotate right circular.
     Rrc,
+    /// Rotate left through carry.
     Rl,
+    /// Rotate right through carry.
     Rr,
+    /// Arithmetic shift left.
     Sla,
+    /// Arithmetic shift right, retaining the sign bit.
     Sra,
+    /// Logical shift right, inserting zero at bit 7.
     Srl,
 }
 
 impl RotateShiftOperation {
+    /// All documented rotate and shift selectors; undocumented SLL is excluded.
     pub const ALL: [Self; 7] = [
         Self::Rlc,
         Self::Rrc,
@@ -279,12 +321,16 @@ impl RotateShiftOperation {
 /// Z80 interrupt mode (IM instruction).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InterruptMode {
+    /// Mode 0: interrupting device supplies an instruction.
     Im0,
+    /// Mode 1: fixed restart at address `0x0038`.
     Im1,
+    /// Mode 2: vector table indexed through the I register.
     Im2,
 }
 
 impl InterruptMode {
+    /// All three documented interrupt modes.
     pub const ALL: [Self; 3] = [Self::Im0, Self::Im1, Self::Im2];
 }
 
@@ -294,9 +340,13 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // Misc / control
     // -----------------------------------------------------------------------
+    /// Perform no operation.
     Nop,
+    /// Halt instruction fetch until an accepted interrupt or reset.
     Halt,
+    /// Disable maskable interrupts.
     Di,
+    /// Enable maskable interrupts after the architectural delay.
     Ei,
 
     // -----------------------------------------------------------------------
@@ -394,22 +444,35 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // Accumulator rotates (unprefixed)
     // -----------------------------------------------------------------------
+    /// Rotate the accumulator left circular without a CB prefix.
     Rlca,
+    /// Rotate the accumulator right circular without a CB prefix.
     Rrca,
+    /// Rotate the accumulator left through carry without a CB prefix.
     Rla,
+    /// Rotate the accumulator right through carry without a CB prefix.
     Rra,
 
     // -----------------------------------------------------------------------
     // Misc accumulator / flag ops
     // -----------------------------------------------------------------------
+    /// Exchange AF with the alternate AF' register pair.
     ExAFAF,
+    /// Exchange BC, DE, and HL with their alternate register set.
     Exx,
+    /// Exchange DE and HL.
     ExDEHL,
+    /// Exchange HL with the word at the stack pointer.
     ExSPHL,
+    /// Decimal-adjust the accumulator after binary-coded-decimal arithmetic.
     Daa,
+    /// Complement every accumulator bit.
     Cpl,
+    /// Negate the accumulator using two's-complement subtraction from zero.
     Neg,
+    /// Set the carry flag.
     Scf,
+    /// Complement the carry flag.
     Ccf,
 
     // -----------------------------------------------------------------------
@@ -427,25 +490,41 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // Block I/O (ED-prefixed)
     // -----------------------------------------------------------------------
+    /// Input a byte through port C, store at HL, increment HL, and decrement B.
     Ini,
+    /// Input a byte through port C, store at HL, decrement HL, and decrement B.
     Ind,
+    /// Repeat [`Instruction::Ini`] until B becomes zero.
     Inir,
+    /// Repeat [`Instruction::Ind`] until B becomes zero.
     Indr,
+    /// Output the byte at HL through port C, increment HL, and decrement B.
     Outi,
+    /// Output the byte at HL through port C, decrement HL, and decrement B.
     Outd,
+    /// Repeat [`Instruction::Outi`] until B becomes zero.
     Otir,
+    /// Repeat [`Instruction::Outd`] until B becomes zero.
     Otdr,
 
     // -----------------------------------------------------------------------
     // Block transfer / search (ED-prefixed)
     // -----------------------------------------------------------------------
+    /// Copy the byte at HL to DE, increment pointers, and decrement BC.
     Ldi,
+    /// Copy the byte at HL to DE, decrement pointers, and decrement BC.
     Ldd,
+    /// Repeat [`Instruction::Ldi`] until BC becomes zero.
     Ldir,
+    /// Repeat [`Instruction::Ldd`] until BC becomes zero.
     Lddr,
+    /// Compare the accumulator with the byte at HL, increment HL, and decrement BC.
     Cpi,
+    /// Compare the accumulator with the byte at HL, decrement HL, and decrement BC.
     Cpd,
+    /// Repeat [`Instruction::Cpi`] until equal or BC becomes zero.
     Cpir,
+    /// Repeat [`Instruction::Cpd`] until equal or BC becomes zero.
     Cpdr,
 
     // -----------------------------------------------------------------------
@@ -487,12 +566,15 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // ED-prefix: rotate digit
     // -----------------------------------------------------------------------
+    /// Rotate nibbles right between the accumulator low half and the byte at HL.
     Rrd,
+    /// Rotate nibbles left between the accumulator low half and the byte at HL.
     Rld,
 
     // -----------------------------------------------------------------------
     // ED-prefix: interrupt mode
     // -----------------------------------------------------------------------
+    /// Select one of the three documented maskable-interrupt modes.
     Im(InterruptMode),
 
     // -----------------------------------------------------------------------
@@ -553,112 +635,219 @@ pub enum Instruction {
 /// Operand-free semantic forms in the documented Z80 profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InstructionForm {
+    /// Form of [`Instruction::Nop`].
     Nop,
+    /// Form of [`Instruction::Halt`].
     Halt,
+    /// Form of [`Instruction::Di`].
     Di,
+    /// Form of [`Instruction::Ei`].
     Ei,
+    /// Form of [`Instruction::LdRR`].
     LdRR,
+    /// Form of [`Instruction::LdRImm`].
     LdRImm,
+    /// Form of [`Instruction::LdAddrA`].
     LdAddrA,
+    /// Form of [`Instruction::LdAAddr`].
     LdAAddr,
+    /// Form of [`Instruction::LdBCA`].
     LdBCA,
+    /// Form of [`Instruction::LdDEA`].
     LdDEA,
+    /// Form of [`Instruction::LdABC`].
     LdABC,
+    /// Form of [`Instruction::LdADE`].
     LdADE,
+    /// Form of [`Instruction::LdAddrHL`].
     LdAddrHL,
+    /// Form of [`Instruction::LdHLAddr`].
     LdHLAddr,
+    /// Form of [`Instruction::LdRRImm`].
     LdRRImm,
+    /// Form of [`Instruction::LdSPHL`].
     LdSPHL,
+    /// Form of [`Instruction::Push`].
     Push,
+    /// Form of [`Instruction::Pop`].
     Pop,
+    /// ALU register form preserving the operation selector.
     AluR(AluOperation),
+    /// ALU immediate form preserving the operation selector.
     AluImm(AluOperation),
+    /// Form of [`Instruction::IncR`].
     IncR,
+    /// Form of [`Instruction::DecR`].
     DecR,
+    /// Form of [`Instruction::IncRR`].
     IncRR,
+    /// Form of [`Instruction::DecRR`].
     DecRR,
+    /// Form of [`Instruction::AddHLRR`].
     AddHLRR,
+    /// Form of [`Instruction::Jp`].
     Jp,
+    /// Form of [`Instruction::JpCond`].
     JpCond,
+    /// Form of [`Instruction::JpHL`].
     JpHL,
+    /// Form of [`Instruction::Jr`].
     Jr,
+    /// Form of [`Instruction::JrCond`].
     JrCond,
+    /// Form of [`Instruction::Djnz`].
     Djnz,
+    /// Form of [`Instruction::Call`].
     Call,
+    /// Form of [`Instruction::CallCond`].
     CallCond,
+    /// Form of [`Instruction::Ret`].
     Ret,
+    /// Form of [`Instruction::RetCond`].
     RetCond,
+    /// Form of [`Instruction::Reti`].
     Reti,
+    /// Form of [`Instruction::Retn`].
     Retn,
+    /// Form of [`Instruction::Rst`].
     Rst,
+    /// Form of [`Instruction::Rlca`].
     Rlca,
+    /// Form of [`Instruction::Rrca`].
     Rrca,
+    /// Form of [`Instruction::Rla`].
     Rla,
+    /// Form of [`Instruction::Rra`].
     Rra,
+    /// Form of [`Instruction::ExAFAF`].
     ExAFAF,
+    /// Form of [`Instruction::Exx`].
     Exx,
+    /// Form of [`Instruction::ExDEHL`].
     ExDEHL,
+    /// Form of [`Instruction::ExSPHL`].
     ExSPHL,
+    /// Form of [`Instruction::Daa`].
     Daa,
+    /// Form of [`Instruction::Cpl`].
     Cpl,
+    /// Form of [`Instruction::Neg`].
     Neg,
+    /// Form of [`Instruction::Scf`].
     Scf,
+    /// Form of [`Instruction::Ccf`].
     Ccf,
+    /// Form of [`Instruction::InAPort`].
     InAPort,
+    /// Form of [`Instruction::OutPortA`].
     OutPortA,
+    /// Form of [`Instruction::InRC`].
     InRC,
+    /// Form of [`Instruction::OutCR`].
     OutCR,
+    /// Form of [`Instruction::Ini`].
     Ini,
+    /// Form of [`Instruction::Ind`].
     Ind,
+    /// Form of [`Instruction::Inir`].
     Inir,
+    /// Form of [`Instruction::Indr`].
     Indr,
+    /// Form of [`Instruction::Outi`].
     Outi,
+    /// Form of [`Instruction::Outd`].
     Outd,
+    /// Form of [`Instruction::Otir`].
     Otir,
+    /// Form of [`Instruction::Otdr`].
     Otdr,
+    /// Form of [`Instruction::Ldi`].
     Ldi,
+    /// Form of [`Instruction::Ldd`].
     Ldd,
+    /// Form of [`Instruction::Ldir`].
     Ldir,
+    /// Form of [`Instruction::Lddr`].
     Lddr,
+    /// Form of [`Instruction::Cpi`].
     Cpi,
+    /// Form of [`Instruction::Cpd`].
     Cpd,
+    /// Form of [`Instruction::Cpir`].
     Cpir,
+    /// Form of [`Instruction::Cpdr`].
     Cpdr,
+    /// CB-prefixed rotate/shift form preserving the operation selector.
     Rot(RotateShiftOperation),
+    /// Form of [`Instruction::Bit`].
     Bit,
+    /// Form of [`Instruction::Res`].
     Res,
+    /// Form of [`Instruction::Set`].
     Set,
+    /// Form of [`Instruction::SbcHLRR`].
     SbcHLRR,
+    /// Form of [`Instruction::AdcHLRR`].
     AdcHLRR,
+    /// Form of [`Instruction::LdAddrRR`].
     LdAddrRR,
+    /// Form of [`Instruction::LdRRAddr`].
     LdRRAddr,
+    /// Form of [`Instruction::LdIA`].
     LdIA,
+    /// Form of [`Instruction::LdRA`].
     LdRA,
+    /// Form of [`Instruction::LdAI`].
     LdAI,
+    /// Form of [`Instruction::LdAR`].
     LdAR,
+    /// Form of [`Instruction::Rrd`].
     Rrd,
+    /// Form of [`Instruction::Rld`].
     Rld,
+    /// Interrupt-mode form preserving the mode selector.
     Im(InterruptMode),
+    /// Form of [`Instruction::LdIxImm`].
     LdIxImm,
+    /// Form of [`Instruction::LdIxAddr`].
     LdIxAddr,
+    /// Form of [`Instruction::LdAddrIx`].
     LdAddrIx,
+    /// Form of [`Instruction::PushIx`].
     PushIx,
+    /// Form of [`Instruction::PopIx`].
     PopIx,
+    /// Form of [`Instruction::IncIx`].
     IncIx,
+    /// Form of [`Instruction::DecIx`].
     DecIx,
+    /// Form of [`Instruction::AddIxRR`].
     AddIxRR,
+    /// Form of [`Instruction::LdSpIx`].
     LdSpIx,
+    /// Form of [`Instruction::JpIx`].
     JpIx,
+    /// Form of [`Instruction::ExSpIx`].
     ExSpIx,
+    /// Form of [`Instruction::LdRIxDisp`].
     LdRIxDisp,
+    /// Form of [`Instruction::LdIxDispR`].
     LdIxDispR,
+    /// Form of [`Instruction::LdIxDispImm`].
     LdIxDispImm,
+    /// Form of [`Instruction::IncIxDisp`].
     IncIxDisp,
+    /// Form of [`Instruction::DecIxDisp`].
     DecIxDisp,
+    /// Indexed ALU form preserving the operation selector.
     AluIxDisp(AluOperation),
+    /// Indexed rotate/shift form preserving the operation selector.
     RotIxDisp(RotateShiftOperation),
+    /// Form of [`Instruction::BitIxDisp`].
     BitIxDisp,
+    /// Form of [`Instruction::ResIxDisp`].
     ResIxDisp,
+    /// Form of [`Instruction::SetIxDisp`].
     SetIxDisp,
 }
 
@@ -767,6 +956,7 @@ impl InstructionForm {
         Self::SetIxDisp,
     ];
 
+    /// Return every documented, duplicate-free semantic form.
     pub fn all() -> impl Iterator<Item = Self> {
         Self::BASE
             .iter()
@@ -788,6 +978,7 @@ impl InstructionForm {
 }
 
 impl Instruction {
+    /// Return the stable semantic form with register and literal values removed.
     pub fn form(&self) -> InstructionForm {
         match self {
             Self::Nop => InstructionForm::Nop,
@@ -900,6 +1091,7 @@ impl Instruction {
         }
     }
 
+    /// Classify static control transfer at the supplied instruction address.
     pub fn control_flow(&self, pc: u16) -> ControlFlow {
         match self {
             Self::Jp(target) => ControlFlow::Jump { target: *target },
@@ -939,12 +1131,35 @@ fn relative_target(pc: u16, displacement: i8) -> u16 {
         .wrapping_add_signed(i16::from(displacement))
 }
 
+/// Placement-aware static control-flow classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlFlow {
+    /// Execution continues sequentially.
     FallThrough,
-    Branch { target: u16, conditional: bool },
-    Jump { target: u16 },
+    /// Direct branch with a statically resolved target.
+    Branch {
+        /// Direct target address.
+        target: u16,
+        /// Whether fallthrough remains possible.
+        conditional: bool,
+    },
+    /// Unconditional direct jump.
+    Jump {
+        /// Direct target address.
+        target: u16,
+    },
+    /// Jump through HL, IX, or IY.
     IndirectJump,
-    Call { target: u16, conditional: bool },
-    Return { conditional: bool },
+    /// Direct subroutine call or restart.
+    Call {
+        /// Direct entry address.
+        target: u16,
+        /// Whether the call may fall through instead.
+        conditional: bool,
+    },
+    /// Return through a stack-supplied address.
+    Return {
+        /// Whether the return is conditional.
+        conditional: bool,
+    },
 }
