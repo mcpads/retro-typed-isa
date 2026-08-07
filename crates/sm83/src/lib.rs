@@ -9,6 +9,8 @@
 //! `gbz80(7)` opcode reference. The model is implemented locally rather than
 //! exposing an emulator or third-party decoder as its semantic API.
 
+#![deny(missing_docs)]
+
 use std::convert::Infallible;
 
 use typed_isa_core::{

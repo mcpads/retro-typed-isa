@@ -5,10 +5,14 @@ use crate::instruction::{
     Register16, RestartVector, RotateShiftOperation, StackRegister,
 };
 
+/// Classification of one selector in the unprefixed 256-byte opcode space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaseOpcodeClass {
+    /// Selector begins a complete unprefixed instruction.
     Instruction,
+    /// Selector introduces the CB-prefixed opcode space.
     Prefix,
+    /// Selector has no SM83 instruction encoding.
     Illegal,
 }
 
@@ -23,16 +27,32 @@ pub const fn classify_base_opcode(opcode: u8) -> BaseOpcodeClass {
     }
 }
 
+/// A fail-closed reason that source bytes are not one valid SM83 instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    /// The source ends before the complete instruction is available.
     #[error("truncated SM83 instruction: needed {needed} byte(s), got {got}")]
-    UnexpectedEnd { needed: usize, got: usize },
+    UnexpectedEnd {
+        /// Minimum byte count required to continue decoding.
+        needed: usize,
+        /// Byte count available to the decoder.
+        got: usize,
+    },
+    /// The base opcode selector is one of the eleven illegal encodings.
     #[error("illegal SM83 base opcode {opcode:#04x}")]
-    IllegalOpcode { opcode: u8 },
+    IllegalOpcode {
+        /// Rejected base opcode byte.
+        opcode: u8,
+    },
+    /// The second byte of `STOP` is not the architecturally required zero.
     #[error("SM83 STOP requires a zero padding byte, got {padding:#04x}")]
-    InvalidStopPadding { padding: u8 },
+    InvalidStopPadding {
+        /// Rejected padding byte.
+        padding: u8,
+    },
 }
 
+/// One typed instruction decoded from the beginning of a source slice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DecodedInstruction {
     instruction: Instruction,
@@ -40,14 +60,17 @@ pub struct DecodedInstruction {
 }
 
 impl DecodedInstruction {
+    /// Borrow the typed instruction identity.
     pub const fn instruction(&self) -> &Instruction {
         &self.instruction
     }
 
+    /// Consume the result and return its typed instruction identity.
     pub const fn into_instruction(self) -> Instruction {
         self.instruction
     }
 
+    /// Return the exact number of source bytes consumed.
     pub const fn length(&self) -> usize {
         self.length
     }
@@ -338,6 +361,7 @@ pub fn encode_bytes(instruction: &Instruction) -> Vec<u8> {
     bytes
 }
 
+/// One representative typed instruction and its canonical exact bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalInstruction {
     instruction: Instruction,
@@ -345,14 +369,17 @@ pub struct CanonicalInstruction {
 }
 
 impl CanonicalInstruction {
+    /// Borrow the representative typed instruction.
     pub const fn instruction(&self) -> &Instruction {
         &self.instruction
     }
 
+    /// Return the representative's semantic form.
     pub const fn form(&self) -> InstructionForm {
         self.instruction.form()
     }
 
+    /// Borrow the exact canonical bytes for the representative.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }

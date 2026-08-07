@@ -35,30 +35,36 @@ pub struct Assembler {
 }
 
 impl Assembler {
+    /// Construct an empty assembly program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Define a label at the current byte position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Append one fully typed instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Append a sequence of fully typed instructions in iteration order.
     pub fn emit_all(&mut self, instructions: impl IntoIterator<Item = Instruction>) -> &mut Self {
         self.nodes
             .extend(instructions.into_iter().map(Node::Instruction));
         self
     }
 
+    /// Append an unconditional relative jump to a named label.
     pub fn jump_relative(&mut self, label: impl Into<String>) -> &mut Self {
         self.relative_branch(None, label)
     }
 
+    /// Append a conditional relative jump to a named label.
     pub fn jump_relative_if(
         &mut self,
         condition: Condition,
@@ -79,18 +85,22 @@ impl Assembler {
         self
     }
 
+    /// Append an unconditional absolute jump to a named label.
     pub fn jump(&mut self, label: impl Into<String>) -> &mut Self {
         self.absolute_branch(AbsoluteBranch::Jump, label)
     }
 
+    /// Append a conditional absolute jump to a named label.
     pub fn jump_if(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.absolute_branch(AbsoluteBranch::JumpIf(condition), label)
     }
 
+    /// Append an unconditional call to a named label.
     pub fn call(&mut self, label: impl Into<String>) -> &mut Self {
         self.absolute_branch(AbsoluteBranch::Call, label)
     }
 
+    /// Append a conditional call to a named label.
     pub fn call_if(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.absolute_branch(AbsoluteBranch::CallIf(condition), label)
     }
@@ -109,15 +119,21 @@ impl Assembler {
         self
     }
 
+    /// Append one literal little-endian word as explicitly declared data.
     pub fn word(&mut self, value: u16) -> &mut Self {
         self.data(value.to_le_bytes().to_vec())
     }
 
+    /// Append the resolved little-endian address of a named label as data.
     pub fn label_word(&mut self, label: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::LabelWord(label.into()));
         self
     }
 
+    /// Resolve labels, lower typed code, and verify every instruction span.
+    ///
+    /// The complete output must fit between `origin` and the end of the 16-bit
+    /// address space. Explicit data remains outside the instruction-span list.
     pub fn assemble(&self, origin: u16) -> Result<AssembledProgram, AssemblerError> {
         let (labels, byte_len) = self.collect_labels(origin)?;
         let mut bytes = Vec::with_capacity(byte_len);
@@ -279,13 +295,18 @@ fn verify_instruction_spans(bytes: &[u8], spans: &[InstructionSpan]) -> Result<(
     Ok(())
 }
 
+/// Location and typed identity of one instruction in assembled output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InstructionSpan {
+    /// Byte offset relative to the beginning of the assembled program.
     pub offset: usize,
+    /// Number of bytes occupied by the instruction.
     pub len: usize,
+    /// Typed instruction that produced the bytes in this span.
     pub instruction: Instruction,
 }
 
+/// Checked assembled bytes with resolved labels and verified instruction spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     origin: u16,
@@ -295,43 +316,72 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Return the 16-bit address assigned to the first output byte.
     pub const fn origin(&self) -> u16 {
         self.origin
     }
 
+    /// Borrow the complete assembled code and explicit data bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consume the program and return its complete byte sequence.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Return the resolved 16-bit address of a defined label, if present.
     pub fn label_address(&self, name: &str) -> Option<u16> {
         self.labels.get(name).copied()
     }
 
+    /// Borrow the locations and identities of executable instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan] {
         &self.instruction_spans
     }
 }
 
+/// A fail-closed reason that SM83 assembly did not produce a program.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AssemblerError {
+    /// A label name was defined more than once.
     #[error("duplicate label `{label}`")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Repeated label name.
+        label: String,
+    },
+    /// A label reference names no definition in the program.
     #[error("undefined label `{label}`")]
-    UndefinedLabel { label: String },
+    UndefinedLabel {
+        /// Missing label name.
+        label: String,
+    },
+    /// The complete output would extend beyond the 16-bit address space.
     #[error("SM83 program from {origin:#06x} with {byte_len} byte(s) exceeds its address space")]
-    AddressOverflow { origin: u16, byte_len: usize },
+    AddressOverflow {
+        /// Address assigned to the first output byte.
+        origin: u16,
+        /// Complete or intermediate output length that does not fit.
+        byte_len: usize,
+    },
+    /// A relative jump target is outside the signed 8-bit displacement range.
     #[error("relative branch at {address:#06x} cannot reach label `{label}` at {target:#06x}")]
     RelativeBranchOutOfRange {
+        /// Label targeted by the jump.
         label: String,
+        /// Address of the relative-jump instruction.
         address: u16,
+        /// Resolved address of the target label.
         target: u16,
     },
+    /// Post-placement decoding of an instruction span failed.
     #[error(transparent)]
     Decode(#[from] DecodeError),
+    /// An emitted instruction changed identity during byte round-trip verification.
     #[error("SM83 semantic byte round-trip failed at output offset {offset:#x}")]
-    SemanticRoundTripMismatch { offset: usize },
+    SemanticRoundTripMismatch {
+        /// Byte offset of the inconsistent instruction span.
+        offset: usize,
+    },
 }
