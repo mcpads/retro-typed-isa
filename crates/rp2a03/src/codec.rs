@@ -10,9 +10,13 @@ use crate::instruction::{
 /// Typed operand values. The opcode form determines their interpretation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
+    /// An implied or accumulator form has no encoded operand bytes.
     None,
+    /// One unsigned byte used by immediate and zero-page forms.
     Byte(u8),
+    /// One little-endian word used by absolute forms.
     Word(u16),
+    /// One signed displacement relative to the post-instruction address.
     Relative(i8),
 }
 
@@ -59,34 +63,44 @@ impl Instruction {
         Ok(instruction)
     }
 
+    /// Return the exact physical opcode selector preserved by this instruction.
     pub const fn opcode(self) -> u8 {
         self.opcode
     }
 
+    /// Return the semantic mnemonic/addressing form selected by the opcode.
     pub const fn form(self) -> InstructionForm {
         OPCODE_TABLE[self.opcode as usize]
     }
 
+    /// Return the operation mnemonic selected by the opcode.
     pub const fn mnemonic(self) -> Mnemonic {
         self.form().mnemonic
     }
 
+    /// Return the operand interpretation selected by the opcode.
     pub const fn addressing_mode(self) -> AddressingMode {
         self.form().mode
     }
 
+    /// Return the typed operand value associated with the instruction.
     pub const fn operand(self) -> Operand {
         self.operand
     }
 
+    /// Return the complete encoded length, including the opcode byte.
     pub const fn encoded_len(self) -> usize {
         self.form().encoded_len()
     }
 
+    /// Return whether the exact selector belongs to the documented 151-opcode set.
     pub const fn opcode_is_documented(self) -> bool {
         opcode_is_documented(self.opcode)
     }
 
+    /// Return the sequential address immediately following this instruction.
+    ///
+    /// RP2A03 program-counter arithmetic wraps in the 16-bit address space.
     pub fn fallthrough_address(self, pc: u16) -> u16 {
         pc.wrapping_add(self.encoded_len() as u16)
     }
@@ -134,33 +148,49 @@ impl Instruction {
     }
 }
 
+/// A fail-closed reason that one instruction could not be decoded.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum DecodeError {
+    /// The source slice contains no opcode byte.
     #[error("instruction input is empty")]
     Empty,
+    /// The source ends before the operand required by the opcode is complete.
     #[error("truncated opcode {opcode:#04x}: expected {expected} byte(s), found {found}")]
     Truncated {
+        /// Opcode whose operand bytes are incomplete.
         opcode: u8,
+        /// Complete encoded length required for this opcode.
         expected: usize,
+        /// Number of source bytes actually available.
         found: usize,
     },
 }
 
+/// A fail-closed reason that a typed instruction could not be encoded.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum EncodeError {
+    /// No physical selector implements the requested mnemonic and mode pair.
     #[error("no RP2A03 encoding for {mnemonic} {mode:?}")]
     UnknownEncoding {
+        /// Requested operation mnemonic.
         mnemonic: Mnemonic,
+        /// Requested operand interpretation.
         mode: AddressingMode,
     },
+    /// The supplied operand type does not match the exact opcode form.
     #[error(
         "invalid operand for opcode {opcode:#04x} ({mnemonic} {mode:?}): expected {expected}, found {found}"
     )]
     OperandMismatch {
+        /// Exact opcode selector being constructed or lowered.
         opcode: u8,
+        /// Mnemonic selected by the opcode.
         mnemonic: Mnemonic,
+        /// Addressing mode selected by the opcode.
         mode: AddressingMode,
+        /// Human-readable operand category required by the form.
         expected: &'static str,
+        /// Human-readable category of the supplied operand.
         found: &'static str,
     },
 }

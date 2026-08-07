@@ -6,6 +6,8 @@
 //! placement. CPU execution, the APU, cycle timing, and simulation are outside
 //! this crate.
 
+#![deny(missing_docs)]
+
 /// Stable identifier for the CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 

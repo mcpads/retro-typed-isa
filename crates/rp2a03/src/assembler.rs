@@ -21,26 +21,31 @@ enum Statement {
     LabelWord(String),
 }
 
+/// Two-pass builder for typed RP2A03 instructions, labels, and explicit data.
 #[derive(Debug, Clone, Default)]
 pub struct Assembler {
     statements: Vec<Statement>,
 }
 
 impl Assembler {
+    /// Construct an empty assembly program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Define a label at the current byte position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.statements.push(Statement::Label(name.into()));
         self
     }
 
+    /// Append one fully typed instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.statements.push(Statement::Instruction(instruction));
         self
     }
 
+    /// Append a sequence of fully typed instructions in iteration order.
     pub fn emit_all(&mut self, instructions: impl IntoIterator<Item = Instruction>) -> &mut Self {
         self.statements
             .extend(instructions.into_iter().map(Statement::Instruction));
@@ -80,15 +85,21 @@ impl Assembler {
         self
     }
 
+    /// Append one literal little-endian word as explicitly declared data.
     pub fn word(&mut self, value: u16) -> &mut Self {
         self.data(value.to_le_bytes().to_vec())
     }
 
+    /// Append the resolved little-endian address of a named label as data.
     pub fn label_word(&mut self, label: impl Into<String>) -> &mut Self {
         self.statements.push(Statement::LabelWord(label.into()));
         self
     }
 
+    /// Resolve labels, lower typed code, and verify every instruction span.
+    ///
+    /// The complete output must fit between `origin` and the end of the 16-bit
+    /// address space. Explicit data remains outside the instruction-span list.
     pub fn assemble(&self, origin: u16) -> Result<AssembledProgram, AssemblerError> {
         let (labels, byte_len) = self.collect_labels(origin)?;
         ensure_address_span(origin, byte_len)?;
@@ -170,13 +181,18 @@ impl Assembler {
     }
 }
 
+/// Location and typed identity of one instruction in assembled output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InstructionSpan {
+    /// Byte offset relative to the beginning of the assembled program.
     pub offset: usize,
+    /// Number of bytes occupied by the instruction.
     pub len: usize,
+    /// Typed instruction that produced the bytes in this span.
     pub instruction: Instruction,
 }
 
+/// Checked assembled bytes with resolved labels and verified instruction spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     origin: u16,
@@ -186,47 +202,89 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Return the 16-bit address assigned to the first output byte.
     pub fn origin(&self) -> u16 {
         self.origin
     }
 
+    /// Borrow the complete assembled code and explicit data bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consume the program and return its complete byte sequence.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Return the resolved 16-bit address of a defined label, if present.
     pub fn label_address(&self, name: &str) -> Option<u16> {
         self.labels.get(name).copied()
     }
 
+    /// Borrow the locations and identities of executable instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan] {
         &self.instructions
     }
 }
 
+/// A fail-closed reason that RP2A03 assembly did not produce a program.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum AssemblerError {
+    /// A label name was defined more than once.
     #[error("duplicate label `{label}`")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Repeated label name.
+        label: String,
+    },
+    /// A label reference names no definition in the program.
     #[error("undefined label `{label}`")]
-    UndefinedLabel { label: String },
+    UndefinedLabel {
+        /// Missing label name.
+        label: String,
+    },
+    /// Applying an addend to a label leaves the 16-bit address space.
     #[error("label `{label}` plus addend {addend} is outside the 16-bit address space")]
-    LabelAddendOutOfRange { label: String, addend: i32 },
+    LabelAddendOutOfRange {
+        /// Label whose resolved address was adjusted.
+        label: String,
+        /// Signed byte-address adjustment that could not be represented.
+        addend: i32,
+    },
+    /// A label was requested for a form without a relative or 16-bit address operand.
     #[error("label references are not supported for {mode:?}")]
-    UnsupportedLabelMode { mode: AddressingMode },
+    UnsupportedLabelMode {
+        /// Addressing mode that cannot carry a label address.
+        mode: AddressingMode,
+    },
+    /// A relative branch target is outside the signed 8-bit displacement range.
     #[error("relative branch to `{label}` has out-of-range displacement {displacement}")]
-    RelativeOutOfRange { label: String, displacement: i32 },
+    RelativeOutOfRange {
+        /// Label targeted by the branch.
+        label: String,
+        /// Required displacement from the post-instruction address.
+        displacement: i32,
+    },
+    /// The complete output would extend beyond the 16-bit address space.
     #[error("assembly at {origin:#06x} with {byte_len} byte(s) exceeds the 16-bit address space")]
-    AddressOverflow { origin: u16, byte_len: usize },
+    AddressOverflow {
+        /// Address assigned to the first output byte.
+        origin: u16,
+        /// Complete or intermediate output length that does not fit.
+        byte_len: usize,
+    },
+    /// Typed instruction construction or lowering failed.
     #[error("instruction encoding failed: {0}")]
     Encode(#[from] EncodeError),
+    /// Post-placement decoding of an instruction span failed.
     #[error("post-placement decode failed: {0}")]
     Decode(#[from] DecodeError),
+    /// An emitted instruction changed identity during byte round-trip verification.
     #[error("assembled instruction differs after byte round-trip at offset {offset:#x}")]
-    VerificationFailed { offset: usize },
+    VerificationFailed {
+        /// Byte offset of the inconsistent instruction span.
+        offset: usize,
+    },
 }
 
 fn statement_len(statement: &Statement) -> Result<usize, AssemblerError> {

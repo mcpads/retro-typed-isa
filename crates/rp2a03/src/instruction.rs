@@ -9,80 +9,155 @@ use core::fmt;
 /// lossless, not as a recommendation to use unstable hardware behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mnemonic {
+    /// Add memory and carry to the accumulator.
     Adc,
+    /// Unofficial masked store of the accumulator/X intersection.
     Ahx,
+    /// Unofficial immediate AND followed by accumulator logical shift right.
     Alr,
+    /// Unofficial immediate AND that copies accumulator bit 7 to carry.
     Anc,
+    /// Bitwise AND memory with the accumulator.
     And,
+    /// Unofficial immediate AND followed by accumulator rotate right.
     Arr,
+    /// Arithmetic shift left.
     Asl,
+    /// Unofficial subtract immediate from the accumulator/X intersection into X.
     Axs,
+    /// Branch if carry is clear.
     Bcc,
+    /// Branch if carry is set.
     Bcs,
+    /// Branch if equal, when the zero flag is set.
     Beq,
+    /// Test memory bits against the accumulator and status flags.
     Bit,
+    /// Branch if the negative flag is set.
     Bmi,
+    /// Branch if not equal, when the zero flag is clear.
     Bne,
+    /// Branch if the negative flag is clear.
     Bpl,
+    /// Enter the maskable-interrupt vector through a software interrupt.
     Brk,
+    /// Branch if overflow is clear.
     Bvc,
+    /// Branch if overflow is set.
     Bvs,
+    /// Clear the carry flag.
     Clc,
+    /// Clear the decimal-mode flag; RP2A03 arithmetic itself has no decimal mode.
     Cld,
+    /// Clear the interrupt-disable flag.
     Cli,
+    /// Clear the overflow flag.
     Clv,
+    /// Compare memory with the accumulator.
     Cmp,
+    /// Compare memory with X.
     Cpx,
+    /// Compare memory with Y.
     Cpy,
+    /// Unofficial decrement memory followed by accumulator compare.
     Dcp,
+    /// Decrement memory.
     Dec,
+    /// Decrement X.
     Dex,
+    /// Decrement Y.
     Dey,
+    /// Bitwise exclusive OR memory with the accumulator.
     Eor,
+    /// Increment memory.
     Inc,
+    /// Increment X.
     Inx,
+    /// Increment Y.
     Iny,
+    /// Unofficial increment memory followed by subtract with carry.
     Isc,
+    /// Jump to an absolute or indirect address.
     Jmp,
+    /// Jump to a subroutine.
     Jsr,
+    /// Unofficial selector that jams instruction fetch until reset.
     Kil,
+    /// Unofficial load of accumulator, X, and stack pointer through the stack mask.
     Las,
+    /// Unofficial load of both the accumulator and X.
     Lax,
+    /// Load the accumulator.
     Lda,
+    /// Load X.
     Ldx,
+    /// Load Y.
     Ldy,
+    /// Logical shift right.
     Lsr,
+    /// Perform no architecturally visible operation.
     Nop,
+    /// Bitwise OR memory with the accumulator.
     Ora,
+    /// Push the accumulator onto the stack.
     Pha,
+    /// Push processor status onto the stack.
     Php,
+    /// Pull the accumulator from the stack.
     Pla,
+    /// Pull processor status from the stack.
     Plp,
+    /// Unofficial rotate memory left followed by accumulator AND.
     Rla,
+    /// Rotate left through carry.
     Rol,
+    /// Rotate right through carry.
     Ror,
+    /// Unofficial rotate memory right followed by add with carry.
     Rra,
+    /// Return from an interrupt.
     Rti,
+    /// Return from a subroutine.
     Rts,
+    /// Unofficial store of the accumulator/X intersection.
     Sax,
+    /// Subtract memory and inverted carry from the accumulator.
     Sbc,
+    /// Set the carry flag.
     Sec,
+    /// Set the decimal-mode flag; RP2A03 arithmetic itself has no decimal mode.
     Sed,
+    /// Set the interrupt-disable flag.
     Sei,
+    /// Unofficial masked store derived from X and the destination high byte.
     Shx,
+    /// Unofficial masked store derived from Y and the destination high byte.
     Shy,
+    /// Unofficial arithmetic shift left followed by accumulator OR.
     Slo,
+    /// Unofficial logical shift right followed by accumulator exclusive OR.
     Sre,
+    /// Store the accumulator.
     Sta,
+    /// Store X.
     Stx,
+    /// Store Y.
     Sty,
+    /// Unofficial transfer of accumulator/X intersection to the stack pointer and memory.
     Tas,
+    /// Transfer the accumulator to X.
     Tax,
+    /// Transfer the accumulator to Y.
     Tay,
+    /// Transfer the stack pointer to X.
     Tsx,
+    /// Transfer X to the accumulator.
     Txa,
+    /// Transfer X to the stack pointer.
     Txs,
+    /// Transfer Y to the accumulator.
     Tya,
+    /// Unofficial, hardware-unstable immediate operation involving A and X.
     Xaa,
 }
 
@@ -95,22 +170,36 @@ impl fmt::Display for Mnemonic {
 /// Operand interpretation selected by an RP2A03 opcode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddressingMode {
+    /// Operand is implicit in the instruction identity.
     Implied,
+    /// Operation targets the accumulator without an encoded operand byte.
     Accumulator,
+    /// One literal byte immediately follows the opcode.
     Immediate,
+    /// One byte selects an address in zero page.
     ZeroPage,
+    /// One zero-page base byte is indexed by X.
     ZeroPageX,
+    /// One zero-page base byte is indexed by Y.
     ZeroPageY,
+    /// One signed byte is relative to the post-instruction program counter.
     Relative,
+    /// One little-endian word supplies an absolute address.
     Absolute,
+    /// One absolute base address is indexed by X.
     AbsoluteX,
+    /// One absolute base address is indexed by Y.
     AbsoluteY,
+    /// One absolute address names the pointer used by indirect `JMP`.
     AbsoluteIndirect,
+    /// One zero-page pointer base is first indexed by X, then dereferenced.
     ZeroPageIndexedIndirectX,
+    /// One zero-page pointer is dereferenced, then indexed by Y.
     ZeroPageIndirectIndexedY,
 }
 
 impl AddressingMode {
+    /// Return the number of bytes encoded after the opcode for this mode.
     pub const fn operand_len(self) -> usize {
         match self {
             Self::Implied | Self::Accumulator => 0,
@@ -129,11 +218,14 @@ impl AddressingMode {
 /// A semantic instruction form with operand values removed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InstructionForm {
+    /// Operation selected by the form.
     pub mnemonic: Mnemonic,
+    /// Operand interpretation selected by the form.
     pub mode: AddressingMode,
 }
 
 impl InstructionForm {
+    /// Construct a semantic form from its mnemonic and addressing mode.
     pub const fn new(mnemonic: Mnemonic, mode: AddressingMode) -> Self {
         Self { mnemonic, mode }
     }
@@ -146,6 +238,7 @@ impl InstructionForm {
         })
     }
 
+    /// Return the complete instruction length, including the opcode byte.
     pub const fn encoded_len(self) -> usize {
         1 + self.mode.operand_len()
     }
@@ -154,22 +247,35 @@ impl InstructionForm {
 /// Static control-transfer classification for one placed instruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlFlow {
+    /// Execution continues at the next sequential address.
     FallThrough {
+        /// Address immediately after the instruction.
         next: u16,
     },
+    /// A conditional branch has a direct target and an optional fallthrough.
     Branch {
+        /// Address reached when the branch condition is true.
         target: u16,
+        /// Address reached when the condition is false, if execution can continue.
         fallthrough: Option<u16>,
     },
+    /// An unconditional jump transfers control directly or through memory.
     Jump {
+        /// Direct static target, or `None` for an indirect jump.
         target: Option<u16>,
     },
+    /// A direct subroutine call transfers control and records its return point.
     Call {
+        /// Direct subroutine entry address.
         target: u16,
+        /// Address of the next sequential instruction after the call.
         return_address: u16,
     },
+    /// Control returns through a stack-supplied address.
     Return,
+    /// Control enters an interrupt vector.
     Interrupt,
+    /// Instruction fetch stops until an external reset.
     Stop,
 }
 
