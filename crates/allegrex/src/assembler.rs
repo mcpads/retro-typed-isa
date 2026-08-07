@@ -44,25 +44,30 @@ enum Node {
 }
 
 #[derive(Debug, Clone, Default)]
+/// A checked Allegrex assembler with symbolic control-flow targets and explicit data.
 pub struct Assembler {
     nodes: Vec<Node>,
 }
 
 impl Assembler {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Declares a label at the current output position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Performs the emit operation.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Performs the equality branch to label operation.
     pub fn equality_branch_to_label(
         &mut self,
         condition: EqualityCondition,
@@ -81,6 +86,7 @@ impl Assembler {
         self
     }
 
+    /// Performs the sign branch to label operation.
     pub fn sign_branch_to_label(
         &mut self,
         condition: SignCondition,
@@ -99,6 +105,7 @@ impl Assembler {
         self
     }
 
+    /// Performs the floating branch to label operation.
     pub fn floating_branch_to_label(
         &mut self,
         condition: FloatingBranchCondition,
@@ -113,6 +120,7 @@ impl Assembler {
         self
     }
 
+    /// Performs the vfpu branch to label operation.
     pub fn vfpu_branch_to_label(
         &mut self,
         form: VfpuForm,
@@ -127,6 +135,7 @@ impl Assembler {
         self
     }
 
+    /// Performs the jump to label operation.
     pub fn jump_to_label(&mut self, link: bool, label: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Jump {
             link,
@@ -141,6 +150,7 @@ impl Assembler {
         self
     }
 
+    /// Resolves labels, lowers instructions, and records executable instruction spans.
     pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
         validate_origin(origin)?;
         let (labels, byte_len) = self.collect_labels(origin)?;
@@ -264,6 +274,7 @@ impl Assembler {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Assembled bytes with labels and executable instruction spans.
 pub struct AssembledProgram {
     origin: u64,
     bytes: Vec<u8>,
@@ -272,44 +283,78 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Performs the origin operation.
     pub const fn origin(&self) -> u64 {
         self.origin
     }
 
+    /// Borrows the complete output bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the program and returns its bytes.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns all resolved labels.
     pub fn labels(&self) -> &BTreeMap<String, u32> {
         &self.labels
     }
 
+    /// Returns executable instruction placements.
     pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
         &self.instruction_spans
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while placing or lowering an Allegrex assembly unit.
 pub enum AssemblerError {
     #[error("Allegrex origin {origin:#x} is not four-byte aligned")]
-    UnalignedOrigin { origin: u64 },
+    /// The unaligned origin form.
+    UnalignedOrigin {
+        /// The first output address.
+        origin: u64,
+    },
     #[error("Allegrex origin {origin:#x} exceeds the 32-bit address space")]
-    OriginOutOfRange { origin: u64 },
+    /// The origin out of range form.
+    OriginOutOfRange {
+        /// The first output address.
+        origin: u64,
+    },
     #[error("duplicate label {label}")]
-    DuplicateLabel { label: String },
+    /// The duplicate label form.
+    DuplicateLabel {
+        /// The symbolic label.
+        label: String,
+    },
     #[error("undefined label {label}")]
-    UndefinedLabel { label: String },
+    /// The undefined label form.
+    UndefinedLabel {
+        /// The symbolic label.
+        label: String,
+    },
     #[error("instruction at output offset {offset:#x} is not four-byte aligned")]
-    UnalignedInstruction { offset: usize },
+    /// The unaligned instruction form.
+    UnalignedInstruction {
+        /// The output byte offset.
+        offset: usize,
+    },
     #[error("address overflow from origin {origin:#x} at output offset {offset:#x}")]
-    AddressOverflow { origin: u64, offset: usize },
+    /// The address overflow form.
+    AddressOverflow {
+        /// The first output address.
+        origin: u64,
+        /// The output byte offset.
+        offset: usize,
+    },
     #[error(transparent)]
+    /// The encode form.
     Encode(#[from] EncodeError),
     #[error(transparent)]
+    /// The vfpu form.
     Vfpu(#[from] crate::VfpuConstructionError),
 }
 

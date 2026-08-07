@@ -10,6 +10,9 @@
 //! used by PSP executable images. Execution, timing, pipeline state, and
 //! simulation are outside this crate.
 
+#![deny(missing_docs)]
+
+/// Stable identifier for the little-endian Allegrex protocol profile.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
 mod assembler;
@@ -27,6 +30,7 @@ pub use instruction::*;
 pub use typed_isa_core::InstructionSpan;
 pub use vfpu::*;
 
+/// Formats one typed instruction using a stable debug-oriented representation.
 pub fn format_instruction(instruction: &Instruction) -> String {
     format!("{:?}", instruction)
 }

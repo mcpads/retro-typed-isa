@@ -3,10 +3,15 @@ use thiserror::Error;
 use crate::GeneralRegister;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The scalar, pair, triple, or quad lane count of a VFPU operation.
 pub enum VectorSize {
+    /// The single form.
     Single,
+    /// The pair form.
     Pair,
+    /// The triple form.
     Triple,
+    /// The quad form.
     Quad,
 }
 
@@ -15,14 +20,17 @@ pub enum VectorSize {
 pub struct VectorRegister(u8);
 
 impl VectorRegister {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub const fn new(index: u8) -> Option<Self> {
         if index < 128 { Some(Self(index)) } else { None }
     }
 
+    /// Returns the encoded register index.
     pub const fn index(self) -> u8 {
         self.0
     }
 
+    /// Performs the from field operation.
     pub(crate) const fn from_field(index: u8) -> Self {
         debug_assert!(index < 128);
         Self(index)
@@ -34,14 +42,17 @@ impl VectorRegister {
 pub struct MatrixRegister(u8);
 
 impl MatrixRegister {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub const fn new(index: u8) -> Option<Self> {
         if index < 128 { Some(Self(index)) } else { None }
     }
 
+    /// Returns the encoded register index.
     pub const fn index(self) -> u8 {
         self.0
     }
 
+    /// Performs the from field operation.
     pub(crate) const fn from_field(index: u8) -> Self {
         debug_assert!(index < 128);
         Self(index)
@@ -52,23 +63,38 @@ impl MatrixRegister {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum VfpuControlRegister {
+    /// The source prefix form.
     SourcePrefix = 128,
+    /// The target prefix form.
     TargetPrefix = 129,
+    /// The destination prefix form.
     DestinationPrefix = 130,
+    /// The condition form.
     Condition = 131,
+    /// The internal information4 form.
     InternalInformation4 = 132,
+    /// The revision form.
     Revision = 135,
+    /// The random state0 form.
     RandomState0 = 136,
+    /// The random state1 form.
     RandomState1 = 137,
+    /// The random state2 form.
     RandomState2 = 138,
+    /// The random state3 form.
     RandomState3 = 139,
+    /// The random state4 form.
     RandomState4 = 140,
+    /// The random state5 form.
     RandomState5 = 141,
+    /// The random state6 form.
     RandomState6 = 142,
+    /// The random state7 form.
     RandomState7 = 143,
 }
 
 impl VfpuControlRegister {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub const fn new(index: u8) -> Option<Self> {
         Some(match index {
             128 => Self::SourcePrefix,
@@ -89,10 +115,12 @@ impl VfpuControlRegister {
         })
     }
 
+    /// Returns the encoded register index.
     pub const fn index(self) -> u8 {
         self as u8
     }
 
+    /// Returns whether software may write this control register.
     pub const fn is_writable(self) -> bool {
         !matches!(self, Self::Revision)
     }
@@ -103,14 +131,17 @@ impl VfpuControlRegister {
 pub struct VfpuConditionBit(u8);
 
 impl VfpuConditionBit {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub const fn new(index: u8) -> Option<Self> {
         if index < 8 { Some(Self(index)) } else { None }
     }
 
+    /// Returns the encoded register index.
     pub const fn index(self) -> u8 {
         self.0
     }
 
+    /// Performs the from field operation.
     pub(crate) const fn from_field(index: u8) -> Self {
         debug_assert!(index < 8);
         Self(index)
@@ -119,26 +150,44 @@ impl VfpuConditionBit {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+/// A VFPU floating-point comparison predicate.
 pub enum VfpuCompareCondition {
+    /// The always false form.
     AlwaysFalse = 0,
+    /// The equal form.
     Equal = 1,
+    /// The less than form.
     LessThan = 2,
+    /// The less than or equal form.
     LessThanOrEqual = 3,
+    /// The always true form.
     AlwaysTrue = 4,
+    /// The not equal form.
     NotEqual = 5,
+    /// The greater than or equal form.
     GreaterThanOrEqual = 6,
+    /// The greater than form.
     GreaterThan = 7,
+    /// The equal zero form.
     EqualZero = 8,
+    /// The equal nan form.
     EqualNan = 9,
+    /// The equal infinity form.
     EqualInfinity = 10,
+    /// The equal infinity or nan form.
     EqualInfinityOrNan = 11,
+    /// The not equal zero form.
     NotEqualZero = 12,
+    /// The not equal nan form.
     NotEqualNan = 13,
+    /// The not equal infinity form.
     NotEqualInfinity = 14,
+    /// The not equal infinity and not nan form.
     NotEqualInfinityAndNotNan = 15,
 }
 
 impl VfpuCompareCondition {
+    /// The all register or complete selector set.
     pub const ALL: [Self; 16] = [
         Self::AlwaysFalse,
         Self::Equal,
@@ -158,10 +207,12 @@ impl VfpuCompareCondition {
         Self::NotEqualInfinityAndNotNan,
     ];
 
+    /// Returns the encoded selector code.
     pub const fn code(self) -> u8 {
         self as u8
     }
 
+    /// Performs the from field operation.
     pub(crate) const fn from_field(value: u8) -> Self {
         Self::ALL[value as usize]
     }
@@ -172,6 +223,7 @@ impl VfpuCompareCondition {
 pub struct VfpuConstant(u8);
 
 impl VfpuConstant {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub const fn new(code: u8) -> Option<Self> {
         if code >= 1 && code <= 19 {
             Some(Self(code))
@@ -180,6 +232,7 @@ impl VfpuConstant {
         }
     }
 
+    /// Returns the encoded selector code.
     pub const fn code(self) -> u8 {
         self.0
     }
@@ -187,10 +240,12 @@ impl VfpuConstant {
 
 macro_rules! define_bounded_immediate {
     ($name:ident, $maximum:expr) => {
+        #[doc = concat!("A checked immediate value for `", stringify!($name), "`.")]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(u32);
 
         impl $name {
+            /// Constructs the value after checking its encoding and operand-layout constraints.
             pub const fn new(value: u32) -> Option<Self> {
                 if value <= $maximum {
                     Some(Self(value))
@@ -199,10 +254,12 @@ macro_rules! define_bounded_immediate {
                 }
             }
 
+            /// Returns the checked displacement value.
             pub const fn value(self) -> u32 {
                 self.0
             }
 
+            /// Performs the from field operation.
             pub(crate) const fn from_field(value: u32) -> Self {
                 debug_assert!(value <= $maximum);
                 Self(value)
@@ -219,6 +276,7 @@ define_bounded_immediate!(Immediate16, 0xffff);
 pub struct VfpuMemoryOffset(i16);
 
 impl VfpuMemoryOffset {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub const fn new(value: i16) -> Option<Self> {
         if value & 3 == 0 {
             Some(Self(value))
@@ -227,129 +285,245 @@ impl VfpuMemoryOffset {
         }
     }
 
+    /// Returns the checked displacement value.
     pub const fn value(self) -> i16 {
         self.0
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A semantic VFPU instruction operation.
 pub enum VfpuOperation {
+    /// The branch false form.
     BranchFalse,
+    /// The branch false likely form.
     BranchFalseLikely,
+    /// The branch true form.
     BranchTrue,
+    /// The branch true likely form.
     BranchTrueLikely,
+    /// The load form.
     Load,
+    /// The store form.
     Store,
+    /// The store write buffer form.
     StoreWriteBuffer,
+    /// The store left form.
     StoreLeft,
+    /// The store right form.
     StoreRight,
+    /// The move from vector form.
     MoveFromVector,
+    /// The move from control form.
     MoveFromControl,
+    /// The move to vector form.
     MoveToVector,
+    /// The move to control form.
     MoveToControl,
+    /// The absolute value form.
     AbsoluteValue,
+    /// The add form.
     Add,
+    /// The arc sine form.
     ArcSine,
+    /// The average form.
     Average,
+    /// The butterfly1 form.
     Butterfly1,
+    /// The butterfly2 form.
     Butterfly2,
+    /// The convert color to integer form.
     ConvertColorToInteger,
+    /// The conditional move false form.
     ConditionalMoveFalse,
+    /// The conditional move true form.
     ConditionalMoveTrue,
+    /// The compare form.
     Compare,
+    /// The cosine form.
     Cosine,
+    /// The cross product form.
     CrossProduct,
+    /// The cross product quaternion form.
     CrossProductQuaternion,
+    /// The constant form.
     Constant,
+    /// The determinant form.
     Determinant,
+    /// The divide form.
     Divide,
+    /// The dot product form.
     DotProduct,
+    /// The exponential2 form.
     Exponential2,
+    /// The float to half form.
     FloatToHalf,
+    /// The float to integer down form.
     FloatToIntegerDown,
+    /// The float to integer nearest form.
     FloatToIntegerNearest,
+    /// The float to integer up form.
     FloatToIntegerUp,
+    /// The float to integer truncate form.
     FloatToIntegerTruncate,
+    /// The sum form.
     Sum,
+    /// The float immediate form.
     FloatImmediate,
+    /// The flush form.
     Flush,
+    /// The half to float form.
     HalfToFloat,
+    /// The homogeneous dot product form.
     HomogeneousDotProduct,
+    /// The homogeneous transform2 form.
     HomogeneousTransform2,
+    /// The homogeneous transform3 form.
     HomogeneousTransform3,
+    /// The homogeneous transform4 form.
     HomogeneousTransform4,
+    /// The integer to color form.
     IntegerToColor,
+    /// The integer to float form.
     IntegerToFloat,
+    /// The integer to short form.
     IntegerToShort,
+    /// The integer to unsigned color form.
     IntegerToUnsignedColor,
+    /// The integer to unsigned short form.
     IntegerToUnsignedShort,
+    /// The identity form.
     Identity,
+    /// The integer immediate form.
     IntegerImmediate,
+    /// The leading bit form.
     LeadingBit,
+    /// The logarithm2 form.
     Logarithm2,
+    /// The maximum form.
     Maximum,
+    /// The move from vfpu control form.
     MoveFromVfpuControl,
+    /// The matrix identity form.
     MatrixIdentity,
+    /// The minimum form.
     Minimum,
+    /// The matrix move form.
     MatrixMove,
+    /// The matrix multiply form.
     MatrixMultiply,
+    /// The matrix one form.
     MatrixOne,
+    /// The move form.
     Move,
+    /// The matrix scale form.
     MatrixScale,
+    /// The move to vfpu control form.
     MoveToVfpuControl,
+    /// The multiply form.
     Multiply,
+    /// The matrix zero form.
     MatrixZero,
+    /// The negate form.
     Negate,
+    /// The no operation form.
     NoOperation,
+    /// The negative reciprocal form.
     NegativeReciprocal,
+    /// The negative sine form.
     NegativeSine,
+    /// The one complement form.
     OneComplement,
+    /// The one form.
     One,
+    /// The destination prefix form.
     DestinationPrefix,
+    /// The source prefix form.
     SourcePrefix,
+    /// The target prefix form.
     TargetPrefix,
+    /// The quaternion multiply form.
     QuaternionMultiply,
+    /// The reciprocal form.
     Reciprocal,
+    /// The reciprocal exponential2 form.
     ReciprocalExponential2,
+    /// The random float1 form.
     RandomFloat1,
+    /// The random float2 form.
     RandomFloat2,
+    /// The random integer form.
     RandomInteger,
+    /// The random seed form.
     RandomSeed,
+    /// The rotate form.
     Rotate,
+    /// The reciprocal square root form.
     ReciprocalSquareRoot,
+    /// The short to integer form.
     ShortToInteger,
+    /// The saturate zero one form.
     SaturateZeroOne,
+    /// The saturate negative one one form.
     SaturateNegativeOneOne,
+    /// The scale by exponent form.
     ScaleByExponent,
+    /// The sign bit zero form.
     SignBitZero,
+    /// The scale form.
     Scale,
+    /// The compare three way form.
     CompareThreeWay,
+    /// The set greater than or equal form.
     SetGreaterThanOrEqual,
+    /// The sign form.
     Sign,
+    /// The sine form.
     Sine,
+    /// The set less than form.
     SetLessThan,
+    /// The one complement scaled form.
     OneComplementScaled,
+    /// The square root form.
     SquareRoot,
+    /// The sort1 form.
     Sort1,
+    /// The sort2 form.
     Sort2,
+    /// The sort3 form.
     Sort3,
+    /// The sort4 form.
     Sort4,
+    /// The subtract form.
     Subtract,
+    /// The synchronize form.
     Synchronize,
+    /// The synchronize cpu form.
     SynchronizeCpu,
+    /// The convert to4444 form.
     ConvertTo4444,
+    /// The convert to5551 form.
     ConvertTo5551,
+    /// The convert to5650 form.
     ConvertTo5650,
+    /// The transform2 form.
     Transform2,
+    /// The transform3 form.
     Transform3,
+    /// The transform4 form.
     Transform4,
+    /// The unsigned color to integer float scaled form.
     UnsignedColorToIntegerFloatScaled,
+    /// The unsigned short to integer form.
     UnsignedShortToInteger,
+    /// The write break number form.
     WriteBreakNumber,
+    /// The zero form.
     Zero,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// An operand-independent VFPU operation and optional vector size.
 pub struct VfpuForm {
     operation: VfpuOperation,
     size: Option<VectorSize>,
@@ -357,14 +531,20 @@ pub struct VfpuForm {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+/// A source-prefix vector component selector.
 pub enum VectorComponent {
+    /// The x form.
     X = 0,
+    /// The y form.
     Y = 1,
+    /// The z form.
     Z = 2,
+    /// The w form.
     W = 3,
 }
 
 impl VectorComponent {
+    /// Performs the from field operation.
     pub(crate) const fn from_field(value: u8) -> Self {
         match value {
             0 => Self::X,
@@ -378,18 +558,28 @@ impl VectorComponent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+/// A constant selectable by a VFPU source prefix.
 pub enum SourcePrefixConstant {
+    /// The zero form.
     Zero = 8,
+    /// The one form.
     One = 9,
+    /// The two form.
     Two = 10,
+    /// The one half form.
     OneHalf = 11,
+    /// The three form.
     Three = 12,
+    /// The one third form.
     OneThird = 13,
+    /// The one quarter form.
     OneQuarter = 14,
+    /// The one sixth form.
     OneSixth = 15,
 }
 
 impl SourcePrefixConstant {
+    /// Performs the from field operation.
     pub(crate) const fn from_field(value: u8) -> Self {
         match value {
             8 => Self::Zero,
@@ -406,29 +596,42 @@ impl SourcePrefixConstant {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A component or constant supplied by one source-prefix lane.
 pub enum SourcePrefixValue {
+    /// The component form.
     Component {
+        /// The component operand.
         component: VectorComponent,
+        /// The absolute operand.
         absolute: bool,
     },
+    /// The constant form.
     Constant(SourcePrefixConstant),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// One source-prefix lane transformation.
 pub struct SourcePrefixLane {
+    /// The selected source-prefix value.
     pub value: SourcePrefixValue,
+    /// Whether the selected source value is negated.
     pub negate: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+/// The saturation mode applied by a destination-prefix lane.
 pub enum DestinationSaturation {
+    /// The none form.
     None = 0,
+    /// The zero to one form.
     ZeroToOne = 1,
+    /// The negative one to one form.
     NegativeOneToOne = 3,
 }
 
 impl DestinationSaturation {
+    /// Performs the from field operation.
     pub(crate) const fn from_field(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::None),
@@ -440,140 +643,222 @@ impl DestinationSaturation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// One destination-prefix saturation and write-mask setting.
 pub struct DestinationPrefixLane {
+    /// The destination saturation mode.
     pub saturation: DestinationSaturation,
+    /// Whether writes to this lane are disabled.
     pub mask: bool,
 }
 
 impl VfpuForm {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub fn new(operation: VfpuOperation, size: Option<VectorSize>) -> Option<Self> {
         let form = Self { operation, size };
         descriptor_for_form(form).map(|_| form)
     }
 
+    /// Returns the semantic VFPU operation.
     pub const fn operation(self) -> VfpuOperation {
         self.operation
     }
 
+    /// Returns the optional vector size.
     pub const fn size(self) -> Option<VectorSize> {
         self.size
     }
 
+    /// Returns the manual mnemonic.
     pub fn mnemonic(self) -> &'static str {
         descriptor_for_form(self)
             .expect("constructed VFPU forms have descriptors")
             .mnemonic
     }
 
+    /// Iterates over the complete supported form census.
     pub fn all() -> impl Iterator<Item = Self> {
         VFPU_DESCRIPTORS.iter().map(|descriptor| descriptor.form)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// The typed operand layout of a VFPU instruction.
 pub enum VfpuOperands {
+    /// The none form.
     None,
+    /// The branch form.
     Branch {
+        /// The selected branch condition.
         condition: VfpuConditionBit,
+        /// The requested control-flow target.
         target: u32,
     },
+    /// The memory vector form.
     MemoryVector {
+        /// The vector operand.
         vector: VectorRegister,
+        /// The base operand.
         base: GeneralRegister,
+        /// The output byte offset.
         offset: VfpuMemoryOffset,
     },
+    /// The general and vector form.
     GeneralAndVector {
+        /// The general operand.
         general: GeneralRegister,
+        /// The vector operand.
         vector: VectorRegister,
     },
+    /// The general and control form.
     GeneralAndControl {
+        /// The general operand.
         general: GeneralRegister,
+        /// The control operand.
         control: VfpuControlRegister,
     },
+    /// The three vectors form.
     ThreeVectors {
+        /// The destination operand.
         destination: VectorRegister,
+        /// The left source register.
         left: VectorRegister,
+        /// The right source register.
         right: VectorRegister,
     },
+    /// The two vectors form.
     TwoVectors {
+        /// The destination operand.
         destination: VectorRegister,
+        /// The underlying codec failure.
         source: VectorRegister,
     },
+    /// The conditional move form.
     ConditionalMove {
+        /// The destination operand.
         destination: VectorRegister,
+        /// The underlying codec failure.
         source: VectorRegister,
+        /// The selected branch condition.
         condition: VfpuConditionBit,
     },
+    /// The compare form.
     Compare {
+        /// The selected branch condition.
         condition: VfpuCompareCondition,
+        /// The left source register.
         left: VectorRegister,
+        /// The right source register.
         right: VectorRegister,
     },
+    /// The constant form.
     Constant {
+        /// The destination operand.
         destination: VectorRegister,
+        /// The constant operand.
         constant: VfpuConstant,
     },
+    /// The immediate and two vectors form.
     ImmediateAndTwoVectors {
+        /// The destination operand.
         destination: VectorRegister,
+        /// The underlying codec failure.
         source: VectorRegister,
+        /// The immediate operand.
         immediate: Immediate5,
     },
+    /// The vector immediate16 form.
     VectorImmediate16 {
+        /// The destination operand.
         destination: VectorRegister,
+        /// The immediate operand.
         immediate: Immediate16,
     },
+    /// The destination vector form.
     DestinationVector {
+        /// The destination operand.
         destination: VectorRegister,
     },
+    /// The control and vector form.
     ControlAndVector {
+        /// The control operand.
         control: VfpuControlRegister,
+        /// The vector operand.
         vector: VectorRegister,
     },
+    /// The source prefix form.
     SourcePrefix {
+        /// The lanes operand.
         lanes: [SourcePrefixLane; 4],
     },
+    /// The destination prefix form.
     DestinationPrefix {
+        /// The lanes operand.
         lanes: [DestinationPrefixLane; 4],
     },
+    /// The source vector form.
     SourceVector {
+        /// The underlying codec failure.
         source: VectorRegister,
     },
+    /// The three matrices form.
     ThreeMatrices {
+        /// The destination operand.
         destination: MatrixRegister,
+        /// The left source register.
         left: MatrixRegister,
+        /// The right source register.
         right: MatrixRegister,
     },
+    /// The two matrices form.
     TwoMatrices {
+        /// The destination operand.
         destination: MatrixRegister,
+        /// The underlying codec failure.
         source: MatrixRegister,
     },
+    /// The destination matrix form.
     DestinationMatrix {
+        /// The destination operand.
         destination: MatrixRegister,
     },
+    /// The matrix scale form.
     MatrixScale {
+        /// The destination operand.
         destination: MatrixRegister,
+        /// The underlying codec failure.
         source: MatrixRegister,
+        /// The scale operand.
         scale: VectorRegister,
     },
+    /// The matrix vector transform form.
     MatrixVectorTransform {
+        /// The destination operand.
         destination: VectorRegister,
+        /// The matrix operand.
         matrix: MatrixRegister,
+        /// The vector operand.
         vector: VectorRegister,
     },
+    /// The immediate8 and two vectors form.
     Immediate8AndTwoVectors {
+        /// The destination operand.
         destination: VectorRegister,
+        /// The underlying codec failure.
         source: VectorRegister,
+        /// The immediate operand.
         immediate: Immediate8,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A VFPU instruction whose form and operand layout have been validated.
 pub struct VfpuInstruction {
     form: VfpuForm,
     operands: VfpuOperands,
 }
 
 impl VfpuInstruction {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub fn new(form: VfpuForm, operands: VfpuOperands) -> Result<Self, VfpuConstructionError> {
         let descriptor = descriptor_for_form(form).ok_or(VfpuConstructionError::UnknownForm)?;
         if descriptor.layout != OperandLayout::of(&operands) {
@@ -596,23 +881,35 @@ impl VfpuInstruction {
         Ok(Self { form, operands })
     }
 
+    /// Returns the operand-independent instruction form.
     pub const fn form(&self) -> VfpuForm {
         self.form
     }
 
+    /// Returns the validated VFPU operands.
     pub const fn operands(&self) -> &VfpuOperands {
         &self.operands
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned when VFPU operands do not match the selected form.
 pub enum VfpuConstructionError {
     #[error("unknown VFPU instruction form")]
+    /// The unknown form form.
     UnknownForm,
     #[error("operands do not match VFPU instruction {mnemonic}")]
-    OperandShapeMismatch { mnemonic: &'static str },
+    /// The operand shape mismatch form.
+    OperandShapeMismatch {
+        /// The mnemonic value.
+        mnemonic: &'static str,
+    },
     #[error("VFPU control register {register:?} is read-only")]
-    ReadOnlyControlRegister { register: VfpuControlRegister },
+    /// The read only control register form.
+    ReadOnlyControlRegister {
+        /// The selected register.
+        register: VfpuControlRegister,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -674,13 +971,19 @@ impl OperandLayout {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct VfpuDescriptor {
+    /// The selected instruction form.
     pub form: VfpuForm,
+    /// The mnemonic value.
     pub mnemonic: &'static str,
+    /// Whether writes to this lane are disabled.
     pub mask: u32,
+    /// The selected source-prefix value.
     pub value: u32,
+    /// The layout value.
     pub layout: OperandLayout,
 }
 
+/// Performs the descriptor for form operation.
 pub(crate) fn descriptor_for_form(form: VfpuForm) -> Option<&'static VfpuDescriptor> {
     VFPU_DESCRIPTORS
         .iter()

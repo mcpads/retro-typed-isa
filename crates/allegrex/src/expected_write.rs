@@ -4,11 +4,13 @@ use expected_write::{
     MachineCodeVerifierError,
 };
 
+/// An Allegrex Expected Write verifier backed by caller-supplied source resolution.
 pub struct ExpectedWriteVerifier<ResolveSource> {
     resolve_source: ResolveSource,
 }
 
 impl<ResolveSource> ExpectedWriteVerifier<ResolveSource> {
+    /// Constructs the value after checking its encoding and operand-layout constraints.
     pub const fn new(resolve_source: ResolveSource) -> Self {
         Self { resolve_source }
     }

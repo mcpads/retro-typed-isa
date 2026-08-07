@@ -13,44 +13,97 @@ use crate::vfpu::{
 };
 
 #[derive(Debug, Clone, Copy)]
+/// The fixed-width little-endian Allegrex protocol profile.
 pub struct Allegrex;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while decoding one Allegrex instruction.
 pub enum DecodeError {
     #[error("Allegrex instruction address {address:#x} is not four-byte aligned")]
-    UnalignedAddress { address: u64 },
+    /// The unaligned address form.
+    UnalignedAddress {
+        /// The instruction or target address.
+        address: u64,
+    },
     #[error("Allegrex instruction address {address:#x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
+    /// The address out of range form.
+    AddressOutOfRange {
+        /// The instruction or target address.
+        address: u64,
+    },
     #[error("truncated Allegrex instruction: needed 4 bytes, got {got}")]
-    UnexpectedEnd { got: usize },
+    /// The unexpected end form.
+    UnexpectedEnd {
+        /// The available input length.
+        got: usize,
+    },
     #[error("reserved or out-of-profile Allegrex instruction word {word:#010x}")]
-    ReservedWord { word: u32 },
+    /// The reserved word form.
+    ReservedWord {
+        /// The rejected instruction word.
+        word: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned when a typed Allegrex instruction cannot be placed and encoded.
 pub enum EncodeError {
     #[error("Allegrex instruction address {address:#x} is not four-byte aligned")]
-    UnalignedAddress { address: u64 },
+    /// The unaligned address form.
+    UnalignedAddress {
+        /// The instruction or target address.
+        address: u64,
+    },
     #[error("Allegrex instruction address {address:#x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
+    /// The address out of range form.
+    AddressOutOfRange {
+        /// The instruction or target address.
+        address: u64,
+    },
     #[error("control-flow target {target:#010x} is not four-byte aligned")]
-    UnalignedTarget { target: u32 },
+    /// The unaligned target form.
+    UnalignedTarget {
+        /// The requested control-flow target.
+        target: u32,
+    },
     #[error("branch at {address:#010x} cannot reach {target:#010x}")]
-    BranchOutOfRange { address: u32, target: u32 },
+    /// The branch out of range form.
+    BranchOutOfRange {
+        /// The instruction or target address.
+        address: u32,
+        /// The requested control-flow target.
+        target: u32,
+    },
     #[error("jump at {address:#010x} cannot reach region containing {target:#010x}")]
-    JumpRegionMismatch { address: u32, target: u32 },
+    /// The jump region mismatch form.
+    JumpRegionMismatch {
+        /// The instruction or target address.
+        address: u32,
+        /// The requested control-flow target.
+        target: u32,
+    },
     #[error("{field} value {value} exceeds {maximum}")]
+    /// The field out of range form.
     FieldOutOfRange {
+        /// The field operand.
         field: &'static str,
+        /// The selected source-prefix value.
         value: u32,
+        /// The greatest encodable value.
         maximum: u32,
     },
     #[error("invalid Allegrex instruction form: {reason}")]
-    InvalidInstructionForm { reason: &'static str },
+    /// The invalid instruction form form.
+    InvalidInstructionForm {
+        /// A stable explanation of the rejection.
+        reason: &'static str,
+    },
     #[error("invalid VFPU instruction: {0}")]
+    /// The invalid vfpu form.
     InvalidVfpu(#[from] VfpuConstructionError),
 }
 
+/// Decodes one host-order instruction word at its placement address.
 pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
     let address = checked_decode_address(address)?;
     if let Some(instruction) = decode_vfpu(word, address)? {
@@ -142,6 +195,7 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
     }
 }
 
+/// Encodes one typed instruction as a host-order word at its placement address.
 pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
     let address = checked_encode_address(address)?;
     use Instruction::*;
@@ -531,6 +585,7 @@ pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, Encod
     }
 }
 
+/// Decodes one four-byte little-endian instruction at its placement address.
 pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
@@ -541,6 +596,7 @@ pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeEr
     )
 }
 
+/// Encodes one typed instruction as four little-endian bytes at its placement address.
 pub fn encode_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
     Ok(encode_word(instruction, address)?.to_le_bytes())
 }
