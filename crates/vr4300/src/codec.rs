@@ -15,47 +15,112 @@ use crate::instruction::{
 };
 
 #[derive(Debug, Clone, Copy)]
+/// The fixed-width, big-endian VR4300 protocol profile.
 pub struct Vr4300;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while decoding a VR4300 instruction.
 pub enum DecodeError {
     #[error("VR4300 instruction address {address:#018x} is not four-byte aligned")]
-    UnalignedAddress { address: u64 },
+    /// The supplied instruction address is not four-byte aligned.
+    UnalignedAddress {
+        /// The rejected address.
+        address: u64,
+    },
     #[error("truncated VR4300 instruction: needed 4 bytes, got {got}")]
-    UnexpectedEnd { got: usize },
+    /// Fewer than four input bytes are available.
+    UnexpectedEnd {
+        /// The available input length.
+        got: usize,
+    },
     #[error("reserved or out-of-profile VR4300 instruction word {word:#010x}")]
-    ReservedWord { word: u32 },
+    /// The word is reserved or belongs to an excluded implementation-defined operation.
+    ReservedWord {
+        /// The rejected instruction word.
+        word: u32,
+    },
     #[error("VR4300 instruction at {address:#018x} overflows the address space")]
-    AddressOverflow { address: u64 },
+    /// Computing the architecturally visible next program counter overflowed.
+    AddressOverflow {
+        /// The instruction address.
+        address: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned when a typed instruction cannot be represented at its placement address.
 pub enum EncodeError {
     #[error("VR4300 instruction address {address:#018x} is not four-byte aligned")]
-    UnalignedAddress { address: u64 },
+    /// The supplied instruction address is not four-byte aligned.
+    UnalignedAddress {
+        /// The rejected address.
+        address: u64,
+    },
     #[error("control-flow target {target:#018x} is not four-byte aligned")]
-    UnalignedTarget { target: u64 },
+    /// A control-flow target is not four-byte aligned.
+    UnalignedTarget {
+        /// The rejected target.
+        target: u64,
+    },
     #[error("VR4300 instruction at {address:#018x} overflows the address space")]
-    AddressOverflow { address: u64 },
+    /// Computing the architecturally visible next program counter overflowed.
+    AddressOverflow {
+        /// The instruction address.
+        address: u64,
+    },
     #[error("branch at {address:#018x} cannot reach {target:#018x}")]
-    BranchOutOfRange { address: u64, target: u64 },
+    /// A PC-relative target does not fit the signed sixteen-bit word displacement.
+    BranchOutOfRange {
+        /// The branch instruction address.
+        address: u64,
+        /// The requested target address.
+        target: u64,
+    },
     #[error("jump at {address:#018x} cannot reach region containing {target:#018x}")]
-    JumpRegionMismatch { address: u64, target: u64 },
+    /// A direct jump target is outside the high-address region selected by `PC + 4`.
+    JumpRegionMismatch {
+        /// The jump instruction address.
+        address: u64,
+        /// The requested target address.
+        target: u64,
+    },
     #[error("shift amount {amount} exceeds the {maximum}-bit instruction field")]
-    ShiftAmountOutOfRange { amount: u8, maximum: u8 },
+    /// A fixed shift amount exceeds its instruction field.
+    ShiftAmountOutOfRange {
+        /// The rejected shift amount.
+        amount: u8,
+        /// The greatest encodable amount.
+        maximum: u8,
+    },
     #[error("system exception code {code:#x} exceeds 20 bits")]
-    SystemCodeOutOfRange { code: u32 },
+    /// A system-call or breakpoint code exceeds twenty bits.
+    SystemCodeOutOfRange {
+        /// The rejected exception code.
+        code: u32,
+    },
     #[error("trap code {code:#x} exceeds 10 bits")]
-    TrapCodeOutOfRange { code: u16 },
+    /// A conditional-trap code exceeds ten bits.
+    TrapCodeOutOfRange {
+        /// The rejected trap code.
+        code: u16,
+    },
     #[error("invalid VR4300 instruction form: {reason}")]
-    InvalidInstructionForm { reason: &'static str },
+    /// The operand combination is reserved or architecturally invalid.
+    InvalidInstructionForm {
+        /// A stable explanation of the rejected combination.
+        reason: &'static str,
+    },
     #[error("the VR4300 FPU does not define conversion from {from_format:?} to {to_format:?}")]
+    /// The requested source and destination numeric formats have no defined conversion.
     InvalidFloatingConversion {
+        /// The source numeric format.
         from_format: NumericFormat,
+        /// The destination numeric format.
         to_format: NumericFormat,
     },
 }
 
+/// Decodes one host-order instruction word at its placement address.
 pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
     require_aligned_decode(address)?;
     match opcode(word) {
@@ -145,6 +210,7 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
     }
 }
 
+/// Encodes one typed instruction as a host-order word at its placement address.
 pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
     require_aligned_encode(address)?;
     use Instruction::*;
@@ -614,6 +680,7 @@ pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, Encod
     }
 }
 
+/// Decodes one four-byte big-endian instruction at its placement address.
 pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
@@ -624,6 +691,7 @@ pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeEr
     )
 }
 
+/// Encodes one typed instruction as four big-endian bytes at its placement address.
 pub fn encode_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
     Ok(encode_word(instruction, address)?.to_be_bytes())
 }

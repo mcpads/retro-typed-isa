@@ -40,25 +40,30 @@ enum Node {
 }
 
 #[derive(Debug, Clone, Default)]
+/// A checked VR4300 assembler with symbolic control-flow targets and explicit data nodes.
 pub struct Assembler {
     nodes: Vec<Node>,
 }
 
 impl Assembler {
+    /// Creates an empty assembly unit.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Declares a label at the current output position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Appends an already-typed instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Appends a symbolic integer equality branch.
     pub fn equality_branch_to_label(
         &mut self,
         condition: EqualityCondition,
@@ -77,6 +82,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a symbolic signed-zero branch.
     pub fn sign_branch_to_label(
         &mut self,
         condition: SignCondition,
@@ -95,6 +101,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a symbolic coprocessor-condition branch.
     pub fn coprocessor_branch_to_label(
         &mut self,
         coprocessor: Coprocessor,
@@ -111,6 +118,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a symbolic direct jump, optionally recording a link address.
     pub fn jump_to_label(&mut self, link: bool, label: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Jump {
             link,
@@ -125,6 +133,10 @@ impl Assembler {
         self
     }
 
+    /// Resolves labels and lowers instructions at a four-byte-aligned origin.
+    ///
+    /// Control-flow instructions retain absolute targets in the typed model;
+    /// lowering checks branch reach and the MIPS jump-region rule at placement time.
     pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
         if origin & 3 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });
@@ -254,6 +266,7 @@ fn placed_address(origin: u64, offset: usize) -> Result<u64, AssemblerError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Assembled big-endian bytes and their label and instruction placement metadata.
 pub struct AssembledProgram {
     origin: u64,
     bytes: Vec<u8>,
@@ -262,39 +275,66 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Returns the address assigned to the first output byte.
     pub const fn origin(&self) -> u64 {
         self.origin
     }
 
+    /// Borrows the complete output, including explicitly declared data.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the program and returns its complete byte stream.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns the resolved address of a declared label.
     pub fn label_address(&self, name: &str) -> Option<u64> {
         self.labels.get(name).copied()
     }
 
+    /// Returns placements for executable instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
         &self.instruction_spans
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while placing or lowering a VR4300 assembly unit.
 pub enum AssemblerError {
     #[error("VR4300 assembly origin {origin:#018x} is not four-byte aligned")]
-    UnalignedOrigin { origin: u64 },
+    /// The output origin is not four-byte aligned.
+    UnalignedOrigin {
+        /// The rejected origin.
+        origin: u64,
+    },
     #[error("VR4300 instruction at output offset {offset:#x} is not four-byte aligned")]
-    UnalignedInstruction { offset: usize },
+    /// Explicit data left a following instruction at an unaligned offset.
+    UnalignedInstruction {
+        /// The offending output offset.
+        offset: usize,
+    },
     #[error("duplicate label `{label}`")]
-    DuplicateLabel { label: String },
+    /// A label name was declared more than once.
+    DuplicateLabel {
+        /// The duplicate label.
+        label: String,
+    },
     #[error("undefined label `{label}`")]
-    UndefinedLabel { label: String },
+    /// A symbolic target references an undeclared label.
+    UndefinedLabel {
+        /// The missing label.
+        label: String,
+    },
     #[error("VR4300 assembly from {origin:#018x} exceeds the address space")]
-    AddressOverflow { origin: u64 },
+    /// Output placement exceeds the represented address space.
+    AddressOverflow {
+        /// The assembly origin used for placement.
+        origin: u64,
+    },
     #[error(transparent)]
+    /// A placed typed instruction could not be encoded.
     Encode(#[from] EncodeError),
 }

@@ -17,6 +17,9 @@
 //! [nec-manual]: https://datasheets.chipdb.org/NEC/Vr-Series/Vr43xx/U10504EJ7V0UMJ1.pdf
 //! [mips-manual]: https://groups.csail.mit.edu/cag/raw/documents/R4400_Uman_book_Ed2.pdf
 
+#![deny(missing_docs)]
+
+/// Stable identifier for the big-endian VR4300 protocol profile.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
 mod assembler;
