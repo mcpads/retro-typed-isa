@@ -10,45 +10,93 @@ use crate::{
     ThumbInstructionForm,
 };
 
+/// A fail-closed reason that source bytes are not one valid ARM946E-S instruction.
 #[derive(Debug, Error)]
 pub enum DecodeError {
+    /// The source ends before the complete ARM or Thumb instruction is available.
     #[error("ARM946E-S instruction needs {needed} bytes, but only {got} are available")]
-    UnexpectedEnd { needed: usize, got: usize },
+    UnexpectedEnd {
+        /// Minimum byte count required to continue decoding.
+        needed: usize,
+        /// Byte count available to the decoder.
+        got: usize,
+    },
+    /// The supplied placement address violates the selected execution state's alignment.
     #[error("ARM946E-S instruction address {address:#x} is not aligned to {alignment} bytes")]
-    UnalignedAddress { address: u64, alignment: u8 },
+    UnalignedAddress {
+        /// Rejected instruction address.
+        address: u64,
+        /// Required alignment in bytes.
+        alignment: u8,
+    },
+    /// The selector is reserved by the ARMv5TE architecture.
     #[error("reserved ARM946E-S {width}-bit instruction encoding {value:#010x}")]
-    ReservedEncoding { width: u8, value: u32 },
+    ReservedEncoding {
+        /// Instruction width used to interpret `value`.
+        width: u8,
+        /// Rejected instruction bits in the least-significant part of the word.
+        value: u32,
+    },
+    /// The bits select an architecturally unpredictable operand combination.
     #[error(
         "architecturally unpredictable ARM946E-S {width}-bit instruction encoding {value:#010x}"
     )]
-    UnpredictableEncoding { width: u8, value: u32 },
+    UnpredictableEncoding {
+        /// Instruction width used to interpret `value`.
+        width: u8,
+        /// Rejected instruction bits in the least-significant part of the word.
+        value: u32,
+    },
+    /// An inherited ARMv4T instruction failed its profile decoder.
     #[error(transparent)]
     Armv4T(#[from] arm7tdmi::DecodeError),
 }
 
+/// A fail-closed reason that a typed ARM946E-S instruction cannot be lowered.
 #[derive(Debug, Error)]
 pub enum EncodeError {
+    /// A typed integer field exceeds the bit width assigned by the architecture.
     #[error("{field} value {value} is outside the encoded maximum {maximum}")]
     FieldOutOfRange {
+        /// Stable name of the rejected encoding field.
         field: &'static str,
+        /// Rejected field value.
         value: u32,
+        /// Largest value representable by the field.
         maximum: u32,
     },
+    /// A signed displacement or other field violates its encoded alignment.
     #[error("{field} value {value} does not have required alignment {alignment}")]
     UnalignedField {
+        /// Stable name of the rejected encoding field.
         field: &'static str,
+        /// Rejected signed field value.
         value: i32,
+        /// Required alignment in bytes.
         alignment: u8,
     },
+    /// The supplied placement address violates the selected execution state's alignment.
     #[error("ARM946E-S instruction address {address:#x} is not aligned to {alignment} bytes")]
-    UnalignedAddress { address: u64, alignment: u8 },
+    UnalignedAddress {
+        /// Rejected instruction address.
+        address: u64,
+        /// Required alignment in bytes.
+        alignment: u8,
+    },
+    /// Typed operands form an architecturally undefined or unpredictable combination.
     #[error("operand combination is not defined by ARMv5TE: {reason}")]
-    InvalidOperand { reason: &'static str },
+    InvalidOperand {
+        /// Static explanation of the violated architectural rule.
+        reason: &'static str,
+    },
+    /// An inherited ARMv4T instruction failed its profile encoder.
     #[error(transparent)]
     Armv4T(#[from] arm7tdmi::EncodeError),
 }
 
+/// Little-endian ARM-state implementation of the shared static ISA protocol.
 pub struct Arm946EsArm;
+/// Little-endian Thumb-state implementation of the shared static ISA protocol.
 pub struct Arm946EsThumb;
 
 impl TypedIsa for Arm946EsArm {
@@ -119,6 +167,7 @@ impl TypedIsa for Arm946EsThumb {
     }
 }
 
+/// Decode one little-endian 32-bit ARM-state instruction from `source`.
 pub fn decode_arm_bytes(source: &[u8]) -> Result<ArmInstruction, DecodeError> {
     let bytes: [u8; 4] = source
         .get(..4)
@@ -131,6 +180,7 @@ pub fn decode_arm_bytes(source: &[u8]) -> Result<ArmInstruction, DecodeError> {
     decode_arm_word(u32::from_le_bytes(bytes))
 }
 
+/// Lower one typed ARM-state instruction to a little-endian 32-bit word.
 pub fn encode_arm_bytes(instruction: &ArmInstruction) -> Result<[u8; 4], EncodeError> {
     Ok(encode_arm_word(instruction)?.to_le_bytes())
 }
@@ -846,6 +896,7 @@ fn encode_halfword_offset(offset: HalfwordOffset) -> (bool, u32) {
     }
 }
 
+/// Decode one little-endian Thumb-state instruction from `source`.
 pub fn decode_thumb_bytes(source: &[u8]) -> Result<ThumbInstruction, DecodeError> {
     let first = read_thumb_halfword(source, 0)?;
     if first & 0xff00 == 0xbe00 {
@@ -874,6 +925,7 @@ pub fn decode_thumb_bytes(source: &[u8]) -> Result<ThumbInstruction, DecodeError
         .map_err(DecodeError::Armv4T)
 }
 
+/// Lower one typed Thumb-state instruction to two or four little-endian bytes.
 pub fn encode_thumb_bytes(instruction: &ThumbInstruction) -> Result<Vec<u8>, EncodeError> {
     match *instruction {
         ThumbInstruction::Armv4T(instruction) => {

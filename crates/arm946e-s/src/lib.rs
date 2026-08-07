@@ -5,6 +5,8 @@
 //! profile with the version 5 and enhanced-DSP instruction forms; it does not
 //! widen the profile to ARMv5TEJ or ARMv6.
 
+#![deny(missing_docs)]
+
 mod assembler;
 mod codec;
 mod instruction;

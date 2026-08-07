@@ -22,26 +22,31 @@ enum ArmNode {
     Data(Vec<u8>),
 }
 
+/// Placement-aware builder for typed ARM-state code and explicit data.
 #[derive(Debug, Clone, Default)]
 pub struct ArmAssembler {
     nodes: Vec<ArmNode>,
 }
 
 impl ArmAssembler {
+    /// Construct an empty ARM-state assembly program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Define a label at the current byte position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(ArmNode::Label(name.into()));
         self
     }
 
+    /// Append one fully typed ARM-state instruction.
     pub fn emit(&mut self, instruction: ArmInstruction) -> &mut Self {
         self.nodes.push(ArmNode::Instruction(instruction));
         self
     }
 
+    /// Append a conditional ARM branch to a named ARM-state label.
     pub fn branch_to_label(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.nodes.push(ArmNode::Branch {
             condition,
@@ -51,6 +56,7 @@ impl ArmAssembler {
         self
     }
 
+    /// Append a conditional ARM branch with link to a named ARM-state label.
     pub fn call_label(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.nodes.push(ArmNode::Branch {
             condition,
@@ -60,6 +66,7 @@ impl ArmAssembler {
         self
     }
 
+    /// Append an immediate `BLX` call to a named Thumb-state entry address.
     pub fn call_thumb_label(&mut self, label: impl Into<String>) -> &mut Self {
         self.nodes.push(ArmNode::BranchLinkExchange(label.into()));
         self
@@ -71,6 +78,10 @@ impl ArmAssembler {
         self
     }
 
+    /// Resolve labels, lower typed ARM code, and verify every instruction span.
+    ///
+    /// `origin` and every instruction position must be word-aligned. ARM branch
+    /// displacements use the architectural address plus eight as their PC base.
     pub fn assemble(&self, origin: u32) -> Result<ArmProgram, ArmAssemblerError> {
         if origin & 3 != 0 {
             return Err(ArmAssemblerError::UnalignedOrigin { origin });
@@ -185,6 +196,7 @@ fn verify_arm(
     Ok(())
 }
 
+/// Checked ARM-state output with resolved labels and verified instruction spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArmProgram {
     origin: u32,
@@ -194,41 +206,78 @@ pub struct ArmProgram {
 }
 
 impl ArmProgram {
+    /// Return the address assigned to the first output byte.
     pub const fn origin(&self) -> u32 {
         self.origin
     }
 
+    /// Borrow the complete assembled code and explicit data bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Return the resolved address of a defined label, if present.
     pub fn label_address(&self, label: &str) -> Option<u32> {
         self.labels.get(label).copied()
     }
 
+    /// Borrow the locations, bytes, and identities of ARM instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan<ArmInstruction>] {
         &self.spans
     }
 }
 
+/// A fail-closed reason that ARM-state assembly did not produce a program.
 #[derive(Debug, Error)]
 pub enum ArmAssemblerError {
+    /// The requested origin is not word-aligned.
     #[error("ARM assembly origin {origin:#x} is not word-aligned")]
-    UnalignedOrigin { origin: u32 },
+    UnalignedOrigin {
+        /// Rejected program origin.
+        origin: u32,
+    },
+    /// Explicit data left the following instruction at a non-word-aligned offset.
     #[error("ARM instruction at output offset {offset:#x} is not word-aligned")]
-    UnalignedInstruction { offset: usize },
+    UnalignedInstruction {
+        /// Byte offset of the misaligned instruction.
+        offset: usize,
+    },
+    /// A label name was defined more than once.
     #[error("duplicate label {label}")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Repeated label name.
+        label: String,
+    },
+    /// A label reference names no definition in the program.
     #[error("undefined label {label}")]
-    UndefinedLabel { label: String },
+    UndefinedLabel {
+        /// Missing label name.
+        label: String,
+    },
+    /// Origin plus output length exceeds the 32-bit address space.
     #[error("assembled address exceeds the 32-bit ARM address space from origin {origin:#x}")]
-    AddressOverflow { origin: u32 },
+    AddressOverflow {
+        /// Address assigned to the first output byte.
+        origin: u32,
+    },
+    /// A target difference cannot be represented as a signed ARM displacement.
     #[error("relative target {target:#x} cannot be represented from ARM PC {pc:#x}")]
-    RelativeAddressOutOfRange { pc: u32, target: u32 },
+    RelativeAddressOutOfRange {
+        /// Architectural PC base used by the branch.
+        pc: u32,
+        /// Resolved target address.
+        target: u32,
+    },
+    /// An emitted instruction changed identity during byte round-trip verification.
     #[error("assembled ARM instruction at output offset {offset:#x} failed byte verification")]
-    VerificationFailed { offset: usize },
+    VerificationFailed {
+        /// Byte offset of the inconsistent instruction span.
+        offset: usize,
+    },
+    /// Post-placement ARM decoding failed.
     #[error(transparent)]
     Decode(#[from] DecodeError),
+    /// Typed ARM lowering failed.
     #[error(transparent)]
     Encode(#[from] EncodeError),
 }
@@ -244,26 +293,31 @@ enum ThumbNode {
     Data(Vec<u8>),
 }
 
+/// Placement-aware builder for typed Thumb-state code and explicit data.
 #[derive(Debug, Clone, Default)]
 pub struct ThumbAssembler {
     nodes: Vec<ThumbNode>,
 }
 
 impl ThumbAssembler {
+    /// Construct an empty Thumb-state assembly program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Define a label at the current byte position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(ThumbNode::Label(name.into()));
         self
     }
 
+    /// Append one fully typed Thumb-state instruction.
     pub fn emit(&mut self, instruction: ThumbInstruction) -> &mut Self {
         self.nodes.push(ThumbNode::Instruction(instruction));
         self
     }
 
+    /// Append a conditional short branch to a named Thumb-state label.
     pub fn branch_to_label(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.nodes.push(ThumbNode::ConditionalBranch {
             condition,
@@ -272,16 +326,19 @@ impl ThumbAssembler {
         self
     }
 
+    /// Append an unconditional short branch to a named Thumb-state label.
     pub fn jump_label(&mut self, label: impl Into<String>) -> &mut Self {
         self.nodes.push(ThumbNode::Branch(label.into()));
         self
     }
 
+    /// Append a long branch with link to a named Thumb-state label.
     pub fn call_label(&mut self, label: impl Into<String>) -> &mut Self {
         self.nodes.push(ThumbNode::BranchLink(label.into()));
         self
     }
 
+    /// Append an immediate `BLX` call to a named ARM-state entry address.
     pub fn call_arm_label(&mut self, label: impl Into<String>) -> &mut Self {
         self.nodes.push(ThumbNode::BranchLinkExchange(label.into()));
         self
@@ -293,6 +350,11 @@ impl ThumbAssembler {
         self
     }
 
+    /// Resolve labels, lower typed Thumb code, and verify every instruction span.
+    ///
+    /// `origin` and every instruction position must be halfword-aligned. Thumb
+    /// branches use the architectural address plus four; immediate `BLX` also
+    /// word-aligns that PC base.
     pub fn assemble(&self, origin: u32) -> Result<ThumbProgram, ThumbAssemblerError> {
         if origin & 1 != 0 {
             return Err(ThumbAssemblerError::UnalignedOrigin { origin });
@@ -433,6 +495,7 @@ fn verify_thumb(
     Ok(())
 }
 
+/// Checked Thumb-state output with resolved labels and verified instruction spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThumbProgram {
     origin: u32,
@@ -442,43 +505,84 @@ pub struct ThumbProgram {
 }
 
 impl ThumbProgram {
+    /// Return the address assigned to the first output byte.
     pub const fn origin(&self) -> u32 {
         self.origin
     }
 
+    /// Borrow the complete assembled code and explicit data bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Return the resolved address of a defined label, if present.
     pub fn label_address(&self, label: &str) -> Option<u32> {
         self.labels.get(label).copied()
     }
 
+    /// Borrow the locations, bytes, and identities of Thumb instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan<ThumbInstruction>] {
         &self.spans
     }
 }
 
+/// A fail-closed reason that Thumb-state assembly did not produce a program.
 #[derive(Debug, Error)]
 pub enum ThumbAssemblerError {
+    /// The requested origin is not halfword-aligned.
     #[error("Thumb assembly origin {origin:#x} is not halfword-aligned")]
-    UnalignedOrigin { origin: u32 },
+    UnalignedOrigin {
+        /// Rejected program origin.
+        origin: u32,
+    },
+    /// Explicit data left the following instruction at an odd byte offset.
     #[error("Thumb instruction at output offset {offset:#x} is not halfword-aligned")]
-    UnalignedInstruction { offset: usize },
+    UnalignedInstruction {
+        /// Byte offset of the misaligned instruction.
+        offset: usize,
+    },
+    /// A label name was defined more than once.
     #[error("duplicate label {label}")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Repeated label name.
+        label: String,
+    },
+    /// A label reference names no definition in the program.
     #[error("undefined label {label}")]
-    UndefinedLabel { label: String },
+    UndefinedLabel {
+        /// Missing label name.
+        label: String,
+    },
+    /// Origin plus output length exceeds the 32-bit address space.
     #[error("assembled address exceeds the 32-bit ARM address space from origin {origin:#x}")]
-    AddressOverflow { origin: u32 },
+    AddressOverflow {
+        /// Address assigned to the first output byte.
+        origin: u32,
+    },
+    /// A target difference cannot be represented as a signed Thumb displacement.
     #[error("relative target {target:#x} cannot be represented from Thumb PC {pc:#x}")]
-    RelativeAddressOutOfRange { pc: u32, target: u32 },
+    RelativeAddressOutOfRange {
+        /// Architectural PC base used by the branch.
+        pc: u32,
+        /// Resolved target address.
+        target: u32,
+    },
+    /// A target exceeds the range of the selected short Thumb branch form.
     #[error("branch to {label} is outside the selected Thumb instruction range")]
-    BranchOutOfRange { label: String },
+    BranchOutOfRange {
+        /// Target label that cannot be reached by the selected form.
+        label: String,
+    },
+    /// An emitted instruction changed identity during byte round-trip verification.
     #[error("assembled Thumb instruction at output offset {offset:#x} failed byte verification")]
-    VerificationFailed { offset: usize },
+    VerificationFailed {
+        /// Byte offset of the inconsistent instruction span.
+        offset: usize,
+    },
+    /// Post-placement Thumb decoding failed.
     #[error(transparent)]
     Decode(#[from] DecodeError),
+    /// Typed Thumb lowering failed.
     #[error(transparent)]
     Encode(#[from] EncodeError),
 }
