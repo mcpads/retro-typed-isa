@@ -6,10 +6,16 @@
 use crate::instruction::*;
 
 #[derive(Debug, thiserror::Error)]
+/// Failure returned while strictly decoding one native-mode instruction.
 pub enum DecodeError {
     /// Currently occurs only for empty input. Truncated instructions use `unknown1` to preserve sweep continuity.
     #[error("input bytes truncated: needed {needed}, got {got}")]
-    Truncated { needed: usize, got: usize },
+    Truncated {
+        /// The minimum required input length.
+        needed: usize,
+        /// The available input length.
+        got: usize,
+    },
 }
 
 /// Returns the ModR/M mod field (bits 7-6).

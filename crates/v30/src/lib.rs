@@ -4,6 +4,8 @@
 //! boundary. This crate does not execute V30 instructions or decode the
 //! subsequent 8080-emulation instruction stream.
 
+#![deny(missing_docs)]
+
 mod analysis;
 mod assembler;
 mod decode;
@@ -54,22 +56,31 @@ pub struct V30;
 /// A native V30 prefix byte preserved in source order by static decoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Prefix {
+    /// The segment form.
     Segment(SegmentRegister),
+    /// The bus lock form.
     BusLock,
+    /// The repne form.
     Repne,
+    /// The rep form.
     Rep,
+    /// The repnc form.
     Repnc,
+    /// The repc form.
     Repc,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// A source-ordered sequence of native V30 prefix bytes.
 pub struct PrefixSequence(Vec<Prefix>);
 
 impl PrefixSequence {
+    /// Borrows the preserved prefixes in source order.
     pub fn as_slice(&self) -> &[Prefix] {
         &self.0
     }
 
+    /// Returns whether no prefixes were preserved.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -78,8 +89,11 @@ impl PrefixSequence {
 /// One strictly decoded native-mode instruction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedInstruction {
+    /// The typed instruction.
     pub instruction: Instruction,
+    /// The encoded instruction length in bytes.
     pub byte_len: usize,
+    /// The preserved semantic prefix sequence.
     pub prefixes: PrefixSequence,
     source_bytes: Vec<u8>,
 }
@@ -92,20 +106,35 @@ impl DecodedInstruction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+/// Failure returned while strictly decoding one native-mode instruction.
 pub enum DecodeError {
     #[error("input bytes truncated: needed at least {needed}, got {got}")]
-    Truncated { needed: usize, got: usize },
+    /// The truncated form.
+    Truncated {
+        /// The minimum required input length.
+        needed: usize,
+        /// The available input length.
+        got: usize,
+    },
     #[error("reserved or unsupported native V30 selector at byte {opcode:#04X}")]
-    ReservedSelector { opcode: u8 },
+    /// The reserved selector form.
+    ReservedSelector {
+        /// The rejected opcode.
+        opcode: u8,
+    },
     #[error("invalid native V30 encoding")]
+    /// The invalid encoding form.
     InvalidEncoding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+/// Failure returned when a typed instruction has no executable native V30 encoding.
 pub enum EncodeError {
     #[error("instruction has no valid native V30 encoding")]
+    /// The invalid instruction form.
     InvalidInstruction,
     #[error("raw or reserved bytes cannot be emitted as an instruction")]
+    /// The raw bytes not executable form.
     RawBytesNotExecutable,
 }
 
@@ -275,6 +304,7 @@ fn has_canonical_prefix_structure(instruction: &Instruction, minimum_rank: u8) -
     rank >= minimum_rank && has_canonical_prefix_structure(inner, rank + 1)
 }
 
+/// Formats one typed instruction using the crate's stable assembly notation.
 pub fn format_instruction(instruction: &Instruction) -> String {
     display::format_kind(instruction)
 }

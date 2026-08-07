@@ -4,44 +4,71 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The statically determined control-flow effect of a native V30 instruction.
 pub enum ControlFlow {
+    /// The fall through form.
     FallThrough {
+        /// The next operand.
         next: InstructionAddress,
     },
+    /// The branch form.
     Branch {
+        /// The resolved target address.
         target: InstructionAddress,
+        /// The fallthrough operand.
         fallthrough: InstructionAddress,
     },
+    /// The jump form.
     Jump {
+        /// The resolved target address.
         target: Option<InstructionAddress>,
     },
+    /// The call form.
     Call {
+        /// The resolved target address.
         target: Option<InstructionAddress>,
+        /// The fallthrough operand.
         fallthrough: InstructionAddress,
     },
+    /// The return form.
     Return,
+    /// The interrupt form.
     Interrupt {
+        /// The vector operand.
         vector: u8,
     },
+    /// The conditional interrupt form.
     ConditionalInterrupt {
+        /// The vector operand.
         vector: u8,
+        /// The fallthrough operand.
         fallthrough: InstructionAddress,
     },
+    /// The halt form.
     Halt,
+    /// The external mode transfer form.
     ExternalModeTransfer {
+        /// The vector operand.
         vector: u8,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A verified instruction, its segment-relative offset, and control-flow effect.
 pub struct PlacedInstruction {
+    /// The segmented instruction address.
     pub address: InstructionAddress,
+    /// The byte offset or encoded displacement.
     pub offset: usize,
+    /// The encoded instruction length in bytes.
     pub byte_len: usize,
+    /// The typed instruction.
     pub instruction: Instruction,
+    /// The static control-flow effect.
     pub control_flow: ControlFlow,
 }
 
+/// Strictly decodes and verifies a complete placed program.
 pub fn verify_placed_program(
     bytes: &[u8],
     origin: InstructionAddress,
@@ -76,6 +103,7 @@ pub fn verify_placed_program(
     Ok(instructions)
 }
 
+/// Computes static control flow using the supplied next-instruction address.
 pub fn control_flow(instruction: &Instruction, next: InstructionAddress) -> ControlFlow {
     match instruction {
         Instruction::Jcc { target, .. } => ControlFlow::Branch {
@@ -161,24 +189,38 @@ pub(crate) fn ensure_segment_capacity(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+/// Failure returned while decoding and verifying a placed native V30 byte stream.
 pub enum ProgramVerificationError {
     #[error("program at {origin:?} with {byte_len} bytes crosses the 64 KiB code segment")]
+    /// The code segment boundary form.
     CodeSegmentBoundary {
+        /// The first instruction address.
         origin: InstructionAddress,
+        /// The encoded instruction length in bytes.
         byte_len: usize,
     },
     #[error("decode failed at {address:?}: {source}")]
+    /// The decode form.
     Decode {
+        /// The segmented instruction address.
         address: InstructionAddress,
+        /// The underlying decode or encode failure.
         source: DecodeError,
     },
     #[error("encode failed at {address:?}: {source}")]
+    /// The encode form.
     Encode {
+        /// The segmented instruction address.
         address: InstructionAddress,
+        /// The underlying decode or encode failure.
         source: crate::EncodeError,
     },
     #[error("instruction at {address:?} is not in canonical generated-code form")]
-    NonCanonicalEncoding { address: InstructionAddress },
+    /// The non canonical encoding form.
+    NonCanonicalEncoding {
+        /// The affected instruction address.
+        address: InstructionAddress,
+    },
 }
 
 #[allow(dead_code)]

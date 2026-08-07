@@ -41,11 +41,14 @@
 use crate::instruction::*;
 
 #[derive(Debug, thiserror::Error)]
+/// Failure returned when an internal typed instruction has no executable encoding.
 pub enum EmitError {
     #[error("invalid encoding for kind")]
+    /// The invalid form.
     Invalid,
 }
 
+/// Encodes one internal typed instruction as executable bytes.
 pub fn emit(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
     // If a memory operand has a segment override, prepend its prefix and recurse on a clone
     // with the segment removed. Encoding branches therefore do not handle prefixes themselves.

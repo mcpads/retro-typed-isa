@@ -1,10 +1,15 @@
 use crate::{Mnemonic, OperandSize, Prefix, SegmentRegister};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The classification of one primary opcode selector.
 pub enum PrimaryOpcodeClass {
+    /// The instruction form.
     Instruction,
+    /// The prefix form.
     Prefix(Prefix),
+    /// The secondary escape form.
     SecondaryEscape,
+    /// The reserved form.
     Reserved,
 }
 
@@ -27,24 +32,38 @@ pub const fn classify_primary_opcode(opcode: u8) -> PrimaryOpcodeClass {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The operand-map family selected by a secondary opcode.
 pub enum SecondaryOperandEncoding {
+    /// The none form.
     None,
+    /// The register or memory8 form.
     RegisterOrMemory8,
+    /// The register or memory bit form.
     RegisterOrMemoryBit {
+        /// The operand width.
         size: OperandSize,
+        /// The immediate index operand.
         immediate_index: bool,
     },
+    /// The register pair8 form.
     RegisterPair8,
+    /// The register immediate4 form.
     RegisterImmediate4,
+    /// The immediate8 form.
     Immediate8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The classification of one `0x0f` secondary opcode selector.
 pub enum SecondaryOpcodeClass {
+    /// The instruction form.
     Instruction {
+        /// The semantic instruction family.
         mnemonic: Mnemonic,
+        /// The operand forms.
         operands: SecondaryOperandEncoding,
     },
+    /// The reserved form.
     Reserved,
 }
 
@@ -215,9 +234,13 @@ pub const fn classify_secondary_opcode(secondary: u8) -> SecondaryOpcodeClass {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether an opcode and ModR/M combination is defined or reserved.
 pub enum ModRmEncodingClass {
+    /// The valid form.
     Valid,
+    /// The reserved form.
     Reserved,
+    /// The not used form.
     NotUsed,
 }
 

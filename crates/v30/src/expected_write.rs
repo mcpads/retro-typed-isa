@@ -11,6 +11,7 @@ pub struct ExpectedWriteVerifier<ResolveSource> {
 }
 
 impl<ResolveSource> ExpectedWriteVerifier<ResolveSource> {
+    /// Constructs the value after checking its architectural encoding constraints.
     pub fn new(resolve_source: ResolveSource) -> Self {
         Self { resolve_source }
     }

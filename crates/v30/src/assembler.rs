@@ -33,25 +33,30 @@ enum Relative16Operation {
 }
 
 #[derive(Debug, Clone, Default)]
+/// A checked native V30 assembler with symbolic relative control flow.
 pub struct Assembler {
     items: Vec<AssemblyItem>,
 }
 
 impl Assembler {
+    /// Constructs the value after checking its architectural encoding constraints.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Declares a label at the current output position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.items.push(AssemblyItem::Label(name.into()));
         self
     }
 
+    /// Encodes one internal typed instruction as executable bytes.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.items.push(AssemblyItem::Instruction(instruction));
         self
     }
 
+    /// Appends a symbolic conditional short branch.
     pub fn emit_branch(&mut self, condition: Condition, label: impl Into<String>) -> &mut Self {
         self.items.push(AssemblyItem::Relative8 {
             operation: Relative8Operation::Branch(condition),
@@ -60,6 +65,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a symbolic loop-family short branch.
     pub fn emit_loop(&mut self, condition: LoopCondition, label: impl Into<String>) -> &mut Self {
         self.items.push(AssemblyItem::Relative8 {
             operation: Relative8Operation::Loop(condition),
@@ -68,6 +74,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a symbolic short jump.
     pub fn emit_jump_short(&mut self, label: impl Into<String>) -> &mut Self {
         self.items.push(AssemblyItem::Relative8 {
             operation: Relative8Operation::Jump,
@@ -76,6 +83,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a symbolic near jump.
     pub fn emit_jump_near(&mut self, label: impl Into<String>) -> &mut Self {
         self.items.push(AssemblyItem::Relative16 {
             operation: Relative16Operation::Jump,
@@ -84,6 +92,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a symbolic near call.
     pub fn emit_call_near(&mut self, label: impl Into<String>) -> &mut Self {
         self.items.push(AssemblyItem::Relative16 {
             operation: Relative16Operation::Call,
@@ -92,6 +101,7 @@ impl Assembler {
         self
     }
 
+    /// Resolves labels, encodes instructions, and verifies the placed program.
     pub fn assemble(&self, origin: InstructionAddress) -> Result<AssembledProgram, AssemblerError> {
         let (labels, byte_len) = self.collect_labels()?;
         crate::analysis::ensure_segment_capacity(origin, byte_len)
@@ -225,6 +235,7 @@ fn relative_displacement(offset: usize, instruction_len: usize, target: usize) -
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Verified native V30 bytes, labels, and placed-instruction metadata.
 pub struct AssembledProgram {
     origin: InstructionAddress,
     bytes: Vec<u8>,
@@ -233,44 +244,79 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Performs the origin operation.
     pub fn origin(&self) -> InstructionAddress {
         self.origin
     }
 
+    /// Returns the canonical representative bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the assembled program and returns its bytes.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns verified instruction placements.
     pub fn instruction_spans(&self) -> &[PlacedInstruction] {
         &self.instructions
     }
 
+    /// Returns a resolved label address.
     pub fn label_address(&self, label: &str) -> Option<InstructionAddress> {
         self.labels.get(label).copied()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+/// Failure returned while placing, resolving, or verifying a V30 assembly unit.
 pub enum AssemblerError {
     #[error("label is empty")]
+    /// The empty label form.
     EmptyLabel,
     #[error("duplicate label {label}")]
-    DuplicateLabel { label: String },
+    /// The duplicate label form.
+    DuplicateLabel {
+        /// The symbolic label.
+        label: String,
+    },
     #[error("undefined label {label}")]
-    UndefinedLabel { label: String },
+    /// The undefined label form.
+    UndefinedLabel {
+        /// The symbolic label.
+        label: String,
+    },
     #[error("8-bit relative displacement {displacement} to {label} is out of range")]
-    Relative8OutOfRange { label: String, displacement: i64 },
+    /// The relative8 out of range form.
+    Relative8OutOfRange {
+        /// The symbolic label.
+        label: String,
+        /// The resolved relative displacement.
+        displacement: i64,
+    },
     #[error("16-bit relative displacement {displacement} to {label} is out of range")]
-    Relative16OutOfRange { label: String, displacement: i64 },
+    /// The relative16 out of range form.
+    Relative16OutOfRange {
+        /// The symbolic label.
+        label: String,
+        /// The resolved relative displacement.
+        displacement: i64,
+    },
     #[error("instruction at byte offset {offset:#X} cannot be encoded: {source}")]
-    Encode { offset: usize, source: EncodeError },
+    /// The encode form.
+    Encode {
+        /// The output byte offset.
+        offset: usize,
+        /// The underlying failure.
+        source: EncodeError,
+    },
     #[error("assembled program length overflow")]
+    /// The program length overflow form.
     ProgramLengthOverflow,
     #[error(transparent)]
+    /// The verify form.
     Verify(ProgramVerificationError),
 }
 

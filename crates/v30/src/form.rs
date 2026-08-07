@@ -3,157 +3,297 @@ use std::{collections::HashSet, sync::OnceLock};
 use crate::{decode_bytes, instruction::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A prefix whose meaning is part of an instruction form.
 pub enum SemanticPrefix {
+    /// The segment form.
     Segment(Sreg),
+    /// The rep form.
     Rep,
+    /// The repne form.
     Repne,
+    /// The repc form.
     Repc,
+    /// The repnc form.
     Repnc,
+    /// The bus lock form.
     BusLock,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// The semantic V30 instruction family used by static analysis.
 pub enum Mnemonic {
+    /// The mov form.
     Mov,
+    /// The lea form.
     Lea,
+    /// The les form.
     Les,
+    /// The lds form.
     Lds,
+    /// The xchg form.
     Xchg,
+    /// The push form.
     Push,
+    /// The pop form.
     Pop,
+    /// The pusha form.
     Pusha,
+    /// The popa form.
     Popa,
+    /// The bound form.
     Bound,
+    /// The add form.
     Add,
+    /// The adc form.
     Adc,
+    /// The sub form.
     Sub,
+    /// The sbb form.
     Sbb,
+    /// The cmp form.
     Cmp,
+    /// The test form.
     Test,
+    /// The and form.
     And,
+    /// The or form.
     Or,
+    /// The xor form.
     Xor,
+    /// The inc form.
     Inc,
+    /// The dec form.
     Dec,
+    /// The neg form.
     Neg,
+    /// The not form.
     Not,
+    /// The mul form.
     Mul,
+    /// The imul form.
     Imul,
+    /// The div form.
     Div,
+    /// The idiv form.
     Idiv,
+    /// The shl form.
     Shl,
+    /// The shr form.
     Shr,
+    /// The sar form.
     Sar,
+    /// The rol form.
     Rol,
+    /// The ror form.
     Ror,
+    /// The rcl form.
     Rcl,
+    /// The rcr form.
     Rcr,
+    /// The jcc form.
     Jcc(Cond),
+    /// The loop form.
     Loop(LoopCondition),
+    /// The jmp form.
     Jmp,
+    /// The call form.
     Call,
+    /// The ret form.
     Ret,
+    /// The retf form.
     Retf,
+    /// The int form.
     Int,
+    /// The into form.
     Into,
+    /// The iret form.
     Iret,
+    /// The in form.
     In,
+    /// The out form.
     Out,
+    /// The insb form.
     Insb,
+    /// The insw form.
     Insw,
+    /// The outsb form.
     Outsb,
+    /// The outsw form.
     Outsw,
+    /// The movsb form.
     Movsb,
+    /// The movsw form.
     Movsw,
+    /// The lodsb form.
     Lodsb,
+    /// The lodsw form.
     Lodsw,
+    /// The stosb form.
     Stosb,
+    /// The stosw form.
     Stosw,
+    /// The cmpsb form.
     Cmpsb,
+    /// The cmpsw form.
     Cmpsw,
+    /// The scasb form.
     Scasb,
+    /// The scasw form.
     Scasw,
+    /// The nop form.
     Nop,
+    /// The hlt form.
     Hlt,
+    /// The xlat form.
     Xlat,
+    /// The wait form.
     Wait,
+    /// The pushf form.
     Pushf,
+    /// The popf form.
     Popf,
+    /// The sahf form.
     Sahf,
+    /// The lahf form.
     Lahf,
+    /// The cmc form.
     Cmc,
+    /// The clc form.
     Clc,
+    /// The stc form.
     Stc,
+    /// The cli form.
     Cli,
+    /// The sti form.
     Sti,
+    /// The cld form.
     Cld,
+    /// The std form.
     Std,
+    /// The cbw form.
     Cbw,
+    /// The cwd form.
     Cwd,
+    /// The aaa form.
     Aaa,
+    /// The aas form.
     Aas,
+    /// The daa form.
     Daa,
+    /// The das form.
     Das,
+    /// The aam form.
     Aam,
+    /// The aad form.
     Aad,
+    /// The enter form.
     Enter,
+    /// The leave form.
     Leave,
+    /// The esc form.
     Esc(EscapeOpcode),
+    /// The fpo2 form.
     Fpo2(Fpo2Opcode),
+    /// The add4s form.
     Add4s,
+    /// The sub4s form.
     Sub4s,
+    /// The cmp4s form.
     Cmp4s,
+    /// The rol4 form.
     Rol4,
+    /// The ror4 form.
     Ror4,
+    /// The ins form.
     Ins,
+    /// The ext form.
     Ext,
+    /// The test1 form.
     Test1,
+    /// The clr1 form.
     Clr1,
+    /// The set1 form.
     Set1,
+    /// The not1 form.
     Not1,
+    /// The brkem form.
     Brkem,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// The static shape of one instruction operand.
 pub enum OperandForm {
+    /// The register8 form.
     Register8,
+    /// The register16 form.
     Register16,
+    /// The segment register form.
     SegmentRegister,
+    /// The accumulator8 form.
     Accumulator8,
+    /// The accumulator16 form.
     Accumulator16,
+    /// The immediate8 form.
     Immediate8,
+    /// The immediate16 form.
     Immediate16,
+    /// The signed immediate8 form.
     SignedImmediate8,
+    /// The signed immediate16 form.
     SignedImmediate16,
+    /// The memory form.
     Memory {
+        /// The operand width.
         size: OpSize,
+        /// The optional segment override.
         segment: Option<Sreg>,
+        /// The effective-address base.
         base: MemBase,
     },
+    /// The relative8 form.
     Relative8,
+    /// The relative16 form.
     Relative16,
+    /// The far pointer form.
     FarPointer,
+    /// The far memory pointer form.
     FarMemoryPointer {
+        /// The optional segment override.
         segment: Option<Sreg>,
+        /// The effective-address base.
         base: MemBase,
     },
+    /// The port immediate8 form.
     PortImmediate8,
+    /// The port dx form.
     PortDx,
+    /// The shift one form.
     ShiftOne,
+    /// The shift cl form.
     ShiftCl,
+    /// The shift immediate8 form.
     ShiftImmediate8,
+    /// The bit index cl form.
     BitIndexCl,
+    /// The bit index immediate8 form.
     BitIndexImmediate8,
+    /// The bit index immediate16 form.
     BitIndexImmediate16,
+    /// The bit field length immediate4 form.
     BitFieldLengthImmediate4,
+    /// The external register form.
     ExternalRegister,
+    /// The external memory form.
     ExternalMemory {
+        /// The optional segment override.
         segment: Option<Sreg>,
+        /// The effective-address base.
         base: MemBase,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// An operand-independent native V30 instruction form.
 pub struct InstructionForm {
     prefixes: Vec<SemanticPrefix>,
     mnemonic: Mnemonic,
@@ -161,6 +301,7 @@ pub struct InstructionForm {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A canonical typed representative and byte encoding for one instruction form.
 pub struct CanonicalInstruction {
     form: InstructionForm,
     instruction: InstructionKind,
@@ -168,41 +309,50 @@ pub struct CanonicalInstruction {
 }
 
 impl CanonicalInstruction {
+    /// Returns the canonical instruction form.
     pub fn form(&self) -> &InstructionForm {
         &self.form
     }
 
+    /// Returns the canonical typed representative.
     pub fn instruction(&self) -> &InstructionKind {
         &self.instruction
     }
 
+    /// Returns the canonical representative bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 }
 
 impl InstructionForm {
+    /// Returns the complete supported instruction-form census.
     pub fn all() -> &'static [Self] {
         &form_catalog().forms
     }
 
+    /// Returns one canonical typed and byte representative per supported form.
     pub fn canonical_instructions() -> &'static [CanonicalInstruction] {
         &form_catalog().canonical_instructions
     }
 
+    /// Classifies a typed instruction into its static form.
     pub fn of(instruction: &InstructionKind) -> Option<Self> {
         crate::encode_bytes(instruction).ok()?;
         form_with_prefixes(instruction, Vec::new())
     }
 
+    /// Returns the semantic prefixes.
     pub fn prefixes(&self) -> &[SemanticPrefix] {
         &self.prefixes
     }
 
+    /// Returns the semantic instruction family.
     pub fn mnemonic(&self) -> Mnemonic {
         self.mnemonic
     }
 
+    /// Returns the static operand forms.
     pub fn operands(&self) -> &[OperandForm] {
         &self.operands
     }
