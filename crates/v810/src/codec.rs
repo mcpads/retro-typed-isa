@@ -9,6 +9,7 @@ use crate::{
     SystemRegister, V810,
 };
 
+/// One typed instruction decoded from one or two leading halfwords.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DecodedInstruction {
     instruction: Instruction,
@@ -16,55 +17,118 @@ pub struct DecodedInstruction {
 }
 
 impl DecodedInstruction {
+    /// Borrow the typed instruction identity.
     pub const fn instruction(&self) -> &Instruction {
         &self.instruction
     }
 
+    /// Consume the result and return its typed instruction identity.
     pub const fn into_instruction(self) -> Instruction {
         self.instruction
     }
 
+    /// Return the exact number of source bytes consumed.
     pub const fn byte_len(&self) -> usize {
         self.byte_len
     }
 }
 
+/// A fail-closed reason that source halfwords are not one valid V810 instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    /// The source ends before all required little-endian halfwords are available.
     #[error("truncated V810 instruction: needed {needed} bytes, got {got}")]
-    UnexpectedEnd { needed: usize, got: usize },
+    UnexpectedEnd {
+        /// Minimum byte count required to continue decoding.
+        needed: usize,
+        /// Byte count available to the decoder.
+        got: usize,
+    },
+    /// The primary opcode selector is reserved by the architecture.
     #[error("reserved V810 primary opcode in first halfword {first:#06x}")]
-    ReservedOpcode { first: u16 },
+    ReservedOpcode {
+        /// First instruction halfword containing the rejected opcode.
+        first: u16,
+    },
+    /// A field required to be zero contains non-zero bits.
     #[error("reserved V810 field is non-zero in instruction {first:#06x} {second:#06x}")]
-    ReservedField { first: u16, second: u16 },
+    ReservedField {
+        /// First instruction halfword.
+        first: u16,
+        /// Second halfword, or zero for a one-halfword instruction.
+        second: u16,
+    },
+    /// A system-register selector has no architectural assignment.
     #[error("V810 system register ID {id} is reserved")]
-    ReservedSystemRegister { id: u8 },
+    ReservedSystemRegister {
+        /// Rejected five-bit system-register identifier.
+        id: u8,
+    },
+    /// `LDSR` attempts to write a read-only system register.
     #[error("V810 system register {register:?} cannot be written by LDSR")]
-    WriteDisabledSystemRegister { register: SystemRegister },
+    WriteDisabledSystemRegister {
+        /// Read-only system register selected by the instruction.
+        register: SystemRegister,
+    },
+    /// The bit-string extension selector is reserved.
     #[error("reserved V810 bit-string sub-opcode {subopcode:#04x}")]
-    ReservedBitStringSubopcode { subopcode: u8 },
+    ReservedBitStringSubopcode {
+        /// Rejected five-bit extension selector.
+        subopcode: u8,
+    },
+    /// The floating-point extension selector is reserved.
     #[error("reserved V810 floating-point sub-opcode {subopcode:#04x}")]
-    ReservedFloatingSubopcode { subopcode: u8 },
+    ReservedFloatingSubopcode {
+        /// Rejected six-bit extension selector.
+        subopcode: u8,
+    },
 }
 
+/// A fail-closed reason that a typed V810 instruction cannot be lowered.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
+    /// A signed five-bit immediate lies outside `-16..=15`.
     #[error("V810 signed 5-bit immediate {value} is outside -16..15")]
-    SignedImmediateOutOfRange { value: i8 },
+    SignedImmediateOutOfRange {
+        /// Rejected immediate value.
+        value: i8,
+    },
+    /// An immediate shift count cannot be represented in five bits.
     #[error("V810 shift amount {value} is outside 0..31")]
-    ShiftAmountOutOfRange { value: u8 },
+    ShiftAmountOutOfRange {
+        /// Rejected shift count.
+        value: u8,
+    },
+    /// A software-trap vector cannot be represented in five bits.
     #[error("V810 trap vector {value} is outside 0..31")]
-    TrapVectorOutOfRange { value: u8 },
+    TrapVectorOutOfRange {
+        /// Rejected trap vector.
+        value: u8,
+    },
+    /// `LDSR` attempts to write a read-only system register.
     #[error("V810 system register {register:?} cannot be written by LDSR")]
-    WriteDisabledSystemRegister { register: SystemRegister },
+    WriteDisabledSystemRegister {
+        /// Read-only system register selected by the instruction.
+        register: SystemRegister,
+    },
+    /// A conditional branch displacement is odd or outside signed nine-bit range.
     #[error("V810 branch displacement {value} is not an even signed 9-bit value")]
-    BranchDisplacementOutOfRange { value: i16 },
+    BranchDisplacementOutOfRange {
+        /// Rejected byte displacement.
+        value: i16,
+    },
+    /// Condition code 13 cannot produce a branch because its selector is `NOP`.
     #[error("V810 condition code 13 encodes NOP and cannot be used as a branch")]
     NeverConditionIsNop,
+    /// A jump displacement is odd or outside signed 26-bit range.
     #[error("V810 jump displacement {value} is not an even signed 26-bit value")]
-    JumpDisplacementOutOfRange { value: i32 },
+    JumpDisplacementOutOfRange {
+        /// Rejected byte displacement.
+        value: i32,
+    },
 }
 
+/// Decode one instruction from the beginning of a little-endian byte slice.
 pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedInstruction, DecodeError> {
     let first = read_halfword(bytes, 0)?;
     let needs_second = matches!(first >> 10, 0x28..=0x3f)
@@ -89,6 +153,7 @@ fn read_halfword(bytes: &[u8], offset: usize) -> Result<u16, DecodeError> {
     ))
 }
 
+/// Decode one instruction from its first and optional second architectural halfword.
 pub fn decode_halfwords(
     first: u16,
     second: Option<u16>,
@@ -282,6 +347,7 @@ const fn decode_long_displacement(first: u16, second: u16) -> i32 {
     ((encoded as i32) << 6) >> 6
 }
 
+/// Lower one typed instruction to its first and optional second halfword.
 pub fn encode_halfwords(instruction: &Instruction) -> Result<(u16, Option<u16>), EncodeError> {
     let encoded = match *instruction {
         Instruction::Register {
@@ -434,6 +500,7 @@ fn encode_long_jump(opcode: u8, displacement: i32) -> Result<(u16, Option<u16>),
     ))
 }
 
+/// Lower one typed instruction to little-endian halfword bytes.
 pub fn encode_bytes(instruction: &Instruction) -> Result<Vec<u8>, EncodeError> {
     let (first, second) = encode_halfwords(instruction)?;
     let mut bytes = Vec::with_capacity(instruction.encoded_len());

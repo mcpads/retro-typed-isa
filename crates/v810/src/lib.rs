@@ -6,6 +6,9 @@
 //! reserved fields. Instructions lower to the little-endian halfword order
 //! specified by the architecture. Execution and simulation are out of scope.
 
+#![deny(missing_docs)]
+
+/// Stable identifier for the exact CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
 mod assembler;
