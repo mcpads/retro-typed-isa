@@ -10,6 +10,7 @@ use crate::{
     SourceMemoryInstruction, SourceMemoryOperation, Step, Tlcs900H,
 };
 
+/// One decoded variable-length instruction and its consumed byte count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DecodedInstruction {
     instruction: Instruction,
@@ -17,66 +18,134 @@ pub struct DecodedInstruction {
 }
 
 impl DecodedInstruction {
+    /// Borrows the semantic instruction.
     pub const fn instruction(&self) -> &Instruction {
         &self.instruction
     }
 
+    /// Consumes the wrapper and returns the semantic instruction.
     pub const fn into_instruction(self) -> Instruction {
         self.instruction
     }
 
+    /// Returns the number of source bytes consumed.
     pub const fn byte_len(&self) -> usize {
         self.byte_len
     }
 }
 
+/// Failure to decode one TLCS-900/H instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    /// The byte stream ended before the selected form was complete.
     #[error("truncated TLCS-900/H instruction: needed {needed} bytes, got {got}")]
-    UnexpectedEnd { needed: usize, got: usize },
+    UnexpectedEnd {
+        /// Required total byte count.
+        needed: usize,
+        /// Supplied byte count.
+        got: usize,
+    },
+    /// The primary opcode is undefined or a prohibited dummy instruction.
     #[error("TLCS-900/H primary opcode {opcode:#04x} is undefined or a prohibited dummy")]
-    ReservedPrimaryOpcode { opcode: u8 },
+    ReservedPrimaryOpcode {
+        /// Rejected primary opcode.
+        opcode: u8,
+    },
+    /// A family prefix is followed by an unassigned secondary opcode.
     #[error(
         "TLCS-900/H secondary opcode {secondary:#04x} is undefined after primary {primary:#04x}"
     )]
-    ReservedSecondaryOpcode { primary: u8, secondary: u8 },
-    #[error("TLCS-900/H addressing extension {extension:#04x} is reserved")]
-    ReservedAddressingExtension { extension: u8 },
-    #[error("TLCS-900/H register code {code:#04x} is invalid for {size:?} access")]
-    InvalidRegisterCode { code: u8, size: OperandSize },
-    #[error("TLCS-900/H control-register code {code:#04x} is invalid for {size:?} access")]
-    InvalidControlRegisterCode { code: u8, size: OperandSize },
-    #[error("TLCS-900/H field {field} has reserved value {value:#x}")]
-    ReservedField { field: &'static str, value: u32 },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum EncodeError {
-    #[error("TLCS-900/H {field} value {value:#x} does not fit {bits} bits")]
-    ValueOutOfRange {
-        field: &'static str,
-        value: u32,
-        bits: u8,
+    ReservedSecondaryOpcode {
+        /// Family-selecting primary opcode.
+        primary: u8,
+        /// Rejected secondary opcode.
+        secondary: u8,
     },
+    /// An address-prefix extension selector is reserved.
+    #[error("TLCS-900/H addressing extension {extension:#04x} is reserved")]
+    ReservedAddressingExtension {
+        /// Rejected extension byte.
+        extension: u8,
+    },
+    /// A general-register code is unmapped or misaligned for the operand size.
     #[error("TLCS-900/H register code {code:#04x} is invalid for {size:?} access")]
-    InvalidRegisterCode { code: u8, size: OperandSize },
-    #[error("TLCS-900/H control-register code {code:#04x} is invalid for {size:?} access")]
-    InvalidControlRegisterCode { code: u8, size: OperandSize },
-    #[error("TLCS-900/H {form} is not defined for {size:?} operands")]
-    InvalidSize {
-        form: &'static str,
+    InvalidRegisterCode {
+        /// Rejected register code.
+        code: u8,
+        /// Requested operand size.
         size: OperandSize,
     },
+    /// A control-register selector is not available for the operand size.
+    #[error("TLCS-900/H control-register code {code:#04x} is invalid for {size:?} access")]
+    InvalidControlRegisterCode {
+        /// Rejected control-register code.
+        code: u8,
+        /// Requested operand size.
+        size: OperandSize,
+    },
+    /// A recognized form contains a reserved field value.
+    #[error("TLCS-900/H field {field} has reserved value {value:#x}")]
+    ReservedField {
+        /// Stable field name.
+        field: &'static str,
+        /// Rejected field value.
+        value: u32,
+    },
+}
+
+/// Failure to encode a typed TLCS-900/H instruction.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum EncodeError {
+    /// A numeric operand does not fit its encoded bit width.
+    #[error("TLCS-900/H {field} value {value:#x} does not fit {bits} bits")]
+    ValueOutOfRange {
+        /// Stable field name.
+        field: &'static str,
+        /// Rejected value.
+        value: u32,
+        /// Encoded field width.
+        bits: u8,
+    },
+    /// A general-register code is unmapped or misaligned for the operand size.
+    #[error("TLCS-900/H register code {code:#04x} is invalid for {size:?} access")]
+    InvalidRegisterCode {
+        /// Rejected register code.
+        code: u8,
+        /// Requested operand size.
+        size: OperandSize,
+    },
+    /// A control-register selector is not available for the operand size.
+    #[error("TLCS-900/H control-register code {code:#04x} is invalid for {size:?} access")]
+    InvalidControlRegisterCode {
+        /// Rejected control-register code.
+        code: u8,
+        /// Requested operand size.
+        size: OperandSize,
+    },
+    /// The selected secondary form is not defined for the prefix operand size.
+    #[error("TLCS-900/H {form} is not defined for {size:?} operands")]
+    InvalidSize {
+        /// Stable form name.
+        form: &'static str,
+        /// Rejected operand size.
+        size: OperandSize,
+    },
+    /// A semantic field violates a form-specific range or selector rule.
     #[error("TLCS-900/H {field} value {value} is outside {range}")]
     InvalidField {
+        /// Stable field name.
         field: &'static str,
+        /// Rejected value.
         value: u32,
+        /// Human-readable accepted range.
         range: &'static str,
     },
+    /// The addressing mode is unavailable in the selected opcode family.
     #[error("TLCS-900/H addressing mode is not available in this opcode family")]
     InvalidAddressingMode,
 }
 
+/// Decodes the first variable-length TLCS-900/H instruction.
 pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedInstruction, DecodeError> {
     let mut cursor = Cursor::new(bytes);
     let primary = cursor.read_u8()?;
@@ -722,6 +791,7 @@ fn validate_source_memory(
     }
 }
 
+/// Encodes one typed instruction into its variable-length byte sequence.
 pub fn encode_bytes(instruction: &Instruction) -> Result<Vec<u8>, EncodeError> {
     let mut bytes = Vec::new();
     match *instruction {

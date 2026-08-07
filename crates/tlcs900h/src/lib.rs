@@ -8,6 +8,9 @@
 //! [Toshiba's product page](https://toshiba.semicon-storage.com/ap-en/semiconductor/product/microcontrollers/detail.TMP95C061BDFG.html).
 //! Execution and simulation are out of scope.
 
+#![deny(missing_docs)]
+
+/// Stable identifier of the TLCS-900/H protocol profile.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
 mod assembler;
