@@ -25,4 +25,4 @@ A CPU profile is described as complete only after its typed model has passed a s
 
 ## License
 
-GNU General Public License version 2 or later (`GPL-2.0-or-later`).
+MIT License. See [LICENSE](LICENSE).
