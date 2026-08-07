@@ -7,25 +7,30 @@ use crate::encoder::{EncodeError, encode_word};
 use crate::instruction::{FpscrState, Instruction, Register};
 
 #[derive(Debug, Clone, Default)]
+/// A checked SH-4 assembler with symbolic branches and managed literal pools.
 pub struct Assembler {
     nodes: Vec<Node>,
 }
 
 impl Assembler {
+    /// Constructs the value after checking register alignment or records explicit FPSCR state.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Declares a label at the current output position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Performs the emit operation.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Performs the emit all operation.
     pub fn emit_all(&mut self, instructions: impl IntoIterator<Item = Instruction>) -> &mut Self {
         self.nodes
             .extend(instructions.into_iter().map(Node::Instruction));
@@ -58,26 +63,32 @@ impl Assembler {
         self
     }
 
+    /// Performs the bt operation.
     pub fn bt(&mut self, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bt, label)
     }
 
+    /// Performs the bf operation.
     pub fn bf(&mut self, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bf, label)
     }
 
+    /// Performs the bts operation.
     pub fn bts(&mut self, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bts, label)
     }
 
+    /// Performs the bfs operation.
     pub fn bfs(&mut self, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bfs, label)
     }
 
+    /// Performs the bra operation.
     pub fn bra(&mut self, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bra, label)
     }
 
+    /// Performs the bsr operation.
     pub fn bsr(&mut self, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bsr, label)
     }
@@ -90,6 +101,7 @@ impl Assembler {
         self
     }
 
+    /// Resolves labels and managed literal pools, then verifies the placed program.
     pub fn assemble(
         &self,
         origin: u32,
@@ -541,6 +553,7 @@ impl LabelBranch {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A typed instruction with its placement address and active FPSCR state.
 pub struct PlacedInstruction {
     address: u32,
     fpscr: FpscrState,
@@ -548,42 +561,52 @@ pub struct PlacedInstruction {
 }
 
 impl PlacedInstruction {
+    /// Returns the absolute placement address.
     pub fn address(&self) -> u32 {
         self.address
     }
 
+    /// Returns the FPSCR state used to decode this instruction.
     pub fn fpscr(&self) -> FpscrState {
         self.fpscr
     }
 
+    /// Returns the placed typed instruction.
     pub fn instruction(&self) -> Instruction {
         self.instruction
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A word or long-word value emitted into a managed literal pool.
 pub enum LiteralValue {
+    /// The word form.
     Word(u16),
+    /// The long form.
     Long(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A managed literal value and its aligned placement address.
 pub struct PlacedLiteral {
     address: u32,
     value: LiteralValue,
 }
 
 impl PlacedLiteral {
+    /// Returns the absolute placement address.
     pub fn address(&self) -> u32 {
         self.address
     }
 
+    /// Returns the placed literal value.
     pub fn value(&self) -> LiteralValue {
         self.value
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Verified little-endian output with instructions and literal-pool placements.
 pub struct AssembledProgram {
     origin: u32,
     bytes: Vec<u8>,
@@ -594,14 +617,17 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Returns the first output address.
     pub fn origin(&self) -> u32 {
         self.origin
     }
 
+    /// Borrows the complete output bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the program and returns its bytes.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
@@ -611,73 +637,133 @@ impl AssembledProgram {
         &self.words
     }
 
+    /// Returns typed instructions in source order.
     pub fn instructions(&self) -> &[Instruction] {
         &self.instructions
     }
 
+    /// Returns instruction placements and FPSCR states.
     pub fn placed_instructions(&self) -> &[PlacedInstruction] {
         &self.placed_instructions
     }
 
+    /// Returns managed literal placements.
     pub fn literals(&self) -> &[PlacedLiteral] {
         &self.literals
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while placing instructions, branches, or literal pools.
 pub enum AssemblerError {
     #[error("SH-4 assembly origin 0x{origin:08X} is not two-byte aligned")]
-    UnalignedOrigin { origin: u32 },
+    /// The unaligned origin form.
+    UnalignedOrigin {
+        /// The first output address.
+        origin: u32,
+    },
     #[error("duplicate label `{label}`")]
-    DuplicateLabel { label: String },
+    /// The duplicate label form.
+    DuplicateLabel {
+        /// The symbolic label.
+        label: String,
+    },
     #[error("undefined label `{label}`")]
-    UndefinedLabel { label: String },
+    /// The undefined label form.
+    UndefinedLabel {
+        /// The symbolic label.
+        label: String,
+    },
     #[error("SH-4 address overflow from 0x{origin:08X} at byte offset {offset}")]
-    AddressOverflow { origin: u32, offset: usize },
+    /// The address overflow form.
+    AddressOverflow {
+        /// The first output address.
+        origin: u32,
+        /// The output byte offset.
+        offset: usize,
+    },
     #[error("branch at 0x{address:08X} has unaligned target 0x{target:08X}")]
-    UnalignedBranchTarget { address: u32, target: u32 },
+    /// The unaligned branch target form.
+    UnalignedBranchTarget {
+        /// The instruction or literal address.
+        address: u32,
+        /// The requested branch target.
+        target: u32,
+    },
     #[error("{bits}-bit branch at 0x{address:08X} cannot reach 0x{target:08X}")]
-    BranchOutOfRange { address: u32, target: u32, bits: u8 },
+    /// The branch out of range form.
+    BranchOutOfRange {
+        /// The instruction or literal address.
+        address: u32,
+        /// The requested branch target.
+        target: u32,
+        /// The bits value.
+        bits: u8,
+    },
     #[error("delayed branch at 0x{branch_address:08X} has no delay-slot instruction")]
-    MissingDelaySlot { branch_address: u32 },
+    /// The missing delay slot form.
+    MissingDelaySlot {
+        /// The branch address value.
+        branch_address: u32,
+    },
     #[error(
         "instruction {instruction} at 0x{slot_address:08X} is illegal in the delay slot of 0x{branch_address:08X}"
     )]
+    /// The illegal delay slot form.
     IllegalDelaySlot {
+        /// The branch address operand.
         branch_address: u32,
+        /// The slot address operand.
         slot_address: u32,
+        /// The typed instruction.
         instruction: Instruction,
     },
     #[error("literal at 0x{literal_address:08X} is before its load at 0x{instruction_address:08X}")]
+    /// The literal before instruction form.
     LiteralBeforeInstruction {
+        /// The instruction address operand.
         instruction_address: u32,
+        /// The literal address operand.
         literal_address: u32,
     },
     #[error(
         "literal at 0x{literal_address:08X} for load at 0x{instruction_address:08X} is not {alignment}-byte aligned"
     )]
+    /// The unaligned literal form.
     UnalignedLiteral {
+        /// The instruction address operand.
         instruction_address: u32,
+        /// The literal address operand.
         literal_address: u32,
+        /// The alignment operand.
         alignment: u32,
     },
     #[error(
         "literal at 0x{literal_address:08X} is out of range for load at 0x{instruction_address:08X}"
     )]
+    /// The literal out of range form.
     LiteralOutOfRange {
+        /// The instruction address operand.
         instruction_address: u32,
+        /// The literal address operand.
         literal_address: u32,
     },
     #[error(transparent)]
+    /// The encode form.
     Encode(EncodeError),
     #[error(transparent)]
+    /// The decode form.
     Decode(DecodeError),
     #[error(
         "SH-4 semantic round-trip mismatch at 0x{address:08X}: expected {expected}, got {actual}"
     )]
+    /// The semantic round trip mismatch form.
     SemanticRoundTripMismatch {
+        /// The instruction or literal address.
         address: u32,
+        /// The expected instruction.
         expected: Instruction,
+        /// The observed bytes.
         actual: Instruction,
     },
 }

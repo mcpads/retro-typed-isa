@@ -10,21 +10,39 @@ use crate::instruction::{
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
     #[error("SH-4 instruction address {address:#x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
+    /// The address out of range form.
+    AddressOutOfRange {
+        /// The instruction or literal address.
+        address: u64,
+    },
     #[error("SH-4 instruction address 0x{address:08X} is not two-byte aligned")]
-    UnalignedInstructionAddress { address: u32 },
+    /// The unaligned instruction address form.
+    UnalignedInstructionAddress {
+        /// The instruction or literal address.
+        address: u32,
+    },
     #[error("SH-4 {form:?} is not valid under {fpscr:?}")]
+    /// The fpscr state mismatch form.
     FpscrStateMismatch {
+        /// The instruction form.
         form: InstructionForm,
+        /// The active externally known FPSCR state.
         fpscr: FpscrState,
     },
     #[error("SH-4 {form:?} displacement {displacement} exceeds its four-bit field")]
+    /// The four bit displacement out of range form.
     FourBitDisplacementOutOfRange {
+        /// The instruction form.
         form: InstructionForm,
+        /// The displacement operand.
         displacement: u8,
     },
     #[error("SH-4 branch displacement {displacement} exceeds its signed 12-bit field")]
-    TwelveBitDisplacementOutOfRange { displacement: i16 },
+    /// The twelve bit displacement out of range form.
+    TwelveBitDisplacementOutOfRange {
+        /// The displacement value.
+        displacement: i16,
+    },
 }
 
 fn reg(reg: Register) -> u16 {
@@ -332,17 +350,24 @@ pub fn encode_bytes(instruction: &Instruction) -> Result<[u8; 2], EncodeError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while verifying a placed SH-4 instruction stream.
 pub enum VerifyError {
     #[error(transparent)]
+    /// The decode form.
     Decode(#[from] DecodeError),
     #[error(transparent)]
+    /// The encode form.
     Encode(#[from] EncodeError),
     #[error(
         "SH-4 byte round-trip mismatch at instruction {index}: expected {expected:02X?}, got {actual:02X?}"
     )]
+    /// The byte mismatch form.
     ByteMismatch {
+        /// The index operand.
         index: usize,
+        /// The expected instruction.
         expected: [u8; 2],
+        /// The observed bytes.
         actual: [u8; 2],
     },
 }

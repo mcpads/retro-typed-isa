@@ -7,6 +7,8 @@
 //! decode inputs. Execution, pipeline timing, scheduling, and simulation are
 //! deliberately excluded.
 
+#![deny(missing_docs)]
+
 /// Stable identifier for the CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
@@ -31,15 +33,20 @@ pub use instruction::{
 pub trait Sh4Profile:
     typed_isa_core::TypedIsa<Instruction = Instruction, Form = InstructionForm>
 {
+    /// The externally known FPSCR precision and transfer-size decode state.
     const FPSCR: FpscrState;
 }
 
+/// Little-endian SH-4 profile with single precision and single-register transfers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sh4Pr0Sz0;
+/// Little-endian SH-4 profile with single precision and register-pair transfers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sh4Pr0Sz1;
+/// Little-endian SH-4 profile with double precision and single-register transfers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sh4Pr1Sz0;
+/// Little-endian SH-4 profile with double precision and register-pair transfers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sh4Pr1Sz1;
 

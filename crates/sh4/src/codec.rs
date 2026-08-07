@@ -8,22 +8,50 @@ use crate::instruction::{
 /// Classification of every possible 16-bit word in the SH-4 encoding space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecodedWord {
+    /// The instruction form.
     Instruction(Instruction),
-    Unknown { word: u16 },
+    /// The unknown form.
+    Unknown {
+        /// The rejected opcode word.
+        word: u16,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Failure returned while decoding an SH-4 opcode.
 pub enum DecodeError {
     #[error("SH-4 instruction address {address:#x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
+    /// The address out of range form.
+    AddressOutOfRange {
+        /// The instruction or literal address.
+        address: u64,
+    },
     #[error("SH-4 instruction requires two bytes, got {len}")]
-    TruncatedInput { len: usize },
+    /// The truncated input form.
+    TruncatedInput {
+        /// The len value.
+        len: usize,
+    },
     #[error("reserved SH-4 instruction word 0x{word:04X}")]
-    UnknownWord { word: u16 },
+    /// The unknown word form.
+    UnknownWord {
+        /// The rejected opcode word.
+        word: u16,
+    },
     #[error("SH-4 instruction address 0x{address:08X} is not two-byte aligned")]
-    UnalignedInstructionAddress { address: u32 },
+    /// The unaligned instruction address form.
+    UnalignedInstructionAddress {
+        /// The instruction or literal address.
+        address: u32,
+    },
     #[error("SH-4 address overflow from 0x{origin:08X} at instruction {index}")]
-    AddressOverflow { origin: u32, index: usize },
+    /// The address overflow form.
+    AddressOverflow {
+        /// The first output address.
+        origin: u32,
+        /// The index value.
+        index: usize,
+    },
 }
 
 /// Sign-extend an 8-bit value to i8.
@@ -1018,6 +1046,7 @@ pub fn decode_bytes(bytes: &[u8], fpscr: FpscrState) -> Result<Instruction, Deco
     )
 }
 
+/// Performs the decode program operation.
 pub(crate) fn decode_program(
     bytes: &[u8],
     origin: u32,
