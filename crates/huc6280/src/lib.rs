@@ -6,6 +6,8 @@
 //! it does not model CPU execution, MPR state transitions, cycle timing, or
 //! simulation.
 
+#![deny(missing_docs)]
+
 /// Stable identifier for the CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 

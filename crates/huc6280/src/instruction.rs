@@ -7,95 +7,196 @@ use core::fmt;
 /// The bit number is part of the printed mnemonic for RMB, SMB, BBR, and BBS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mnemonic {
+    /// Add memory and carry to the accumulator.
     Adc,
+    /// Bitwise AND memory with the accumulator.
     And,
+    /// Arithmetic shift left.
     Asl,
+    /// Branch if carry is clear.
     Bcc,
+    /// Branch if carry is set.
     Bcs,
+    /// Branch if the zero flag is set.
     Beq,
+    /// Test memory bits against the accumulator and status flags.
     Bit,
+    /// Branch if the negative flag is set.
     Bmi,
+    /// Branch if the zero flag is clear.
     Bne,
+    /// Branch if the negative flag is clear.
     Bpl,
+    /// Branch unconditionally.
     Bra,
+    /// Enter the maskable-interrupt vector through a software interrupt.
     Brk,
+    /// Branch to a subroutine using a relative target.
     Bsr,
+    /// Branch if overflow is clear.
     Bvc,
+    /// Branch if overflow is set.
     Bvs,
+    /// Clear the accumulator.
     Cla,
+    /// Clear the carry flag.
     Clc,
+    /// Clear the decimal-mode flag.
     Cld,
+    /// Clear the interrupt-disable flag.
     Cli,
+    /// Clear the overflow flag.
     Clv,
+    /// Clear X.
     Clx,
+    /// Clear Y.
     Cly,
+    /// Compare memory with the accumulator.
     Cmp,
+    /// Compare memory with X.
     Cpx,
+    /// Compare memory with Y.
     Cpy,
+    /// Select the high-speed CPU clock mode.
     Csh,
+    /// Select the low-speed CPU clock mode.
     Csl,
+    /// Decrement memory or the accumulator.
     Dec,
+    /// Decrement X.
     Dex,
+    /// Decrement Y.
     Dey,
+    /// Bitwise exclusive OR memory with the accumulator.
     Eor,
+    /// Increment memory or the accumulator.
     Inc,
+    /// Increment X.
     Inx,
+    /// Increment Y.
     Iny,
+    /// Jump to an absolute or indirect address.
     Jmp,
+    /// Jump to a subroutine using an absolute target.
     Jsr,
+    /// Load the accumulator.
     Lda,
+    /// Load X.
     Ldx,
+    /// Load Y.
     Ldy,
+    /// Logical shift right.
     Lsr,
+    /// Perform no architecturally visible operation.
     Nop,
+    /// Bitwise OR memory with the accumulator.
     Ora,
+    /// Push the accumulator onto the stack.
     Pha,
+    /// Push processor status onto the stack.
     Php,
+    /// Push X onto the stack.
     Phx,
+    /// Push Y onto the stack.
     Phy,
+    /// Pull the accumulator from the stack.
     Pla,
+    /// Pull processor status from the stack.
     Plp,
+    /// Pull X from the stack.
     Plx,
+    /// Pull Y from the stack.
     Ply,
-    Rmb { bit: u8 },
+    /// Reset one selected bit in zero-page memory.
+    Rmb {
+        /// Bit number encoded in the opcode selector.
+        bit: u8,
+    },
+    /// Rotate left through carry.
     Rol,
+    /// Rotate right through carry.
     Ror,
+    /// Return from an interrupt.
     Rti,
+    /// Return from a subroutine.
     Rts,
+    /// Exchange the accumulator and X.
     Sax,
+    /// Exchange the accumulator and Y.
     Say,
+    /// Subtract memory and inverted carry from the accumulator.
     Sbc,
+    /// Set the carry flag.
     Sec,
+    /// Set the decimal-mode flag.
     Sed,
+    /// Set the interrupt-disable flag.
     Sei,
+    /// Set the HuC6280 T flag used by supported accumulator operations.
     Set,
-    Smb { bit: u8 },
+    /// Set one selected bit in zero-page memory.
+    Smb {
+        /// Bit number encoded in the opcode selector.
+        bit: u8,
+    },
+    /// Store an immediate value through hardware port selector 0.
     St0,
+    /// Store an immediate value through hardware port selector 1.
     St1,
+    /// Store an immediate value through hardware port selector 2.
     St2,
+    /// Store the accumulator.
     Sta,
+    /// Store X.
     Stx,
+    /// Store Y.
     Sty,
+    /// Store zero.
     Stz,
+    /// Exchange X and Y.
     Sxy,
+    /// Block transfer with alternating source addresses and incrementing destination.
     Tai,
+    /// Transfer the accumulator to selected memory-page registers.
     Tam,
+    /// Transfer the accumulator to X.
     Tax,
+    /// Transfer the accumulator to Y.
     Tay,
+    /// Block transfer while decrementing both source and destination.
     Tdd,
+    /// Block transfer with incrementing source and alternating destination addresses.
     Tia,
+    /// Block transfer while incrementing both source and destination.
     Tii,
+    /// Block transfer with incrementing source and fixed destination.
     Tin,
+    /// Transfer a selected memory-page register to the accumulator.
     Tma,
+    /// Test memory bits and reset those selected by the accumulator.
     Trb,
+    /// Test memory bits and set those selected by the accumulator.
     Tsb,
+    /// Test memory against an immediate mask.
     Tst,
+    /// Transfer the stack pointer to X.
     Tsx,
+    /// Transfer X to the accumulator.
     Txa,
+    /// Transfer X to the stack pointer.
     Txs,
+    /// Transfer Y to the accumulator.
     Tya,
-    Bbr { bit: u8 },
-    Bbs { bit: u8 },
+    /// Branch when one selected zero-page bit is reset.
+    Bbr {
+        /// Bit number encoded in the opcode selector.
+        bit: u8,
+    },
+    /// Branch when one selected zero-page bit is set.
+    Bbs {
+        /// Bit number encoded in the opcode selector.
+        bit: u8,
+    },
 }
 
 impl fmt::Display for Mnemonic {
@@ -113,30 +214,52 @@ impl fmt::Display for Mnemonic {
 /// Operand interpretation selected by an opcode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddressingMode {
+    /// Operand is implicit in the instruction identity.
     Implied,
+    /// Operation targets the accumulator without an encoded operand byte.
     Accumulator,
+    /// One literal byte immediately follows the opcode.
     Immediate,
+    /// One byte selects an address in zero page.
     ZeroPage,
+    /// One zero-page base byte is indexed by X.
     ZeroPageX,
+    /// One zero-page base byte is indexed by Y.
     ZeroPageY,
+    /// One little-endian word supplies an absolute address.
     Absolute,
+    /// One absolute base address is indexed by X.
     AbsoluteX,
+    /// One absolute base address is indexed by Y.
     AbsoluteY,
+    /// One absolute address names an indirect pointer.
     AbsoluteIndirect,
+    /// One zero-page pointer base is first indexed by X, then dereferenced.
     ZeroPageIndexedIndirectX,
+    /// One zero-page pointer is dereferenced, then indexed by Y.
     ZeroPageIndirectIndexedY,
+    /// One zero-page byte names an unindexed indirect pointer.
     ZeroPageIndirect,
+    /// One absolute pointer-table base is indexed by X before dereferencing.
     AbsoluteIndexedIndirectX,
+    /// One signed byte is relative to the post-instruction program counter.
     Relative,
+    /// A zero-page address is followed by a signed relative displacement.
     ZeroPageRelative,
+    /// Three little-endian words encode source, destination, and transfer length.
     BlockTransfer,
+    /// An immediate mask is followed by a zero-page address.
     ImmediateZeroPage,
+    /// An immediate mask is followed by a zero-page base indexed by X.
     ImmediateZeroPageX,
+    /// An immediate mask is followed by an absolute address.
     ImmediateAbsolute,
+    /// An immediate mask is followed by an absolute base indexed by X.
     ImmediateAbsoluteX,
 }
 
 impl AddressingMode {
+    /// Return the number of bytes encoded after the opcode for this mode.
     pub const fn operand_len(self) -> usize {
         match self {
             Self::Implied | Self::Accumulator => 0,
@@ -167,11 +290,14 @@ impl AddressingMode {
 /// Only forms assigned by Hudson's software manual belong to this denominator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InstructionForm {
+    /// Operation selected by the form.
     pub mnemonic: Mnemonic,
+    /// Operand interpretation selected by the form.
     pub mode: AddressingMode,
 }
 
 impl InstructionForm {
+    /// Construct a semantic form from its mnemonic and addressing mode.
     pub const fn new(mnemonic: Mnemonic, mode: AddressingMode) -> Self {
         Self { mnemonic, mode }
     }
@@ -190,6 +316,7 @@ impl InstructionForm {
         })
     }
 
+    /// Return the complete instruction length, including the opcode byte.
     pub const fn encoded_len(self) -> usize {
         1 + self.mode.operand_len()
     }
@@ -530,20 +657,32 @@ pub(crate) fn canonical_opcode(form: InstructionForm) -> Option<u8> {
 /// Placement-aware static control-flow classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlFlow {
+    /// Execution continues at the next sequential address.
     FallThrough {
+        /// Address immediately after the instruction.
         next: u16,
     },
+    /// A conditional or unconditional relative branch.
     Branch {
+        /// Address reached when the branch is taken.
         target: u16,
+        /// Address reached when the condition is false, or `None` for `BRA`.
         fallthrough: Option<u16>,
     },
+    /// A direct subroutine call.
     Call {
+        /// Direct subroutine entry address.
         target: u16,
+        /// Address of the next sequential instruction after the call.
         return_address: u16,
     },
+    /// An unconditional jump transfers control directly or through memory.
     Jump {
+        /// Direct static target, or `None` for an indirect jump.
         target: Option<u16>,
     },
+    /// Control returns through a stack-supplied address.
     Return,
+    /// Control enters an interrupt vector.
     Interrupt,
 }

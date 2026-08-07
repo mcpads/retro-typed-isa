@@ -11,25 +11,42 @@ use crate::instruction::{
 /// interpreted and serialized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
+    /// An implied or accumulator form has no encoded operand bytes.
     None,
+    /// One unsigned byte used by immediate and zero-page forms.
     Byte(u8),
+    /// One little-endian word used by absolute forms.
     Word(u16),
+    /// One signed displacement relative to the post-instruction address.
     Relative(i8),
+    /// Zero-page bit-test address followed by a relative branch displacement.
     ZeroPageRelative {
+        /// Zero-page byte address tested by the instruction.
         address: u8,
+        /// Signed displacement from the post-instruction address.
         displacement: i8,
     },
+    /// Source, destination, and byte count for a HuC6280 block transfer.
     BlockTransfer {
+        /// Initial 16-bit source address.
         source: u16,
+        /// Initial 16-bit destination address.
         destination: u16,
+        /// Number of bytes transferred; zero retains the hardware-defined value.
         length: u16,
     },
+    /// Immediate test mask paired with a zero-page address.
     ImmediateZeroPage {
+        /// Literal mask used by the test.
         immediate: u8,
+        /// Zero-page base address, optionally indexed by the instruction form.
         address: u8,
     },
+    /// Immediate test mask paired with an absolute address.
     ImmediateAbsolute {
+        /// Literal mask used by the test.
         immediate: u8,
+        /// Absolute base address, optionally indexed by the instruction form.
         address: u16,
     },
 }
@@ -87,10 +104,12 @@ impl Instruction {
         Ok(instruction)
     }
 
+    /// Return the exact documented opcode selector retained by this instruction.
     pub const fn opcode(self) -> u8 {
         self.opcode
     }
 
+    /// Return the semantic mnemonic/addressing form selected by the opcode.
     pub const fn form(self) -> InstructionForm {
         match instruction_form(self.opcode) {
             Some(form) => form,
@@ -98,30 +117,39 @@ impl Instruction {
         }
     }
 
+    /// Return the operation mnemonic selected by the opcode.
     pub const fn mnemonic(self) -> Mnemonic {
         self.form().mnemonic
     }
 
+    /// Return the operand interpretation selected by the opcode.
     pub const fn addressing_mode(self) -> AddressingMode {
         self.form().mode
     }
 
+    /// Return the typed operand value associated with the instruction.
     pub const fn operand(self) -> Operand {
         self.operand
     }
 
+    /// Return the complete encoded length, including the opcode byte.
     pub const fn encoded_len(self) -> usize {
         self.form().encoded_len()
     }
 
+    /// Return whether the selector is assigned by Hudson's software manual.
     pub const fn opcode_is_documented(self) -> bool {
         opcode_is_documented(self.opcode)
     }
 
+    /// Return the sequential address immediately following this instruction.
+    ///
+    /// HuC6280 program-counter arithmetic wraps in the 16-bit address space.
     pub fn fallthrough_address(self, pc: u16) -> u16 {
         pc.wrapping_add(self.encoded_len() as u16)
     }
 
+    /// Classify static control transfer at the supplied instruction address.
     pub fn control_flow(self, pc: u16) -> ControlFlow {
         use Mnemonic::*;
 
@@ -178,6 +206,7 @@ impl Instruction {
     }
 }
 
+/// A fail-closed reason that one instruction could not be decoded.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum DecodeError {
     /// The selector is one of the 22 slots left undefined by Hudson's manual.
@@ -186,14 +215,19 @@ pub enum DecodeError {
         /// Rejected opcode selector.
         opcode: u8,
     },
+    /// The source ends before the complete documented instruction is available.
     #[error("truncated opcode {opcode:#04x}: expected {expected} byte(s), found {found}")]
     Truncated {
+        /// Opcode whose operands are incomplete, or zero when no opcode exists.
         opcode: u8,
+        /// Complete encoded length required for this opcode.
         expected: usize,
+        /// Number of source bytes actually available.
         found: usize,
     },
 }
 
+/// A fail-closed reason that a typed instruction could not be encoded.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum EncodeError {
     /// The requested exact selector is not assigned by Hudson's manual.
@@ -202,23 +236,36 @@ pub enum EncodeError {
         /// Rejected opcode selector.
         opcode: u8,
     },
+    /// No documented selector implements the requested mnemonic and mode pair.
     #[error("no HuC6280 encoding for {mnemonic} {mode:?}")]
     UnknownEncoding {
+        /// Requested operation mnemonic.
         mnemonic: Mnemonic,
+        /// Requested operand interpretation.
         mode: AddressingMode,
     },
+    /// The supplied operand type does not match the exact opcode form.
     #[error(
         "invalid operand for opcode {opcode:#04x} ({mnemonic} {mode:?}): expected {expected}, found {found}"
     )]
     OperandMismatch {
+        /// Exact opcode selector being constructed or lowered.
         opcode: u8,
+        /// Mnemonic selected by the opcode.
         mnemonic: Mnemonic,
+        /// Addressing mode selected by the opcode.
         mode: AddressingMode,
+        /// Human-readable operand category required by the form.
         expected: &'static str,
+        /// Human-readable category of the supplied operand.
         found: &'static str,
     },
+    /// An RMB, SMB, BBR, or BBS mnemonic carries an unencodable bit number.
     #[error("bit-indexed mnemonic has bit {bit}; expected 0..=7")]
-    InvalidBitIndex { bit: u8 },
+    InvalidBitIndex {
+        /// Rejected bit number.
+        bit: u8,
+    },
 }
 
 /// Decode one instruction from the start of a byte slice.
