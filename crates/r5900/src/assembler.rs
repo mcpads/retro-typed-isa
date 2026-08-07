@@ -31,26 +31,34 @@ enum Node {
     Data(Vec<u8>),
 }
 
+/// Label-resolving assembler for typed R5900 instructions.
+///
+/// Branch and jump targets are resolved after placement. Declared data is
+/// preserved verbatim and may not leave a following instruction unaligned.
 #[derive(Debug, Clone, Default)]
 pub struct Assembler {
     nodes: Vec<Node>,
 }
 
 impl Assembler {
+    /// Creates an empty assembler program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Declares `name` at the current output address.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Appends an already validated instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Appends a two-register conditional branch to `label`.
     pub fn branch_two_to_label(
         &mut self,
         form: InstructionForm,
@@ -67,6 +75,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a one-register conditional branch to `label`.
     pub fn branch_one_to_label(
         &mut self,
         form: InstructionForm,
@@ -81,6 +90,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a COP0, COP1, or COP2 conditional branch to `label`.
     pub fn coprocessor_branch_to_label(
         &mut self,
         form: InstructionForm,
@@ -93,6 +103,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a direct jump or jump-and-link to `label`.
     pub fn jump_to_label(&mut self, form: InstructionForm, label: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Jump {
             form,
@@ -101,12 +112,16 @@ impl Assembler {
         self
     }
 
-    /// Emit declared non-executable data without treating it as an instruction.
+    /// Emits declared non-executable data without treating it as an instruction.
     pub fn data(&mut self, bytes: impl Into<Vec<u8>>) -> &mut Self {
         self.nodes.push(Node::Data(bytes.into()));
         self
     }
 
+    /// Resolves labels and encodes the program at `origin`.
+    ///
+    /// The origin and each instruction placement must be four-byte aligned and
+    /// the complete output must fit the 32-bit EE address space.
     pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
         validate_origin(origin)?;
         let (labels, byte_len) = self.collect_labels(origin)?;
@@ -215,6 +230,7 @@ impl Assembler {
     }
 }
 
+/// Immutable bytes, labels, and typed instruction spans from assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     origin: u64,
@@ -224,43 +240,77 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Returns the requested program origin.
     pub const fn origin(&self) -> u64 {
         self.origin
     }
 
+    /// Returns the complete byte stream, including declared data.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the result and returns its byte stream.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns every resolved label address.
     pub fn labels(&self) -> &BTreeMap<String, u32> {
         &self.labels
     }
 
+    /// Returns spans for executable instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
         &self.instruction_spans
     }
 }
 
+/// Failure to place, resolve, construct, or encode an assembler program.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AssemblerError {
+    /// The requested origin is not four-byte aligned.
     #[error("R5900 origin {origin:#x} is not four-byte aligned")]
-    UnalignedOrigin { origin: u64 },
+    UnalignedOrigin {
+        /// Rejected origin address.
+        origin: u64,
+    },
+    /// The requested origin exceeds the 32-bit target address space.
     #[error("R5900 origin {origin:#x} exceeds the 32-bit address space")]
-    OriginOutOfRange { origin: u64 },
+    OriginOutOfRange {
+        /// Rejected origin address.
+        origin: u64,
+    },
+    /// A label name is declared more than once.
     #[error("duplicate label {label}")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Duplicated label name.
+        label: String,
+    },
+    /// A control-flow node refers to an undeclared label.
     #[error("undefined label {label}")]
-    UndefinedLabel { label: String },
+    UndefinedLabel {
+        /// Missing label name.
+        label: String,
+    },
+    /// Declared data leaves a following instruction unaligned.
     #[error("instruction at output offset {offset:#x} is not four-byte aligned")]
-    UnalignedInstruction { offset: usize },
+    UnalignedInstruction {
+        /// Byte offset of the unaligned instruction.
+        offset: usize,
+    },
+    /// A placed address or the program extent exceeds the address space.
     #[error("address overflow from origin {origin:#x} at output offset {offset:#x}")]
-    AddressOverflow { origin: u64, offset: usize },
+    AddressOverflow {
+        /// Program origin involved in the overflow.
+        origin: u64,
+        /// Output offset involved in the overflow.
+        offset: usize,
+    },
+    /// A label-resolved instruction failed typed construction.
     #[error(transparent)]
     Construction(#[from] crate::ConstructionError),
+    /// An instruction failed final placement or encoding.
     #[error(transparent)]
     Encode(#[from] EncodeError),
 }

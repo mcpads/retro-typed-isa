@@ -14,6 +14,9 @@
 //! [*EE Core User's Manual*]: https://github.com/DarrenRainey/PS2-Programming-Docs/blob/master/EE_Core_Users_Manual.pdf
 //! [*VU User's Manual*]: https://github.com/DarrenRainey/PS2-Programming-Docs/blob/master/VU_Users_Manual.pdf
 
+#![deny(missing_docs)]
+
+/// Stable identifier of the R5900 protocol profile.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
 mod assembler;
@@ -31,6 +34,10 @@ pub use forms::InstructionForm;
 pub use instruction::*;
 pub use typed_isa_core::InstructionSpan;
 
+/// Formats a typed instruction into a stable diagnostic representation.
+///
+/// This is intended for Expected Write audit records, not as a source-language
+/// assembler syntax.
 pub fn format_instruction(instruction: &Instruction) -> String {
     format!("{:?}", instruction)
 }

@@ -411,12 +411,17 @@ pub(crate) use r5900_forms;
 
 macro_rules! define_instruction_forms {
     ($( $variant:ident, $mnemonic:literal, $mask:literal, $value:literal, $layout:ident; )+) => {
+        /// An executable EE Core, COP0, COP1, or VU0 macro-mode instruction form.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum InstructionForm {
-            $( $variant, )+
+            $(
+                #[doc = concat!("The `", $mnemonic, "` instruction form.")]
+                $variant,
+            )+
         }
 
         impl InstructionForm {
+            /// Returns the canonical mnemonic from the processor manuals.
             pub const fn mnemonic(self) -> &'static str {
                 match self {
                     $( Self::$variant => $mnemonic, )+

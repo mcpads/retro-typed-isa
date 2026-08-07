@@ -11,35 +11,83 @@ use crate::{
     VectorMicroAddress, forms::r5900_forms,
 };
 
+/// Sony/Toshiba R5900 protocol profile for the PlayStation 2 EE.
 #[derive(Debug, Clone, Copy)]
 pub struct R5900;
 
+/// Failure to decode one fixed-width R5900 instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    /// The supplied instruction address is not four-byte aligned.
     #[error("R5900 instruction address {address:#x} is not four-byte aligned")]
-    UnalignedAddress { address: u64 },
+    UnalignedAddress {
+        /// Supplied instruction address.
+        address: u64,
+    },
+    /// The supplied instruction address exceeds the 32-bit EE address space.
     #[error("R5900 instruction address {address:#x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
+    AddressOutOfRange {
+        /// Supplied instruction address.
+        address: u64,
+    },
+    /// Fewer than four source bytes were available.
     #[error("truncated R5900 instruction: needed 4 bytes, got {got}")]
-    UnexpectedEnd { got: usize },
+    UnexpectedEnd {
+        /// Number of source bytes available.
+        got: usize,
+    },
+    /// The word is reserved or outside the declared R5900 profile.
     #[error("reserved or out-of-profile R5900 instruction word {word:#010x}")]
-    ReservedWord { word: u32 },
+    ReservedWord {
+        /// Rejected instruction word.
+        word: u32,
+    },
 }
 
+/// Failure to validate placement or encode one R5900 instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
+    /// The supplied instruction address is not four-byte aligned.
     #[error("R5900 instruction address {address:#x} is not four-byte aligned")]
-    UnalignedAddress { address: u64 },
+    UnalignedAddress {
+        /// Supplied instruction address.
+        address: u64,
+    },
+    /// The supplied instruction address exceeds the 32-bit EE address space.
     #[error("R5900 instruction address {address:#x} exceeds the 32-bit address space")]
-    AddressOutOfRange { address: u64 },
+    AddressOutOfRange {
+        /// Supplied instruction address.
+        address: u64,
+    },
+    /// A control-flow target is not four-byte aligned.
     #[error("control-flow target {target:#010x} is not four-byte aligned")]
-    UnalignedTarget { target: u32 },
+    UnalignedTarget {
+        /// Rejected target address.
+        target: u32,
+    },
+    /// A PC-relative branch cannot represent the requested displacement.
     #[error("branch at {address:#010x} cannot reach {target:#010x}")]
-    BranchOutOfRange { address: u32, target: u32 },
+    BranchOutOfRange {
+        /// Address of the branch instruction.
+        address: u32,
+        /// Requested absolute target address.
+        target: u32,
+    },
+    /// A direct jump target is outside the instruction's 256 MiB region.
     #[error("jump at {address:#010x} cannot reach region containing {target:#010x}")]
-    JumpRegionMismatch { address: u32, target: u32 },
+    JumpRegionMismatch {
+        /// Address of the jump instruction.
+        address: u32,
+        /// Requested absolute target address.
+        target: u32,
+    },
+    /// Operand bits conflict with bits fixed by the selected instruction form.
     #[error("operands overwrite fixed bits of R5900 instruction {mnemonic}")]
-    FixedFieldConflict { mnemonic: &'static str },
+    FixedFieldConflict {
+        /// Mnemonic of the conflicting form.
+        mnemonic: &'static str,
+    },
+    /// The instruction and operand shape fail typed construction rules.
     #[error("invalid R5900 instruction: {0}")]
     InvalidInstruction(#[from] ConstructionError),
 }
@@ -139,6 +187,7 @@ macro_rules! define_descriptors {
 
 r5900_forms!(define_descriptors);
 
+/// Decodes one little-endian-independent R5900 instruction word at `address`.
 pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
     let address = checked_decode_address(address)?;
     for specificity in (0..=32).rev() {
@@ -154,6 +203,7 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
     Err(DecodeError::ReservedWord { word })
 }
 
+/// Encodes one typed instruction into an R5900 instruction word.
 pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
     let address = checked_encode_address(address)?;
     validate_operands(instruction.form(), instruction.operands())?;
@@ -536,6 +586,7 @@ pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, Encod
     Ok(word)
 }
 
+/// Decodes the first four source bytes as a little-endian R5900 instruction.
 pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
@@ -546,6 +597,7 @@ pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeEr
     )
 }
 
+/// Encodes one typed instruction as four little-endian bytes.
 pub fn encode_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
     Ok(encode_word(instruction, address)?.to_le_bytes())
 }

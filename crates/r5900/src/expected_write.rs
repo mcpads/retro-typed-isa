@@ -4,11 +4,17 @@ use expected_write::{
     MachineCodeVerifierError,
 };
 
+/// Expected Write machine-code verifier backed by the R5900 profile.
+///
+/// The resolver maps an external assembly-source identity to an independently
+/// assembled program. Replacement bytes are decoded and re-encoded through the
+/// same typed profile before the shared verifier admits the write.
 pub struct ExpectedWriteVerifier<ResolveSource> {
     resolve_source: ResolveSource,
 }
 
 impl<ResolveSource> ExpectedWriteVerifier<ResolveSource> {
+    /// Creates a verifier with the external assembly-source resolver.
     pub const fn new(resolve_source: ResolveSource) -> Self {
         Self { resolve_source }
     }
