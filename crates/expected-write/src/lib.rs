@@ -1,8 +1,8 @@
-//! 불변 원본에 대한 쓰기 소유권과 기계어 검산 경계.
+//! Write ownership and machine-code verification against immutable input.
 
 use std::{collections::BTreeSet, error::Error, fmt, ops::Range};
 
-/// 계획이 선언하는 이미지 영역의 의미.
+/// The meaning assigned to an image region by a write plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionKind {
     Data,
@@ -11,7 +11,7 @@ pub enum RegionKind {
     Protected,
 }
 
-/// 서로 겹치지 않는 이미지 영역 하나.
+/// One non-overlapping image region.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageRegion {
     pub id: String,
@@ -20,7 +20,7 @@ pub struct ImageRegion {
     pub reason: String,
 }
 
-/// 이미지 길이를 바꾸는 단일 소유 작업.
+/// A single-owner operation that changes the image length.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResizePlan {
     pub owner: String,
@@ -29,14 +29,14 @@ pub struct ResizePlan {
     pub output_len: usize,
 }
 
-/// 기계어 쓰기를 만든 typed assembly source의 신원.
+/// The identity of the typed assembly source that produced a machine-code write.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineCodeProvenance {
     pub assembly_source_id: String,
     pub isa_profile_id: String,
 }
 
-/// 쓰기 바이트가 맡는 역할.
+/// The role of the bytes in a write.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteIntent {
     Data,
@@ -54,7 +54,7 @@ impl WriteIntent {
     }
 }
 
-/// 불변 원본의 선조건과 한 소유자가 책임지는 최종 바이트.
+/// An immutable-input precondition and the final bytes owned by one producer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpectedWrite {
     pub id: String,
@@ -66,7 +66,7 @@ pub struct ExpectedWrite {
     pub intent: WriteIntent,
 }
 
-/// 기계어 검증기에 제공하는 쓰기 문맥.
+/// Write context supplied to a machine-code verifier.
 pub struct MachineCodeCheck<'a> {
     pub region: &'a ImageRegion,
     pub write: &'a ExpectedWrite,
@@ -74,7 +74,7 @@ pub struct MachineCodeCheck<'a> {
     pub baseline: &'a [u8],
 }
 
-/// 쓰기 시작점을 기준으로 한 연속 정적 decode 결과.
+/// One sequential static decode result relative to the start of a write.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedInstruction {
     pub offset: usize,
@@ -82,7 +82,7 @@ pub struct DecodedInstruction {
     pub canonical: String,
 }
 
-/// 프로젝트별 source lookup이나 ISA adapter가 보고하는 검증 실패.
+/// A verification failure reported by a project source resolver or ISA adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineCodeVerifierError {
     message: String,
@@ -104,7 +104,7 @@ impl fmt::Display for MachineCodeVerifierError {
 
 impl Error for MachineCodeVerifierError {}
 
-/// 선언한 assembly source와 ISA profile을 독립적으로 검산하는 adapter.
+/// An adapter that independently verifies a declared assembly source and ISA profile.
 pub trait MachineCodeVerifier {
     fn assemble_source(
         &self,
@@ -123,7 +123,7 @@ pub trait MachineCodeVerifier {
     ) -> Result<Vec<u8>, MachineCodeVerifierError>;
 }
 
-/// 모든 쓰기를 적용하기 전에 한 번에 검증하는 전역 계획.
+/// A global plan validated in full before any write is applied.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WritePlan {
     pub resize: Option<ResizePlan>,
@@ -151,7 +151,7 @@ impl WritePlan {
         self
     }
 
-    /// 전체 계획을 불변 원본에 대해 먼저 검증한 뒤 최종 이미지를 만든다.
+    /// Validate the complete plan against immutable input, then build the final image.
     pub fn apply(
         &self,
         baseline: &[u8],
@@ -167,7 +167,7 @@ impl WritePlan {
         Ok(output)
     }
 
-    /// 외부 writer가 만든 결과에도 계획 밖 변경이 없는지 같은 규칙을 적용한다.
+    /// Apply the same rules to an externally produced image and reject unplanned changes.
     pub fn audit(
         &self,
         baseline: &[u8],

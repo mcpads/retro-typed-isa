@@ -1,18 +1,16 @@
-//! NASM 호환 텍스트 포맷 — `Instruction` → 한 줄 문자열.
+//! NASM-compatible one-line formatting for `Instruction` values.
 //!
-//! 형식: `SSSS:OOOO  BB BB BB BB ...    mnemonic operands`
+//! Format: `SSSS:OOOO  BB BB BB BB ...    mnemonic operands`
 //!
-//! - cs:ip는 4자리 16진수, 대문자.
-//! - byte hex 영역은 16자 폭으로 left-pad 후 한 칸 띄우고 mnemonic.
-//!   (6바이트(`BB BB BB BB BB BB` = 17chars)까지 정렬을 의도하지만, 실제로는 16자
-//!   폭에 한 칸 explicit 공백을 더해 17열이 mnemonic 시작 위치.)
-//! - 메모리 operand의 size prefix(`byte`/`word`)는 본 마일스톤에서 생략 — NASM이 컨텍스트에서 추론.
-//! - segment override는 `mem.seg`에 보존된 경우 `es:[...]` 형태로 출력 (raw byte의
-//!   prefix 0x26은 byte hex 영역에서만 표시).
+//! - CS:IP uses four uppercase hexadecimal digits per component.
+//! - The byte field is left-aligned to 16 characters, followed by one space.
+//! - Memory size prefixes are omitted when NASM can infer them from context.
+//! - A preserved segment override is rendered as `es:[...]`; its raw prefix is
+//!   also visible in the byte field.
 
 use crate::instruction::*;
 
-/// 원본 표시 회귀 fixture를 위한 주소·byte 포함 한 줄 표현.
+/// One-line address and byte representation used by source-display fixtures.
 #[cfg(test)]
 pub fn format_line(insn: &Instruction) -> String {
     use std::fmt::Write;
@@ -36,7 +34,7 @@ pub fn format_line(insn: &Instruction) -> String {
     output
 }
 
-/// `InstructionKind` → mnemonic + operand 문자열.
+/// Format an `InstructionKind` as a mnemonic and operand string.
 pub fn format_kind(k: &InstructionKind) -> String {
     match k {
         InstructionKind::Nop => "nop".to_string(),
@@ -46,7 +44,7 @@ pub fn format_kind(k: &InstructionKind) -> String {
         InstructionKind::Int { vector } => format!("int 0x{:X}", vector),
         InstructionKind::Into => "into".to_string(),
 
-        // 플래그 명령 / sign-extend — NASM mnemonic.
+        // Flag and sign-extension instructions use NASM mnemonics.
         InstructionKind::Wait => "wait".to_string(),
         InstructionKind::Pushf => "pushf".to_string(),
         InstructionKind::Popf => "popf".to_string(),
@@ -196,7 +194,7 @@ pub fn format_kind(k: &InstructionKind) -> String {
             format!("fpo2 0x{:X}, {}", operation.value(), fmt_floating(operand))
         }
 
-        // V30 (NEC uPD70116) 0x0F 확장 — NASM mnemonic.
+        // V30 extensions under the NEC uPD70116 0x0F map.
         InstructionKind::Add4s => "add4s".to_string(),
         InstructionKind::Sub4s => "sub4s".to_string(),
         InstructionKind::Cmp4s => "cmp4s".to_string(),
@@ -262,12 +260,12 @@ fn fmt_op(op: &Operand) -> String {
     }
 }
 
-/// 메모리 operand 텍스트화.
+/// Format a memory operand.
 ///
-/// - `MemBase::Direct` (절대주소 `[disp16]`): `disp`는 unsigned u16.
-/// - 그 외 base는 `disp`가 signed i16. `disp == 0`이면 disp 표시 없음.
-/// - segment override (`mem.seg`)는 `es:[...]` 형태로 prefix.
-/// - size prefix(`byte`/`word`)는 본 마일스톤에서 생략 (NASM이 컨텍스트에서 추론).
+/// - `MemBase::Direct` renders its absolute displacement as an unsigned value.
+/// - Other bases use a signed displacement and omit zero.
+/// - A segment override prefixes the address as `es:[...]`.
+/// - Size prefixes are omitted where NASM can infer them.
 fn fmt_mem(m: &Mem) -> String {
     let seg_prefix = m.seg.map(|s| format!("{}:", s.name())).unwrap_or_default();
     let inside = match m.base {
@@ -290,7 +288,7 @@ fn fmt_indexed(base: &str, disp: i16) -> String {
     } else if disp > 0 {
         format!("{}+0x{:X}", base, disp as u16)
     } else {
-        // disp < 0 — abs로 표시. -0x8000 (i16::MIN) 케이스는 unsigned_abs 사용해 panic 방지.
+        // `unsigned_abs` handles i16::MIN without overflow.
         format!("{}-0x{:X}", base, (disp as i32).unsigned_abs())
     }
 }
@@ -335,10 +333,9 @@ fn fmt_jmp_target(t: &JmpTarget) -> String {
             format!("near {}0x{:X}", sign, v.unsigned_abs())
         }
         JmpTarget::Far { seg, off } => format!("far 0x{:X}:0x{:X}", seg, off),
-        // 0xFF /4 — JMP near r/m16. NASM은 reg/mem만 보고 near를 추론하므로 prefix 생략.
+        // 0xFF /4: NASM infers near JMP from the r/m16 operand.
         JmpTarget::IndirectNear(op) => fmt_op(op),
-        // 0xFF /5 — JMP far m16:16. 메모리 operand 전용. `far` prefix 필요 (NASM이 m16:16과
-        // m16를 구분 못 하므로 명시).
+        // 0xFF /5: the memory-only m16:16 form needs an explicit `far` prefix.
         JmpTarget::IndirectFar(m) => format!("far {}", fmt_mem(m)),
     }
 }
@@ -350,9 +347,9 @@ fn fmt_call_target(t: &CallTarget) -> String {
             format!("near {}0x{:X}", sign, v.unsigned_abs())
         }
         CallTarget::Far { seg, off } => format!("far 0x{:X}:0x{:X}", seg, off),
-        // 0xFF /2 — CALL near r/m16. NASM이 컨텍스트에서 near 추론.
+        // 0xFF /2: NASM infers near CALL from the r/m16 operand.
         CallTarget::IndirectNear(op) => fmt_op(op),
-        // 0xFF /3 — CALL far m16:16. 메모리 operand 전용.
+        // 0xFF /3: memory-only far CALL through m16:16.
         CallTarget::IndirectFar(m) => format!("far {}", fmt_mem(m)),
     }
 }

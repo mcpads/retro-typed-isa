@@ -1,0 +1,15 @@
+[package]
+name = "arm946e-s"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+arm7tdmi = { path = "../arm7tdmi" }
+thiserror.workspace = true
+typed-isa-core = { path = "../typed-isa-core" }
+
+[lints]
+workspace = true

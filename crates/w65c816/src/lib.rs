@@ -26,6 +26,73 @@ pub use isa::{
     AddressingMode, InstructionForm, Mnemonic, OPCODE_TABLE, Width, WidthState, opcode_for,
 };
 
+/// W65C816 profiles whose accumulator and index widths are externally known.
+pub trait W65C816Profile:
+    typed_isa_core::TypedIsa<Instruction = Instruction, Form = InstructionForm>
+{
+    const WIDTHS: WidthState;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct W65C816M8X8;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct W65C816M8X16;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct W65C816M16X8;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct W65C816M16X16;
+
+macro_rules! implement_profile {
+    ($profile:ty, $id:expr, $widths:expr) => {
+        impl typed_isa_core::TypedIsa for $profile {
+            const PROFILE_ID: &'static str = $id;
+
+            type Instruction = Instruction;
+            type Form = InstructionForm;
+            type DecodeError = DecodeError;
+            type EncodeError = EncodeError;
+
+            fn form(instruction: &Self::Instruction) -> Result<Self::Form, Self::EncodeError> {
+                instruction.encoded_len($widths)?;
+                Ok(instruction.form())
+            }
+
+            fn decode_one(
+                source: &[u8],
+                _address: u64,
+            ) -> Result<typed_isa_core::DecodedInstruction<Self::Instruction>, Self::DecodeError>
+            {
+                let decoded = decode_bytes(source, $widths)?;
+                let source = typed_isa_core::InstructionBytes::new(source[..decoded.len].to_vec())
+                    .expect("decoded W65C816 instructions are non-empty");
+                Ok(typed_isa_core::DecodedInstruction::new(
+                    decoded.instruction,
+                    source,
+                ))
+            }
+
+            fn encode_one(
+                instruction: &Self::Instruction,
+                _address: u64,
+            ) -> Result<typed_isa_core::InstructionBytes, Self::EncodeError> {
+                Ok(
+                    typed_isa_core::InstructionBytes::new(encode_bytes(instruction, $widths)?)
+                        .expect("encoded W65C816 instructions are non-empty"),
+                )
+            }
+        }
+
+        impl W65C816Profile for $profile {
+            const WIDTHS: WidthState = $widths;
+        }
+    };
+}
+
+implement_profile!(W65C816M8X8, "w65c816-m8-x8", WidthState::M8_X8);
+implement_profile!(W65C816M8X16, "w65c816-m8-x16", WidthState::M8_X16);
+implement_profile!(W65C816M16X8, "w65c816-m16-x8", WidthState::M16_X8);
+implement_profile!(W65C816M16X16, "w65c816-m16-x16", WidthState::M16_X16);
+
 // Kept until the existing consumer can be migrated in its own authorized change.
 #[doc(hidden)]
 pub type Program = Assembler;

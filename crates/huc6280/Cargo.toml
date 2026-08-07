@@ -9,6 +9,7 @@ description = "Complete HuC6280 opcode model and placement-aware assembler"
 
 [dependencies]
 thiserror.workspace = true
+typed-isa-core = { path = "../typed-isa-core" }
 
 [lints]
 workspace = true

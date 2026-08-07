@@ -9,6 +9,7 @@ description = "Fail-closed PlayStation R3000A instruction model and placement-aw
 
 [dependencies]
 thiserror.workspace = true
+typed-isa-core = { path = "../typed-isa-core" }
 
 [lints]
 workspace = true

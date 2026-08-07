@@ -14,6 +14,8 @@ pub enum DecodedWord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    #[error("SH-4 instruction address {address:#x} exceeds the 32-bit address space")]
+    AddressOutOfRange { address: u64 },
     #[error("SH-4 instruction requires two bytes, got {len}")]
     TruncatedInput { len: usize },
     #[error("reserved SH-4 instruction word 0x{word:04X}")]

@@ -47,6 +47,10 @@ pub use instruction::{
 /// Stable identifier for the exact CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = "v30";
 
+/// Shared-protocol marker for the NEC V30 native-mode profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct V30;
+
 /// A native V30 prefix byte preserved in source order by static decoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Prefix {
@@ -273,6 +277,42 @@ fn has_canonical_prefix_structure(instruction: &Instruction, minimum_rank: u8) -
 
 pub fn format_instruction(instruction: &Instruction) -> String {
     display::format_kind(instruction)
+}
+
+impl typed_isa_core::TypedIsa for V30 {
+    const PROFILE_ID: &'static str = PROFILE_ID;
+
+    type Instruction = Instruction;
+    type Form = InstructionForm;
+    type DecodeError = DecodeError;
+    type EncodeError = EncodeError;
+
+    fn form(instruction: &Self::Instruction) -> Result<Self::Form, Self::EncodeError> {
+        InstructionForm::of(instruction).ok_or(EncodeError::RawBytesNotExecutable)
+    }
+
+    fn decode_one(
+        source: &[u8],
+        _address: u64,
+    ) -> Result<typed_isa_core::DecodedInstruction<Self::Instruction>, Self::DecodeError> {
+        let decoded = decode_bytes(source)?;
+        let source = typed_isa_core::InstructionBytes::new(decoded.source_bytes().to_vec())
+            .expect("decoded V30 instructions are non-empty");
+        Ok(typed_isa_core::DecodedInstruction::new(
+            decoded.instruction,
+            source,
+        ))
+    }
+
+    fn encode_one(
+        instruction: &Self::Instruction,
+        _address: u64,
+    ) -> Result<typed_isa_core::InstructionBytes, Self::EncodeError> {
+        Ok(
+            typed_isa_core::InstructionBytes::new(encode_bytes(instruction)?)
+                .expect("encoded V30 instructions are non-empty"),
+        )
+    }
 }
 
 fn parse_prefixes(bytes: &[u8]) -> Vec<Prefix> {

@@ -1,4 +1,4 @@
-//! `display::format_line` 골든 출력 테스트.
+//! Golden-output tests for `display::format_line`.
 
 use super::display::*;
 use super::instruction::*;
@@ -217,7 +217,7 @@ fn display_jmp_far_ptr() {
 
 #[test]
 fn display_jmp_indirect_near_reg() {
-    // 0xFF /4 — JMP near BX (간접): bytes [0xFF, 0xE3] (mod=11, reg=4, rm=3).
+    // 0xFF /4: indirect near JMP through BX (mod=11, reg=4, rm=3).
     let insn = Instruction {
         cs_ip: at(0x100),
         bytes: vec![0xFF, 0xE3],
@@ -511,12 +511,12 @@ fn display_mem_disp_negative() {
 }
 
 // ----------------------------------------------------------------------------
-// 플래그 명령 + sign-extend NASM mnemonic 출력.
+// NASM output for flag and sign-extension instructions.
 // ----------------------------------------------------------------------------
 
 #[test]
 fn display_flag_mnemonics() {
-    // Intel SDM Vol 2A 부록 B에 따른 NASM 표기.
+    // NASM spellings from Intel SDM Volume 2A, Appendix B.
     let cases: &[(InstructionKind, u8, &str)] = &[
         (InstructionKind::Wait, 0x9B, "wait"),
         (InstructionKind::Pushf, 0x9C, "pushf"),
@@ -540,14 +540,19 @@ fn display_flag_mnemonics() {
             kind: kind.clone(),
             prefixes: Prefixes::default(),
         };
-        // 16자리 width로 padding된 byte hex 영역 + 1칸 공백 + mnemonic.
+        // A 16-character byte field, one space, and the mnemonic.
         let expected = format!("0000:0100  {:<16} {}", format!("{:02X}", opcode), mnemonic);
-        assert_eq!(format_line(&insn), expected, "{:?} 표기 오류", kind);
+        assert_eq!(
+            format_line(&insn),
+            expected,
+            "incorrect {:?} rendering",
+            kind
+        );
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// V30 (NEC uPD70116) 0x0F 확장 명령어 — NASM mnemonic 표기 테스트.
+// NASM mnemonic tests for NEC uPD70116 extensions under the 0x0F map.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]

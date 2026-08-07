@@ -3,6 +3,8 @@ use w65c816::{
     disassemble_linear, encode_bytes,
 };
 
+use typed_isa_core::TypedIsa;
+
 #[test]
 fn consumer_can_verify_width_sensitive_program() {
     assert_eq!(PROFILE_ID, "w65c816");
@@ -62,4 +64,21 @@ fn consumer_can_verify_width_sensitive_program() {
         disassembly.instructions[3].mode_before.widths(),
         WidthState::M8_X8
     );
+}
+
+#[test]
+fn shared_protocol_keeps_width_state_in_the_profile() {
+    let instruction = Instruction::new(
+        Mnemonic::Lda,
+        AddressingMode::Immediate,
+        Operand::Word(0x1234),
+    );
+
+    let encoded = w65c816::W65C816M16X8::encode_one(&instruction, 0).unwrap();
+    assert_eq!(encoded.as_slice(), [0xa9, 0x34, 0x12]);
+    assert!(w65c816::W65C816M8X8::encode_one(&instruction, 0).is_err());
+
+    let decoded = w65c816::W65C816M16X8::decode_one(encoded.as_slice(), 0).unwrap();
+    assert_eq!(decoded.instruction(), &instruction);
+    assert_eq!(decoded.source().as_slice(), encoded.as_slice());
 }

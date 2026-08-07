@@ -1,18 +1,28 @@
 # Retro Typed ISA
 
-레트로 게임 패치 도구가 실행 코드를 안전하게 분석하고 생성할 수 있도록 CPU별 typed ISA 프로필을 Rust 라이브러리로 제공한다.
+Rust libraries for safely analyzing and generating executable code in retro-game patch tools.
 
-각 CPU 변형은 독립된 crate가 책임지며, typed instruction과 operand, byte decode와 encode, 배치 인식 checked assembler를 제공한다. 명령 실행기, CPU 상태 전이, pipeline, cycle timing과 simulator는 범위에 포함하지 않는다.
+Each CPU profile is an independent crate with typed instructions and operands, byte decoding and encoding, and a placement-aware checked assembler. Instruction execution, CPU state transitions, pipelines, cycle timing, and simulation are outside this project's scope.
 
-CPU 독립 `expected-write` crate는 불변 원본 선조건, 쓰기 소유권, 보호 영역과 typed machine-code 검산을 담당한다.
+`typed-isa-core` defines the shared `TypedIsa` protocol and vocabulary, and every CPU crate exposes
+one or more exact profiles through it. Decode state that changes instruction identity is named in
+the profile, such as ARM/Thumb state, Intel code-segment size, W65C816 register widths, or SH-4
+FPSCR.PR/SZ. The protocol does not certify instruction coverage.
 
-## 지원 crate
+The public semantic model is owned by this workspace. Public architecture manuals define each profile and its coverage denominator. Independent decoders or assemblers may be consulted separately, but they are not Cargo dependencies, executable test oracles, or sources of public instruction types.
 
-- CPU 프로필: `w65c816`, `psx-r3000a`, `huc6280`, `rp2a03`, `sh2`, `z80`, `sh4`, `m68000`, `v30`
-- 최종 byte 검증: `expected-write`
+See [Design principles](DESIGN.md) for the stable project boundaries and [Contributing](CONTRIBUTING.md) for profile implementation rules.
 
-모든 crate는 선언한 정적 ISA 프로필 전체를 분모로 검증하며 Cargo 배포는 현재 비활성화되어 있다.
+The CPU-independent `expected-write` crate verifies immutable-source preconditions, write ownership, protected regions, and final typed machine code.
 
-## 라이선스
+## Crates
+
+- CPU profiles: `w65c816`, `psx-r3000a`, `huc6280`, `rp2a03`, `sh2`, `z80`, `sh4`, `m68000`, `v30`, `v30mz`, `sm83`, `v810`, `arm7tdmi`, `arm946e-s`, `tlcs900h`, `vr4300`, `powerpc-750cl`, `i386`, `allegrex`, `r5900`
+- Shared protocol: `typed-isa-core`
+- Final-byte verification: `expected-write`
+
+A CPU profile is described as complete only after its typed model has passed a source-derived coverage gate that is independent of the implementation's own catalog. Publishing to Cargo registries is currently disabled.
+
+## License
 
 GNU General Public License version 2 or later (`GPL-2.0-or-later`).

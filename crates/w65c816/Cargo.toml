@@ -8,6 +8,7 @@ publish = false
 description = "Fail-closed W65C816 instruction model and placement-aware assembler"
 
 [dependencies]
+typed-isa-core = { path = "../typed-isa-core" }
 
 [lints]
 workspace = true

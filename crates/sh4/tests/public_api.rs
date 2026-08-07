@@ -1,4 +1,5 @@
-use sh4::{ControlFlow, Instruction, PROFILE_ID, Register};
+use sh4::{ControlFlow, FloatRegister, Instruction, PROFILE_ID, Register};
+use typed_isa_core::TypedIsa;
 
 #[test]
 fn profile_and_common_names_are_stable() {
@@ -22,4 +23,21 @@ fn profile_and_common_names_are_stable() {
         .to_string(),
         "MOV     R0,R1"
     );
+}
+
+#[test]
+fn shared_protocol_keeps_fpscr_decode_state_in_the_profile() {
+    let instruction = Instruction::Fadd {
+        frm: FloatRegister::new(0).unwrap(),
+        frn: FloatRegister::new(1).unwrap(),
+    };
+
+    let encoded = sh4::Sh4Pr0Sz0::encode_one(&instruction, 0).unwrap();
+    assert_eq!(
+        sh4::Sh4Pr0Sz0::decode_one(encoded.as_slice(), 0)
+            .unwrap()
+            .instruction(),
+        &instruction
+    );
+    assert!(sh4::Sh4Pr1Sz0::encode_one(&instruction, 0).is_err());
 }

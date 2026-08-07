@@ -1,0 +1,15 @@
+[package]
+name = "r5900"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+expected-write = { path = "../expected-write" }
+thiserror.workspace = true
+typed-isa-core = { path = "../typed-isa-core" }
+
+[lints]
+workspace = true

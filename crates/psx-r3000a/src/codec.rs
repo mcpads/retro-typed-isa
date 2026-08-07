@@ -775,6 +775,8 @@ const fn immediate_signed(word: u32) -> i16 {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum DecodeError {
+    #[error("instruction address {address:#x} exceeds the 32-bit PlayStation address space")]
+    AddressOutOfRange { address: u64 },
     #[error("instruction address {address:#010x} is not word-aligned")]
     UnalignedInstructionAddress { address: u32 },
     #[error("input length {len} is not a whole number of 32-bit instructions")]
@@ -801,6 +803,8 @@ pub enum DecodeError {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum EncodeError {
+    #[error("instruction address {address:#x} exceeds the 32-bit PlayStation address space")]
+    AddressOutOfRange { address: u64 },
     #[error("instruction address {address:#010x} is not word-aligned")]
     UnalignedInstructionAddress { address: u32 },
     #[error("{field} value {value:#x} exceeds {maximum:#x}")]

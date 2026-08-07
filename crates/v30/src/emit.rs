@@ -1,40 +1,42 @@
-//! x86 인코더 — InstructionKind → bytes.
+//! x86 encoder: `InstructionKind` to bytes.
 //!
-//! 내부 `Unknown { raw }` 출력은 반입 회귀 시험만 지원한다. 공개 `encode_bytes`와
-//! checked assembler는 wrapper 안에 든 `Unknown`까지 실행 코드로 내리지 않는다.
+//! Internal emission of `Unknown { raw }` exists only for import regression tests. Public
+//! `encode_bytes` and the checked assembler reject executable code containing `Unknown`,
+//! including when it is nested in a wrapper.
 //!
-//! ## Canonical 정책 (spec §1.1, §4.4.1)
+//! ## Canonical policy (spec sections 1.1 and 4.4.1)
 //!
-//! 8086 ISA는 같은 명령어의 redundant byte encoding을 허용한다 (예: `MOV BX, AX`는
-//! `0x89 0xC3` 또는 `0x8B 0xD8` 양쪽 가능). 본 인코더는 항상 **canonical form** 하나만
-//! 생성해 결정적 결과를 보장:
+//! The 8086 ISA permits redundant byte encodings of the same instruction. For example,
+//! `MOV BX, AX` may be `0x89 0xC3` or `0x8B 0xD8`. This encoder always emits one
+//! **canonical form** for deterministic output:
 //!
-//! 1. **Reg-reg MOV**: `0x88/0x89` (r/m ← r 형식, dir=0). `0x8A/0x8B`(r ← r/m)는
-//!    decode-only — mod=11 케이스에서는 같은 의미를 만들지만 emit은 항상 dir=0.
-//! 2. **Memory disp=0** (BP 제외): `mod=00` (no disp)
-//! 3. **Memory BP base 또는 disp ∈ [-128..=127]**: `mod=01 disp8`
-//! 4. **Memory disp 그 외**: `mod=10 disp16`
-//! 5. **POP r16**: `0x58+r` 단축형. Group form `0x8F /0 reg`로 디코드되어도 emit은 단축형.
-//! 6. **PUSH/POP sreg**: `0x06/0E/16/1E`, `0x07/17/1F` 단축형.
-//! 7. **r/m=AL/AX moffs MOV**: `0xA0-0xA3` 단축형 (Disp16 + 묵시적 segment).
-//! 8. **r ← imm MOV**: `0xB0+rb` / `0xB8+rw` 단축형 (r/m form `0xC6/0xC7 /0`보다 우선).
+//! 1. **Reg-reg MOV**: `0x88/0x89` (r/m <- r, dir=0). `0x8A/0x8B` (r <- r/m)
+//!    remains decode-only for mod=11; both mean the same thing, but emission uses dir=0.
+//! 2. **Memory disp=0** (except BP): `mod=00` with no displacement.
+//! 3. **Memory based on BP or disp in [-128..=127]**: `mod=01 disp8`.
+//! 4. **Other memory displacements**: `mod=10 disp16`.
+//! 5. **POP r16**: short form `0x58+r`, even after decoding Group form `0x8F /0 reg`.
+//! 6. **PUSH/POP sreg**: short forms `0x06/0E/16/1E` and `0x07/17/1F`.
+//! 7. **r/m=AL/AX moffs MOV**: short form `0xA0-0xA3` (Disp16 plus implicit segment).
+//! 8. **r <- imm MOV**: short form `0xB0+rb` / `0xB8+rw`, ahead of `0xC6/0xC7 /0`.
 //!
-//! 따라서 `decode(emit(kind)) == kind`는 항상 성립하지만, `emit(decode(b)) == b`는
-//! `b`가 이미 canonical일 때만 성립한다. 디스크의 raw byte 보존은 ISA 레벨이 아닌
-//! `Instruction.bytes` 또는 디스크 컨테이너 레벨에서 보장한다.
+//! Thus `decode(emit(kind)) == kind` always holds, while `emit(decode(b)) == b` holds only
+//! when `b` is already canonical. Raw source bytes are preserved by `Instruction.bytes` or
+//! the surrounding container rather than by the semantic ISA layer.
 //!
-//! ## Exact source와 canonical 생성
+//! ## Exact source and canonical generation
 //!
-//! 공개 decode 결과는 합법 alias와 중복 prefix를 `DecodedInstruction::source_bytes()`와
-//! `PrefixSequence`에 그대로 보존한다. typed `Instruction`은 마지막으로 유효한 prefix의
-//! 의미만 가지며 이 모듈은 canonical 순서와 encoding 하나를 생성한다. Expected Write의
-//! 실행 코드는 이 canonical byte를 다시 decode/reassemble해 검증한다.
+//! Public decode results preserve legal aliases and repeated prefixes exactly in
+//! `DecodedInstruction::source_bytes()` and `PrefixSequence`. A typed `Instruction` carries
+//! only the meaning of the last effective prefix, and this module emits one canonical order
+//! and encoding. Expected Write re-decodes and reassembles these canonical executable bytes.
 //!
-//! - **다중 prefix 동일 카테고리**: source 순서와 중복은 decode 결과에 보존되고 typed
-//!   instruction에는 마지막 prefix가 적용된다. 새 코드는 중복을 만들지 않는다.
-//! - **XCHG canonical 비대칭**: `Xchg { a: AX, b: r }`는 `0x90+r` 단축, `Xchg { a: r, b: AX }`는
-//!   `0x87 /r` 일반형. operand 순서를 IR이 보존하므로 byte는 다르나 의미 동등.
-//!   `decode(emit(kind)) == kind` canonical 안정점은 양쪽 모두 보존.
+//! - **Repeated prefixes in one category**: source order and repetition survive decoding;
+//!   the typed instruction applies the last prefix. New code never emits duplicates.
+//! - **Asymmetric canonical XCHG**: `Xchg { a: AX, b: r }` uses short form `0x90+r`, while
+//!   `Xchg { a: r, b: AX }` uses general form `0x87 /r`. The IR preserves operand order, so
+//!   the bytes differ while meaning remains equivalent. Both preserve the canonical
+//!   `decode(emit(kind)) == kind` fixed point.
 
 use crate::instruction::*;
 
@@ -45,10 +47,9 @@ pub enum EmitError {
 }
 
 pub fn emit(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
-    // segment override prefix 처리 — 메모리 operand에 `seg`가 있으면 prefix를 결과 맨
-    // 앞에 prepend. seg를 제거한 clone으로 재귀 호출해 모든 인코딩 분기가 prefix를
-    // 신경쓰지 않도록 한다. REP/REPNE wrap variant (`Rep`/`Repne`)은 inner를 재귀 emit하므로
-    // 자연히 이 경로를 통과한다.
+    // If a memory operand has a segment override, prepend its prefix and recurse on a clone
+    // with the segment removed. Encoding branches therefore do not handle prefixes themselves.
+    // REP/REPNE wrappers recurse on their inner instruction and naturally follow this path.
     if let Some((s, stripped)) = strip_seg_override(kind) {
         let inner = emit(&stripped)?;
         let mut out = vec![seg_override_prefix(s)];
@@ -68,7 +69,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
         InstructionKind::Int { vector: 3 } => Ok(vec![0xCC]),
         InstructionKind::Int { vector } => Ok(vec![0xCD, *vector]),
 
-        // 플래그 명령 / sign-extend — 모두 single-byte (Intel SDM Vol 2A 부록 B).
+        // Flag and sign-extension instructions are all single-byte forms (Intel SDM Vol. 2A, Appendix B).
         InstructionKind::Wait => Ok(vec![0x9B]),
         InstructionKind::Pushf => Ok(vec![0x9C]),
         InstructionKind::Popf => Ok(vec![0x9D]),
@@ -108,7 +109,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
             Ok(vec![opcode, *target as u8])
         }
 
-        // 무조건 분기
+        // Unconditional branches.
         InstructionKind::Jmp { target } => match target {
             JmpTarget::Rel8(r) => Ok(vec![0xEB, *r as u8]),
             JmpTarget::Rel16(r) => {
@@ -121,7 +122,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
                 Ok(vec![0xEA, o[0], o[1], s[0], s[1]])
             }
             JmpTarget::IndirectNear(op) => {
-                // Group 5 0xFF /4 = JMP near r/m16 (간접)
+                // Group 5 0xFF /4 = indirect near JMP r/m16.
                 let mut out = vec![0xFF];
                 match op {
                     Operand::Reg16(_) => out.extend(emit_reg_rm(op, 4)?),
@@ -131,7 +132,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
                 Ok(out)
             }
             JmpTarget::IndirectFar(m) => {
-                // Group 5 0xFF /5 = JMP far m16:16 (간접) — 메모리 전용
+                // Group 5 0xFF /5 = indirect far JMP m16:16; memory only.
                 let mut out = vec![0xFF];
                 out.extend(emit_mem_rm(m, 5)?);
                 Ok(out)
@@ -148,7 +149,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
                 Ok(vec![0x9A, o[0], o[1], s[0], s[1]])
             }
             CallTarget::IndirectNear(op) => {
-                // Group 5 0xFF /2 = CALL near r/m16 (간접)
+                // Group 5 0xFF /2 = indirect near CALL r/m16.
                 let mut out = vec![0xFF];
                 match op {
                     Operand::Reg16(_) => out.extend(emit_reg_rm(op, 2)?),
@@ -158,7 +159,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
                 Ok(out)
             }
             CallTarget::IndirectFar(m) => {
-                // Group 5 0xFF /3 = CALL far m16:16 (간접) — 메모리 전용
+                // Group 5 0xFF /3 = indirect far CALL m16:16; memory only.
                 let mut out = vec![0xFF];
                 out.extend(emit_mem_rm(m, 3)?);
                 Ok(out)
@@ -175,7 +176,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
             Ok(vec![0xCA, b[0], b[1]])
         }
 
-        // PUSH/POP 단축 우선
+        // Prefer PUSH/POP short forms.
         InstructionKind::Push {
             src: Operand::Reg16(r),
         } => Ok(vec![0x50 + r.0]),
@@ -196,7 +197,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
             Sreg::ES => 0x07,
             Sreg::SS => 0x17,
             Sreg::DS => 0x1F,
-            Sreg::CS => return Err(EmitError::Invalid), // POP CS는 미지원
+            Sreg::CS => return Err(EmitError::Invalid), // POP CS is unsupported.
         }]),
         InstructionKind::Push {
             src: Operand::Mem(m),
@@ -232,10 +233,10 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
             Ok(out)
         }
 
-        // MOV — 다양한 변종을 우선순위로 인코딩
+        // MOV forms are selected in canonical priority order.
         InstructionKind::Mov { dest, src } => emit_mov(dest, src),
 
-        // ALU family — emit_alu 헬퍼로 통합
+        // ALU family, consolidated through emit_alu.
         InstructionKind::Add { dest, src } => emit_alu(EmitAluOp::Add, dest, src),
         InstructionKind::Or { dest, src } => emit_alu(EmitAluOp::Or, dest, src),
         InstructionKind::Adc { dest, src } => emit_alu(EmitAluOp::Adc, dest, src),
@@ -245,10 +246,10 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
         InstructionKind::Xor { dest, src } => emit_alu(EmitAluOp::Xor, dest, src),
         InstructionKind::Cmp { a, b } => emit_alu(EmitAluOp::Cmp, a, b),
 
-        // TEST — ALU와 다른 인코딩 (0x84/85, 0xA8/A9, 0xF6/F7 /0)
+        // TEST has distinct encodings from the ALU family (0x84/85, 0xA8/A9, 0xF6/F7 /0).
         InstructionKind::Test { a, b } => emit_test(a, b),
 
-        // INC/DEC reg16 단축형 (0x40+r / 0x48+r) — canonical
+        // Canonical INC/DEC reg16 short forms (0x40+r / 0x48+r).
         InstructionKind::Inc {
             dest: Operand::Reg16(r),
         } => Ok(vec![0x40 + r.0]),
@@ -273,8 +274,8 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
         InstructionKind::Div { src } => emit_group_3_unary(src, 6),
         InstructionKind::Idiv { src } => emit_group_3_unary(src, 7),
 
-        // 시프트/로테이트 (Group 2 0xD0-0xD3 + reg field)
-        // NEC/Intel의 SAL 표기는 SHL과 같은 `/4` selector이므로 typed 값은 SHL로 통일한다.
+        // Shifts and rotates (Group 2 0xD0-0xD3 plus reg field).
+        // NEC and Intel define SAL as the same `/4` selector as SHL, so the typed form uses SHL.
         InstructionKind::Rol { dest, count } => emit_shift(0, dest, *count),
         InstructionKind::Ror { dest, count } => emit_shift(1, dest, *count),
         InstructionKind::Rcl { dest, count } => emit_shift(2, dest, *count),
@@ -322,10 +323,10 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
             Ok(out)
         }
 
-        // XCHG — AX, r16 단축형 (0x90+rw) 우선, 그 외는 0x86/0x87 /r 일반형
+        // XCHG prefers the AX, r16 short form (0x90+rw); others use general 0x86/0x87 /r.
         InstructionKind::Xchg { a, b } => emit_xchg(a, b),
 
-        // 문자열 명령 (단일 바이트). REP/REPNE은 별도 variant로 wrap.
+        // Single-byte string instructions. REP/REPNE use wrapper variants.
         InstructionKind::Movsb => Ok(vec![0xA4]),
         InstructionKind::Movsw => Ok(vec![0xA5]),
         InstructionKind::Cmpsb => Ok(vec![0xA6]),
@@ -337,7 +338,7 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
         InstructionKind::Scasb => Ok(vec![0xAE]),
         InstructionKind::Scasw => Ok(vec![0xAF]),
 
-        // REP/REPNE prefix wrap — inner 명령을 emit한 결과 앞에 0xF3/0xF2 prepend.
+        // REP/REPNE wrappers prepend 0xF3/0xF2 to the emitted inner instruction.
         InstructionKind::Rep(inner) => {
             require_repeatable(inner)?;
             let mut out = vec![0xF3];
@@ -394,8 +395,8 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
             emit_external_operation(0x66, operation.value(), operand)
         }
 
-        // V30 (NEC uPD70116) 0x0F secondary opcode 확장 — canonical 인코딩.
-        // 출처: NEC uPD70116 데이터시트 §3.
+        // Canonical V30 (NEC uPD70116) 0x0F secondary-opcode extensions.
+        // Source: NEC uPD70116 data sheet, section 3.
         InstructionKind::Add4s => Ok(vec![0x0F, 0x20]),
         InstructionKind::Sub4s => Ok(vec![0x0F, 0x22]),
         InstructionKind::Cmp4s => Ok(vec![0x0F, 0x26]),
@@ -434,9 +435,9 @@ fn emit_inner(kind: &InstructionKind) -> Result<Vec<u8>, EmitError> {
     }
 }
 
-/// V30 0x0F 그룹의 byte-form r/m 명령어 인코더.
-/// `secondary`: 2번째 opcode byte (예: 0x28 for ROL4).
-/// `rm`: byte operand (Reg8 또는 Mem with size=Byte).
+/// Encodes byte-form r/m instructions in the V30 0x0F group.
+/// `secondary` is the second opcode byte, such as 0x28 for ROL4.
+/// `rm` is a byte operand (`Reg8` or `Mem` with byte size).
 /// `reg_field`: ModR/M reg field. ROL4/ROR4 reserve it as zero.
 fn emit_v30_rm8(secondary: u8, rm: &Operand, reg_field: u8) -> Result<Vec<u8>, EmitError> {
     let mut out = vec![0x0F, secondary];
@@ -579,7 +580,7 @@ fn has_implicit_segment_source(instruction: &InstructionKind) -> bool {
     }
 }
 
-/// ModR/M 인코더: mod, reg, r/m을 1바이트로.
+/// Encodes mod, reg, and r/m into one ModR/M byte.
 fn modrm_byte(m: u8, reg: u8, rm: u8) -> u8 {
     ((m & 0b11) << 6) | ((reg & 0b111) << 3) | (rm & 0b111)
 }
@@ -591,13 +592,12 @@ enum MemMode {
     ForceDisp,
 }
 
-/// 메모리 Operand → ModR/M r/m 필드 + displacement 바이트들.
-/// `reg_field`는 호출자가 지정.
+/// Encodes a memory operand as a ModR/M r/m field plus displacement bytes.
+/// The caller supplies `reg_field`.
 ///
-/// **반환값에는 segment override prefix가 포함되지 않는다.** prefix는 명령어 opcode 바이트
-/// **앞에** 와야 하는데, 본 헬퍼는 ModR/M+disp만 다루므로 opcode를 알 수 없다. 따라서
-/// 공개 진입점 `emit`이 instruction의 segment를 먼저 제거하고 opcode 앞에 prefix를
-/// 붙이므로 이 helper는 ModR/M과 displacement만 책임진다.
+/// **The return value does not include a segment override prefix.** A prefix precedes the
+/// opcode, while this helper only sees ModR/M and displacement bytes. The public `emit`
+/// entry point strips the segment and places its prefix before the opcode.
 fn emit_mem_rm(mem: &Mem, reg_field: u8) -> Result<Vec<u8>, EmitError> {
     let (rm, mode_disp) = match mem.base {
         MemBase::BxSi => (0b000, MemMode::ZeroOrDisp),
@@ -636,7 +636,7 @@ fn emit_mem_rm(mem: &Mem, reg_field: u8) -> Result<Vec<u8>, EmitError> {
     Ok(out)
 }
 
-/// segment override prefix 바이트 매핑.
+/// Maps segment overrides to prefix bytes.
 fn seg_override_prefix(s: Sreg) -> u8 {
     match s {
         Sreg::ES => 0x26,
@@ -646,20 +646,20 @@ fn seg_override_prefix(s: Sreg) -> u8 {
     }
 }
 
-/// 메모리 operand에 segment override가 있으면 (Sreg, seg가 제거된 kind clone)을 반환.
-/// 없으면 `None`. 호출자는 prefix를 결과 맨 앞에 prepend하고 stripped kind로 emit.
+/// Returns the segment register and a cloned kind with segment overrides removed.
+/// Returns `None` when no memory operand has an override. The caller prepends the prefix.
 ///
-/// 메모리 operand 여러 개가 있는 명령(예: 일부 ALU r/m, r/m? — 8086은 두 메모리 operand 동시
-/// 사용 인코딩이 없음. 여기선 모든 메모리 operand에 동일한 seg을 적용 후 제거.)
+/// The 8086 has no encoding with two simultaneous memory operands. For completeness, if a
+/// kind contains multiple memory operands, this applies and removes the same segment on all.
 fn strip_seg_override(kind: &InstructionKind) -> Option<(Sreg, InstructionKind)> {
     let seg = find_mem_seg(kind)?;
     let stripped = strip_mem_seg(kind);
     Some((seg, stripped))
 }
 
-/// 명령어의 메모리 operand에서 seg를 찾는다 (첫 번째 매치).
+/// Finds the first segment override among an instruction's memory operands.
 ///
-/// **신규 메모리-바운드 InstructionKind variant 추가 시 세 곳 모두 갱신 필요**:
+/// **When adding a memory-bearing `InstructionKind` variant, update all three sites:**
 /// `decode.rs::inject_seg_override`, `emit.rs::find_mem_seg`, `emit.rs::strip_mem_seg`.
 fn find_mem_seg(kind: &InstructionKind) -> Option<Sreg> {
     let from_op = |op: &Operand| -> Option<Sreg> {
@@ -702,7 +702,7 @@ fn find_mem_seg(kind: &InstructionKind) -> Option<Sreg> {
         | InstructionKind::Shl { dest, .. }
         | InstructionKind::Shr { dest, .. }
         | InstructionKind::Sar { dest, .. } => from_op(dest),
-        // V30 0x0F 확장 — 메모리 operand 가능
+        // V30 0x0F extensions with possible memory operands.
         InstructionKind::Rol4 { rm } | InstructionKind::Ror4 { rm } => from_op(rm),
         InstructionKind::Test1 { target, .. }
         | InstructionKind::Clr1 { target, .. }
@@ -732,9 +732,9 @@ fn find_mem_seg(kind: &InstructionKind) -> Option<Sreg> {
     }
 }
 
-/// 명령어의 모든 메모리 operand에서 seg를 None으로 만든 clone 반환.
+/// Clones an instruction while setting every memory operand's segment to `None`.
 ///
-/// **신규 메모리-바운드 InstructionKind variant 추가 시 세 곳 모두 갱신 필요**:
+/// **When adding a memory-bearing `InstructionKind` variant, update all three sites:**
 /// `decode.rs::inject_seg_override`, `emit.rs::find_mem_seg`, `emit.rs::strip_mem_seg`.
 fn strip_mem_seg(kind: &InstructionKind) -> InstructionKind {
     let strip = |op: &Operand| -> Operand {
@@ -865,7 +865,7 @@ fn strip_mem_seg(kind: &InstructionKind) -> InstructionKind {
             dest: strip(dest),
             count: *count,
         },
-        // V30 0x0F 확장 — 메모리 operand에서 seg 제거
+        // Remove segment overrides from V30 0x0F extension memory operands.
         InstructionKind::Rol4 { rm } => InstructionKind::Rol4 { rm: strip(rm) },
         InstructionKind::Ror4 { rm } => InstructionKind::Ror4 { rm: strip(rm) },
         InstructionKind::Test1 { target, bit } => InstructionKind::Test1 {
@@ -935,7 +935,7 @@ fn strip_floating_point_operand(operand: &FloatingPointOperand) -> FloatingPoint
     }
 }
 
-/// 레지스터 Operand → ModR/M r/m 필드 (mod=11 모드).
+/// Encodes a register operand as a ModR/M r/m field with mod=11.
 fn emit_reg_rm(op: &Operand, reg_field: u8) -> Result<Vec<u8>, EmitError> {
     let rm = match op {
         Operand::Reg8(r) => r.0,
@@ -945,14 +945,14 @@ fn emit_reg_rm(op: &Operand, reg_field: u8) -> Result<Vec<u8>, EmitError> {
     Ok(vec![modrm_byte(0b11, reg_field, rm)])
 }
 
-/// MOV 인코딩 — 변종 우선순위:
-/// 1. acc(AL/AX) ↔ [moffs16] → 0xA0-0xA3 (가장 짧음)
+/// Encodes MOV forms in this priority order:
+/// 1. acc(AL/AX) <-> [moffs16] -> 0xA0-0xA3 (shortest)
 /// 2. r8 ← imm8 / r16 ← imm16 → 0xB0+rb ib / 0xB8+rw iw
 /// 3. r/m8 ← imm8 / r/m16 ← imm16 → 0xC6 /0 ib / 0xC7 /0 iw
 /// 4. sreg ↔ r/m16 → 0x8C / 0x8E
 /// 5. r ↔ r/m → 0x88-0x8B
 fn emit_mov(dest: &Operand, src: &Operand) -> Result<Vec<u8>, EmitError> {
-    // 1. AL/AX ↔ [moffs16] (Disp16) — segment override 있으면 prefix prepend.
+    // 1. AL/AX <-> [moffs16] (Disp16); prepend a segment override when present.
     match (dest, src) {
         (Operand::Reg8(Reg8(0)), Operand::Mem(m)) if m.base == MemBase::Direct => {
             return emit_mov_acc_moffs(0xA0, m);
@@ -969,7 +969,7 @@ fn emit_mov(dest: &Operand, src: &Operand) -> Result<Vec<u8>, EmitError> {
         _ => {}
     }
 
-    // 2. r ← imm 단축형
+    // 2. r <- imm short form.
     match (dest, src) {
         (Operand::Reg8(r), Operand::Imm8(v)) => {
             return Ok(vec![0xB0 + r.0, *v]);
@@ -981,7 +981,7 @@ fn emit_mov(dest: &Operand, src: &Operand) -> Result<Vec<u8>, EmitError> {
         _ => {}
     }
 
-    // 3. r/m ← imm (메모리 또는 비-축약 레지스터)
+    // 3. r/m <- imm (memory or a register without a short form).
     match (dest, src) {
         (Operand::Mem(m), Operand::Imm8(v)) => {
             let mut out = vec![0xC6];
@@ -1027,8 +1027,8 @@ fn emit_mov(dest: &Operand, src: &Operand) -> Result<Vec<u8>, EmitError> {
     }
 
     // 5. r ↔ r/m (0x88-0x8B)
-    // src가 reg면 0x88/0x89 (r/m ← r) — reg-reg일 때 우선 (Intel syntax 자연스러움)
-    // dest가 reg(메모리 src)면 0x8A/0x8B (r ← r/m)
+    // A register source uses 0x88/0x89 (r/m <- r), preferred for reg-reg forms.
+    // A register destination with a memory source uses 0x8A/0x8B (r <- r/m).
     let (opcode, reg_field, rm_op) = match (dest, src) {
         (other, Operand::Reg8(r)) => (0x88, r.0, other),
         (other, Operand::Reg16(r)) => (0x89, r.0, other),
@@ -1046,8 +1046,8 @@ fn emit_mov(dest: &Operand, src: &Operand) -> Result<Vec<u8>, EmitError> {
     Ok(out)
 }
 
-/// ALU op enum — `decode.rs::AluOp`의 emit-side 미러.
-/// `group1_reg`로 Group 1 reg field 인덱스, `base_opcode`로 직접 인코딩 base 결정.
+/// Emission-side counterpart to `decode.rs::AluOp`.
+/// `group1_reg` selects the Group 1 reg field; `base_opcode` selects the direct-encoding base.
 #[derive(Clone, Copy)]
 enum EmitAluOp {
     Add,
@@ -1074,22 +1074,22 @@ impl EmitAluOp {
         }
     }
     fn base_opcode(self) -> u8 {
-        // 직접 인코딩의 base — Group 1 reg index << 3.
+        // Direct-encoding base: Group 1 reg index << 3.
         // ADD=0x00, OR=0x08, AND=0x20, SUB=0x28, XOR=0x30, CMP=0x38
         self.group1_reg() << 3
     }
 }
 
-/// ALU 인코딩 — 변종 우선순위 (canonical 정책):
-/// 1. AL/AX ↔ imm 단축형 (`base+4`, `base+5`)
-/// 2. r/m ← imm Group 1: imm이 sign-ext 가능하면 0x83(2바이트), 아니면 0x81(3바이트)
-///    또는 imm8 → 0x80 (byte form)
-/// 3. r ↔ r/m 직접 인코딩: src=Reg면 r/m ← r form (`base+0/1`) 우선,
-///    그 외 dest=Reg면 r ← r/m form (`base+2/3`).
+/// Encodes ALU forms in canonical priority order:
+/// 1. AL/AX <-> imm short forms (`base+4`, `base+5`).
+/// 2. Group 1 r/m <- imm: 0x83 for a sign-extendable word immediate, otherwise 0x81;
+///    byte immediates use 0x80.
+/// 3. Direct r <-> r/m forms: a register source prefers r/m <- r (`base+0/1`),
+///    otherwise a register destination uses r <- r/m (`base+2/3`).
 fn emit_alu(op: EmitAluOp, dest: &Operand, src: &Operand) -> Result<Vec<u8>, EmitError> {
     let base = op.base_opcode();
 
-    // 1. AL/AX ↔ imm 단축형 — 가장 짧음
+    // 1. AL/AX <-> imm short form, the shortest encoding.
     match (dest, src) {
         (Operand::Reg8(Reg8(0)), Operand::Imm8(v)) => {
             return Ok(vec![base + 4, *v]);
@@ -1117,7 +1117,7 @@ fn emit_alu(op: EmitAluOp, dest: &Operand, src: &Operand) -> Result<Vec<u8>, Emi
             return Ok(out);
         }
         (rm_op, Operand::Imm16(v)) => {
-            // word form: sign-extendable이면 0x83 (2바이트 inst), 아니면 0x81 (3바이트 inst)
+            // Word form: 0x83 for a sign-extendable immediate, otherwise 0x81.
             let signed = *v as i16;
             let opcode = if (-128..=127).contains(&(signed as i32)) {
                 0x83
@@ -1142,7 +1142,7 @@ fn emit_alu(op: EmitAluOp, dest: &Operand, src: &Operand) -> Result<Vec<u8>, Emi
         _ => {}
     }
 
-    // 3. r ↔ r/m 직접 인코딩 — canonical: src=Reg → `base+0/1` (r/m ← r form) 우선
+    // 3. Direct r <-> r/m form: a register source canonically selects `base+0/1`.
     let (opcode, reg_field, rm_op) = match (dest, src) {
         (other, Operand::Reg8(r)) => (base, r.0, other),
         (other, Operand::Reg16(r)) => (base + 1, r.0, other),
@@ -1159,13 +1159,12 @@ fn emit_alu(op: EmitAluOp, dest: &Operand, src: &Operand) -> Result<Vec<u8>, Emi
     Ok(out)
 }
 
-/// TEST 인코딩 — ALU와 별도 인코딩.
-/// 우선순위:
-/// 1. AL/AX ↔ imm 단축형 (0xA8/0xA9)
-/// 2. r/m ↔ imm (Group 3 0xF6/0xF7 /0) — sign-extension 없음 (0x83 같은 form 없음)
-/// 3. r ↔ r/m 직접 (0x84/0x85)
+/// Encodes TEST separately from the ALU family, in this priority order:
+/// 1. AL/AX <-> imm short forms (0xA8/0xA9).
+/// 2. r/m <-> imm (Group 3 0xF6/0xF7 /0), with no sign-extended alternative.
+/// 3. Direct r <-> r/m (0x84/0x85).
 fn emit_test(a: &Operand, b: &Operand) -> Result<Vec<u8>, EmitError> {
-    // 1. AL/AX ↔ imm 단축형 (0xA8/0xA9)
+    // 1. AL/AX <-> imm short form (0xA8/0xA9).
     match (a, b) {
         (Operand::Reg8(Reg8(0)), Operand::Imm8(v)) => return Ok(vec![0xA8, *v]),
         (Operand::Reg16(Reg16(0)), Operand::Imm16(v)) => {
@@ -1174,7 +1173,7 @@ fn emit_test(a: &Operand, b: &Operand) -> Result<Vec<u8>, EmitError> {
         }
         _ => {}
     }
-    // 2. r/m ← imm (0xF6 /0 / 0xF7 /0) — sign-extension 없음
+    // 2. r/m <- imm (0xF6 /0 / 0xF7 /0), without sign extension.
     match (a, b) {
         (rm_op, Operand::Imm8(v)) => {
             let mut out = vec![0xF6];
@@ -1198,8 +1197,8 @@ fn emit_test(a: &Operand, b: &Operand) -> Result<Vec<u8>, EmitError> {
         }
         _ => {}
     }
-    // 3. r/m ↔ r (0x84/0x85) — TEST는 가환적이라 a/b 어느 쪽이 reg여도 OK.
-    //    canonical: b=Reg면 r/m ↔ r form, 아니면 a=Reg.
+    // 3. r/m <-> r (0x84/0x85). TEST is commutative, so either operand may be the register.
+    //    Canonically prefer b=Reg; otherwise use a=Reg.
     let (opcode, reg_field, rm_op) = match (a, b) {
         (other, Operand::Reg8(r)) => (0x84, r.0, other),
         (other, Operand::Reg16(r)) => (0x85, r.0, other),
@@ -1216,16 +1215,16 @@ fn emit_test(a: &Operand, b: &Operand) -> Result<Vec<u8>, EmitError> {
     Ok(out)
 }
 
-/// INC/DEC r/m 인코딩 — Group 4 (0xFE) 또는 Group 5 (0xFF) + reg field로 구분.
+/// Encodes INC/DEC r/m using Group 4 (0xFE) or Group 5 (0xFF) plus a reg field.
 /// `reg_field`: 0=INC, 1=DEC.
-/// reg16 단축형 (0x40+r / 0x48+r)은 `emit` match에서 우선 처리되므로 본 함수는
-/// Reg8 / Mem만 다룬다.
+/// The `emit` match handles reg16 short forms (0x40+r / 0x48+r) first, so this function
+/// only accepts Reg8 and Mem.
 fn emit_inc_dec(dest: &Operand, reg_field: u8) -> Result<Vec<u8>, EmitError> {
     let opcode = match dest {
         Operand::Reg8(_) => 0xFE,
         Operand::Mem(m) if m.size == OpSize::Byte => 0xFE,
         Operand::Mem(m) if m.size == OpSize::Word => 0xFF,
-        // Reg16은 단축형 arm에서 처리됨 — 여기 도달하면 invalid
+        // Reg16 is handled by the short-form arm; reaching this point is invalid.
         _ => return Err(EmitError::Invalid),
     };
     let mut out = vec![opcode];
@@ -1237,7 +1236,7 @@ fn emit_inc_dec(dest: &Operand, reg_field: u8) -> Result<Vec<u8>, EmitError> {
     Ok(out)
 }
 
-/// Group 3 unary 인코딩 — 0xF6/0xF7 + reg field.
+/// Encodes Group 3 unary forms as 0xF6/0xF7 plus a reg field.
 fn emit_group_3_unary(operand: &Operand, reg_field: u8) -> Result<Vec<u8>, EmitError> {
     let opcode = match operand {
         Operand::Reg8(_) => 0xF6,
@@ -1255,10 +1254,10 @@ fn emit_group_3_unary(operand: &Operand, reg_field: u8) -> Result<Vec<u8>, EmitE
     Ok(out)
 }
 
-/// 시프트/로테이트 (Group 2 0xD0-0xD3 + reg field) 인코더.
+/// Encodes shifts and rotates (Group 2 0xD0-0xD3 plus reg field).
 /// `reg_field`: ROL=0, ROR=1, SHL/SAL=4, SHR=5, SAR=7.
-/// `count`가 `One`이면 0xD0/0xD1, `Cl`이면 0xD2/0xD3. byte/word는 dest로 결정.
-/// `count=Imm8(_)`은 V30/186+의 0xC0/0xC1 selector를 사용한다.
+/// `One` selects 0xD0/0xD1 and `Cl` selects 0xD2/0xD3; the destination selects byte or word.
+/// `Imm8(_)` uses the V30/186+ 0xC0/0xC1 selector.
 fn emit_shift(reg_field: u8, dest: &Operand, count: ShiftCount) -> Result<Vec<u8>, EmitError> {
     let base = match count {
         ShiftCount::One => 0xD0u8,
@@ -1285,27 +1284,27 @@ fn emit_shift(reg_field: u8, dest: &Operand, count: ShiftCount) -> Result<Vec<u8
     Ok(out)
 }
 
-/// `MOV AL/AX ↔ [moffs16]` 단축형 (0xA0/0xA1/0xA2/0xA3) 인코더.
-/// 본 헬퍼는 ModR/M byte 없이 직접 disp16을 인코딩하는 단축형. segment override는 emit
-/// 진입부 (`emit`)에서 일괄 stripping/prepend되므로 본 헬퍼는 prefix를 다루지 않는다.
+/// Encodes `MOV AL/AX <-> [moffs16]` short forms (0xA0/0xA1/0xA2/0xA3).
+/// These forms encode disp16 directly without ModR/M. The `emit` entry point strips and
+/// prepends segment overrides, so this helper does not handle prefixes.
 fn emit_mov_acc_moffs(opcode: u8, mem: &Mem) -> Result<Vec<u8>, EmitError> {
     let mut out = vec![opcode];
     out.extend_from_slice(&(mem.disp as u16).to_le_bytes());
     Ok(out)
 }
 
-/// XCHG 인코더 — canonical: `XCHG AX, r16` 단축형 (0x90+rw) 우선 (a=AX 형태).
-/// b=AX 형태는 일반 형식으로 emit (operand 순서 의미 보존). 그 외는 0x86/0x87 /r.
+/// Encodes XCHG canonically, preferring `XCHG AX, r16` short form (0x90+rw) when a=AX.
+/// The b=AX order uses the general form to preserve operand order; others use 0x86/0x87 /r.
 fn emit_xchg(a: &Operand, b: &Operand) -> Result<Vec<u8>, EmitError> {
-    // 1. `XCHG AX, r16` 단축형 (0x90+rw) — a=AX이고 b가 다른 16비트 GPR.
-    //    `XCHG r16, AX` (b=AX)은 디코더가 r/m, r form (0x87 /r)으로 emit하도록 일반 형식.
+    // 1. `XCHG AX, r16` short form (0x90+rw) when a=AX and b is another 16-bit GPR.
+    //    `XCHG r16, AX` (b=AX) uses the general r/m, r form (0x87 /r).
     if let (Operand::Reg16(Reg16(0)), Operand::Reg16(other)) = (a, b)
         && other.0 != 0
     {
         return Ok(vec![0x90 + other.0]);
     }
 
-    // 2. 일반 형식 0x86 (byte) / 0x87 (word) /r — 한 쪽이 reg여야 r/m ↔ r form 가능.
+    // 2. General 0x86 (byte) / 0x87 (word) /r requires one register operand.
     let (opcode, reg_field, rm_op) = match (a, b) {
         (other, Operand::Reg8(r)) => (0x86, r.0, other),
         (other, Operand::Reg16(r)) => (0x87, r.0, other),

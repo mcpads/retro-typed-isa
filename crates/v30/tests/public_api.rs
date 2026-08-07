@@ -1,3 +1,4 @@
+use typed_isa_core::TypedIsa;
 use v30::{DecodeError, Instruction, PROFILE_ID, Prefix, Register16, decode_bytes, encode_bytes};
 
 #[test]
@@ -58,6 +59,19 @@ fn raw_bytes_cannot_hide_inside_a_typed_prefix() {
     let instruction = Instruction::BusLock(Box::new(Instruction::Unknown { raw: vec![0x90] }));
     assert_eq!(
         encode_bytes(&instruction),
+        Err(v30::EncodeError::RawBytesNotExecutable)
+    );
+}
+
+#[test]
+fn shared_protocol_rejects_raw_values_before_form_or_byte_lowering() {
+    let instruction = Instruction::Unknown { raw: vec![0x90] };
+    assert_eq!(
+        v30::V30::form(&instruction),
+        Err(v30::EncodeError::RawBytesNotExecutable)
+    );
+    assert_eq!(
+        v30::V30::encode_one(&instruction, 0),
         Err(v30::EncodeError::RawBytesNotExecutable)
     );
 }

@@ -1,7 +1,6 @@
-//! 8086/V30 ISA의 핵심 타입 정의.
+//! Core types for the 8086/V30 ISA profile.
 
-/// 8086 8비트 GPR. 인덱스는 ModR/M r/m / reg 필드의 하위 3비트 (0..=7).
-/// `pub u8`이지만 디코더는 `b & 0x07`로 마스킹해 항상 0..=7로 제한해야 한다.
+/// An 8086 8-bit GPR indexed by the low three bits of a ModR/M r/m or reg field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reg8(pub(crate) u8);
 
@@ -25,7 +24,7 @@ impl Reg8 {
             5 => "ch",
             6 => "dh",
             7 => "bh",
-            // 8 이상은 디코더 버그를 의미 — 표시용 fallback.
+            // An index above seven indicates a decoder bug; keep formatting total.
             _ => "??",
         }
     }
@@ -45,8 +44,7 @@ impl TryFrom<u8> for Reg8 {
     }
 }
 
-/// 8086 16비트 GPR. 인덱스는 ModR/M r/m / reg 필드의 하위 3비트 (0..=7).
-/// `pub u8`이지만 디코더는 `b & 0x07`로 마스킹해 항상 0..=7로 제한해야 한다.
+/// An 8086 16-bit GPR indexed by the low three bits of a ModR/M r/m or reg field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reg16(pub(crate) u8);
 
@@ -70,7 +68,7 @@ impl Reg16 {
             5 => "bp",
             6 => "si",
             7 => "di",
-            // 8 이상은 디코더 버그를 의미 — 표시용 fallback.
+            // An index above seven indicates a decoder bug; keep formatting total.
             _ => "??",
         }
     }
@@ -115,8 +113,8 @@ impl Sreg {
         }
     }
 
-    /// ModR/M의 reg 필드(0-7) 또는 segment override prefix 인코딩에서 Sreg로 변환.
-    /// 8086에서 4-7은 미정의 — 디코더가 잘못된 인코딩으로 처리해야 하므로 `None`.
+    /// Convert a ModR/M reg field or segment-override selector to a segment register.
+    /// Selectors four through seven are undefined on 8086 and return `None`.
     pub fn from_index(i: u8) -> Option<Sreg> {
         match i {
             0 => Some(Sreg::ES),
@@ -137,7 +135,7 @@ impl Sreg {
     }
 }
 
-/// 8086 메모리 어드레싱 base — ModR/M r/m 필드의 8가지 패턴 + 특수 [disp16].
+/// The eight 8086 ModR/M address bases plus the special absolute `[disp16]` form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemBase {
     BxSi,
@@ -148,7 +146,7 @@ pub enum MemBase {
     Di,
     Bp,
     Bx,
-    Direct, // mod=00 r/m=110: [absolute16] (BP가 아님)
+    Direct, // mod=00 r/m=110: [absolute16], not BP.
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -361,11 +359,11 @@ pub enum Operand {
     Imm8(u8),
     Imm16(u16),
     Mem(Mem),
-    /// 8비트 분기 displacement
+    /// An 8-bit branch displacement.
     Rel8(i8),
-    /// 16비트 분기 displacement
+    /// A 16-bit branch displacement.
     Rel16(i16),
-    /// far pointer
+    /// A far pointer.
     Far {
         seg: u16,
         off: u16,
@@ -404,8 +402,8 @@ pub enum LoopCondition {
 }
 
 impl Cond {
-    /// Jcc opcode의 low nibble (`0x0..=0xF`)을 Cond로. `0x10` 이상은 `None`.
-    /// JCXZ(opcode `0xE3`)는 별도 처리 — 본 함수는 `Cond::Cxz`를 반환하지 않는다.
+    /// Convert the low nibble of a Jcc opcode to a condition.
+    /// JCXZ uses opcode `0xE3` and is intentionally handled separately.
     pub fn from_jcc_index(i: u8) -> Option<Cond> {
         match i {
             0x0 => Some(Cond::O),
@@ -428,8 +426,8 @@ impl Cond {
         }
     }
 
-    /// Jcc opcode의 low nibble로 변환 (Jcc 16개만 의미 있음).
-    /// `Cxz`는 별도 opcode `0xE3`로 인코딩되므로 `None`.
+    /// Convert one of the 16 Jcc conditions to its opcode low nibble.
+    /// `Cxz` uses the separate `0xE3` opcode and returns `None`.
     pub fn to_jcc_index(self) -> Option<u8> {
         Some(match self {
             Cond::O => 0x0,
@@ -483,11 +481,10 @@ pub enum JmpTarget {
         seg: u16,
         off: u16,
     },
-    /// 0xFF /4 — JMP near r/m16. r/m operand에서 16비트 IP만 로드 (CS 불변).
+    /// 0xFF /4: near JMP through r/m16; loads IP and leaves CS unchanged.
     IndirectNear(Operand),
-    /// 0xFF /5 — JMP far m16:16. **메모리 operand 전용** — 32비트 far pointer (off, seg)를
-    /// 로드해 CS:IP에 적재. reg form (mod=11)은 spec-undefined이므로 디코더는 `Unknown`으로
-    /// 떨어진다 (near와 의미 다름 — silent normalization 금지).
+    /// 0xFF /5: far JMP through a memory-only m16:16 pointer.
+    /// Register mode is undefined and decodes as `Unknown` rather than a near jump.
     IndirectFar(Mem),
 }
 
@@ -498,10 +495,10 @@ pub enum CallTarget {
         seg: u16,
         off: u16,
     },
-    /// 0xFF /2 — CALL near r/m16. r/m operand에서 16비트 IP만 로드.
+    /// 0xFF /2: near CALL through r/m16; loads only IP.
     IndirectNear(Operand),
-    /// 0xFF /3 — CALL far m16:16. **메모리 operand 전용** — 32비트 far pointer (off, seg)를
-    /// 로드해 CS:IP에 적재. reg form (mod=11)은 spec-undefined → `Unknown`.
+    /// 0xFF /3: far CALL through a memory-only m16:16 pointer.
+    /// Register mode is undefined and decodes as `Unknown`.
     IndirectFar(Mem),
 }
 
@@ -534,17 +531,18 @@ impl SegOff {
 pub struct Prefixes {
     pub seg_override: Option<Sreg>,
     pub bus_lock: bool,
-    /// V30 (uPD70116) 확장 prefix REPC (0x65) — repeat while carry. 8086에는 없음.
+    /// V30 REPC prefix (`0x65`): repeat while carry; absent from 8086.
     pub repc: bool,
-    /// V30 확장 prefix REPNC (0x64) — repeat while not carry.
+    /// V30 REPNC prefix (`0x64`): repeat while carry is clear.
     pub repnc: bool,
 }
 
-/// Native V30 명령의 typed 의미. `Unknown`은 내부 linear sweep과 반입 회귀용이며
-/// 공개 byte lowering과 checked assembler에서는 거부된다.
+/// Typed semantics for native V30 instructions.
+/// `Unknown` supports internal linear sweeps and import regression only; public
+/// byte lowering and the checked assembler reject it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstructionKind {
-    // 데이터 이동
+    // Data movement.
     Mov {
         dest: Operand,
         src: Operand,
@@ -578,7 +576,7 @@ pub enum InstructionKind {
         bounds: Mem,
     },
 
-    // 산술/논리
+    // Arithmetic and logic.
     Add {
         dest: Operand,
         src: Operand,
@@ -645,7 +643,7 @@ pub enum InstructionKind {
         src: Operand,
     },
 
-    // 시프트/로테이트
+    // Shifts and rotates.
     Shl {
         dest: Operand,
         count: ShiftCount,
@@ -675,7 +673,7 @@ pub enum InstructionKind {
         count: ShiftCount,
     },
 
-    // 분기
+    // Control flow.
     Jcc {
         cond: Cond,
         target: i8,
@@ -697,7 +695,7 @@ pub enum InstructionKind {
         pop: u16,
     },
 
-    // 인터럽트
+    // Interrupts.
     Int {
         vector: u8,
     },
@@ -733,9 +731,9 @@ pub enum InstructionKind {
     Cmpsw,
     Scasb,
     Scasw,
-    /// REP/REPE prefix가 붙은 string 명령
+    /// A string instruction with REP or REPE.
     Rep(Box<InstructionKind>),
-    /// REPNE prefix가 붙은 string 명령
+    /// A string instruction with REPNE.
     Repne(Box<InstructionKind>),
     Repc(Box<InstructionKind>),
     Repnc(Box<InstructionKind>),
@@ -745,13 +743,13 @@ pub enum InstructionKind {
         instruction: Box<InstructionKind>,
     },
 
-    // 기타
+    // Miscellaneous instructions.
     Nop,
     Hlt,
     Xlat,
 
-    // 플래그 명령 (Intel SDM Vol 2A 부록 B; 모두 single-byte, no operand).
-    /// 0x9B — `WAIT` / `FWAIT` (FPU와의 동기 — 8086 단독에서는 NOP과 유사).
+    // Single-byte, operand-free flag instructions from Intel SDM Volume 2A, Appendix B.
+    /// 0x9B: `WAIT` / `FWAIT`, synchronizing with an external FPU.
     Wait,
     /// 0x9C — `PUSHF` (push FLAGS to stack).
     Pushf,
@@ -804,10 +802,9 @@ pub enum InstructionKind {
         operand: FloatingPointOperand,
     },
 
-    // V30 (NEC uPD70116) 확장 — `0x0F` secondary opcode prefix.
-    // ─ 출처: NEC uPD70116 (V30) 데이터시트 §3 "Instruction Set Extensions",
-    //   「16ビット マイクロプロセッサ V30」(NEC, 1985) Appendix A. 8086 비호환 V30 검출
-    //   분기가 PC-9801 게임 코드에 흔하므로 디코더 완결성을 위해 추가.
+    // V30 extensions under the `0x0F` secondary opcode prefix.
+    // Sources: NEC uPD70116 data sheet section 3 and NEC's 1985 V30 manual,
+    // Appendix A. The native V30 detection branch is included as part of the ISA.
     /// `0F 20` — 4-bit packed BCD string add (DS:SI ← DS:SI op ES:DI, length CL).
     Add4s,
     /// `0F 22` — 4-bit packed BCD string subtract.
@@ -863,9 +860,9 @@ pub enum InstructionKind {
         vector: u8,
     },
 
-    // 미분류 — round-trip 보존
-    /// 디코더가 인식하지 못한 raw 바이트. `emit`이 그대로 반환해 round-trip을 보존한다.
-    /// `Instruction`에 wrap될 때 `Instruction::bytes`가 권위 사본이며 `raw`는 그것의 미러.
+    // Unclassified input retained only for import round trips.
+    /// Raw bytes not recognized by the permissive internal decoder.
+    /// `Instruction::bytes` is authoritative; `raw` mirrors it.
     Unknown {
         raw: Vec<u8>,
     },

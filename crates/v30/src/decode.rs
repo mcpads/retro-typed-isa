@@ -1,46 +1,46 @@
-//! x86 디코더 — bytes → Instruction.
+//! x86 decoder: bytes to `Instruction`.
 //!
-//! ROM 해킹의 도달 가능 코드에서 확인한 8086/V30 명령을 우선 디코드한다. 나머지는
-//! `InstructionKind::Unknown { raw }`로 떨어져 상위 분석기가 결손을 fail-loud할 수 있다.
+//! Instructions observed in reachable 8086/V30 ROM code are decoded first. Other input becomes
+//! `InstructionKind::Unknown { raw }` so higher-level analysis can fail loudly on gaps.
 
 use crate::instruction::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
-    /// 현재는 빈 입력에서만 발생. 명령어 truncated는 `unknown1` fallback으로 사용 — sweep 연속성 보존.
+    /// Currently occurs only for empty input. Truncated instructions use `unknown1` to preserve sweep continuity.
     #[error("input bytes truncated: needed {needed}, got {got}")]
     Truncated { needed: usize, got: usize },
 }
 
-/// ModR/M byte의 mod 필드(bits 7-6).
+/// Returns the ModR/M mod field (bits 7-6).
 fn modrm_mod(b: u8) -> u8 {
     (b >> 6) & 0b11
 }
 
-/// ModR/M byte의 reg 필드(bits 5-3).
+/// Returns the ModR/M reg field (bits 5-3).
 fn modrm_reg(b: u8) -> u8 {
     (b >> 3) & 0b111
 }
 
-/// ModR/M byte의 r/m 필드(bits 2-0).
+/// Returns the ModR/M r/m field (bits 2-0).
 fn modrm_rm(b: u8) -> u8 {
     b & 0b111
 }
 
-/// ModR/M의 reg 필드를 16비트 GPR로 해석.
+/// Interprets the ModR/M reg field as a 16-bit GPR.
 pub fn decode_modrm_reg16(modrm: u8) -> Reg16 {
     Reg16(modrm_reg(modrm))
 }
 
-/// ModR/M의 reg 필드를 8비트 GPR로 해석.
+/// Interprets the ModR/M reg field as an 8-bit GPR.
 pub fn decode_modrm_reg8(modrm: u8) -> Reg8 {
     Reg8(modrm_reg(modrm))
 }
 
-/// ModR/M의 r/m 필드를 Operand로 해석. mod 필드에 따라 displacement 바이트를
-/// `disp_bytes`에서 소비하고, 소비한 바이트 수를 반환한다.
+/// Interprets the ModR/M r/m field as an operand, consuming displacement bytes according to
+/// the mod field and returning the number consumed.
 ///
-/// `op_size`는 Reg vs Mem의 크기 결정에 사용 (Mem.size).
+/// `op_size` determines the register or memory width (`Mem.size`).
 pub fn decode_modrm_rm(
     modrm: u8,
     op_size: OpSize,
@@ -50,7 +50,7 @@ pub fn decode_modrm_rm(
     let rm = modrm_rm(modrm);
 
     if m == 0b11 {
-        // 레지스터
+        // Register operand.
         let op = match op_size {
             OpSize::Byte => Operand::Reg8(Reg8(rm)),
             OpSize::Word => Operand::Reg16(Reg16(rm)),
@@ -58,23 +58,23 @@ pub fn decode_modrm_rm(
         return Ok((op, 0));
     }
 
-    // 메모리 — base 결정
+    // Select the memory base.
     let (base, special_disp16) = match (m, rm) {
-        (0b00, 0b110) => (MemBase::Direct, true), // 특수: [disp16]
+        (0b00, 0b110) => (MemBase::Direct, true), // Special [disp16] form.
         (_, 0b000) => (MemBase::BxSi, false),
         (_, 0b001) => (MemBase::BxDi, false),
         (_, 0b010) => (MemBase::BpSi, false),
         (_, 0b011) => (MemBase::BpDi, false),
         (_, 0b100) => (MemBase::Si, false),
         (_, 0b101) => (MemBase::Di, false),
-        (_, 0b110) => (MemBase::Bp, false), // mod≠00이면 BP+disp
+        (_, 0b110) => (MemBase::Bp, false), // BP+disp when mod is not 00.
         (_, 0b111) => (MemBase::Bx, false),
-        _ => unreachable!("rm은 3비트"),
+        _ => unreachable!("rm is three bits"),
     };
 
-    // displacement 결정
+    // Select the displacement.
     let (disp, used) = if special_disp16 {
-        // mod=00 r/m=110 — disp16 강제
+        // mod=00 r/m=110 requires disp16.
         if disp_bytes.len() < 2 {
             return Err(DecodeError::Truncated {
                 needed: 2,
@@ -116,25 +116,25 @@ pub fn decode_modrm_rm(
     ))
 }
 
-/// 단일 명령어 디코드 — bytes의 첫 명령어 하나를 읽는다.
+/// Decodes the first instruction in `bytes`.
 ///
-/// 진입부에서 segment override, BUSLOCK과 repeat prefix를 source 순서대로 소비한 뒤
-/// `decode_core`로 메인 opcode를 디코드한다. repeat은 허용된 block/string 명령을
-/// typed wrapper로 감싸고, segment override는 명시적 또는 암시적 source operand에
-/// 주입한다. BUSLOCK은 바로 다음 native instruction 전체를 감싼다.
+/// The entry point consumes segment overrides, BUSLOCK, and repeat prefixes in source order,
+/// then delegates the main opcode to `decode_core`. Effective repeat prefixes wrap supported
+/// block/string operations, segment overrides are applied to explicit or implicit source
+/// operands, and BUSLOCK wraps the complete following native instruction.
 ///
-/// 알려지지 않은 opcode는 1바이트 `Unknown { raw }`로 떨어진다 (linear sweep 진행 가능).
-/// Truncated bytes도 동일하게 처리 (sweep 연속성 보존).
+/// Unknown opcodes become one-byte `Unknown { raw }` values so a linear sweep can advance.
+/// Truncated input follows the same continuity rule.
 pub fn decode(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> {
     if bytes.is_empty() {
         return Err(DecodeError::Truncated { needed: 1, got: 0 });
     }
 
-    // V30 instruction 길이 상한 안에서 prefix 순서를 보존한다.
+    // Preserve prefix order within the V30 instruction-length limit.
     let mut prefixes = Prefixes::default();
-    // 0xF2/0xF3은 REP/REPNE (8086+). 0x64/0x65는 V30 REPNC/REPC — string op에 결합될 때만
-    // kind에 wrap. 충돌 시 마지막 prefix가 승리한다. 0x64/0x65도 `rep` 슬롯에 같이
-    // 저장해 semantic dispatch를 한 곳에서 처리한다.
+    // 0xF2/0xF3 are REP/REPNE on 8086+. 0x64/0x65 are V30 REPNC/REPC. They create a
+    // wrapper only on compatible string operations, and the last conflicting prefix wins.
+    // Store all repeat categories in one slot for centralized semantic dispatch.
     let mut rep: Option<u8> = None;
     let mut consumed = 0;
     while consumed < bytes.len() && consumed < 15 {
@@ -146,8 +146,8 @@ pub fn decode(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> {
             0xF0 => prefixes.bus_lock = true,
             0xF2 => rep = Some(0xF2),
             0xF3 => rep = Some(0xF3),
-            // V30 (uPD70116) — REPNC (0x64) / REPC (0x65). 8086에는 없음. ROM이 V30용으로
-            // 빌드된 경우만 출현. string op에 wrap, 그 외에는 prefix 슬롯에만 보존.
+            // V30 (uPD70116) REPNC (0x64) / REPC (0x65), absent from 8086. Wrap compatible
+            // string operations and otherwise preserve them only in the prefix sequence.
             0x64 => {
                 prefixes.repnc = true;
                 rep = Some(0x64);
@@ -162,12 +162,11 @@ pub fn decode(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> {
     }
 
     if consumed >= bytes.len() {
-        // prefix만 있고 메인 opcode 없음 — 첫 prefix를 1바이트 Unknown으로 떨어뜨려
-        // sweep 연속성 보존.
+        // Prefixes without a main opcode become a one-byte Unknown for sweep continuity.
         return Ok(unknown1(cs_ip, bytes[0]));
     }
 
-    // 메인 디코드
+    // Decode the main opcode.
     let core_bytes = &bytes[consumed..];
     let core = decode_core(
         core_bytes,
@@ -177,8 +176,8 @@ pub fn decode(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> {
         },
     )?;
 
-    // REP는 repeat 가능한 block/string 명령에, REPNE/REPC/REPNC는 비교 계열에만
-    // semantic wrapper를 만든다. 공개 strict decode는 의미 없는 최종 repeat을 거부한다.
+    // REP wraps repeatable block/string operations; REPNE/REPC/REPNC wrap comparison forms.
+    // Public strict decoding rejects a final repeat prefix with no semantic effect.
     let kind = match (rep, &core.kind) {
         (Some(0xF3), kind) if is_string_op(kind) => InstructionKind::Rep(Box::new(kind.clone())),
         (Some(0xF2), kind) if is_comparison_string_op(kind) => {
@@ -193,7 +192,7 @@ pub fn decode(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> {
         _ => core.kind.clone(),
     };
 
-    // segment override는 메모리 operand에 주입
+    // Apply the segment override to memory operands.
     let kind = inject_seg_override(kind, prefixes.seg_override);
     let kind = if prefixes.bus_lock {
         InstructionKind::BusLock(Box::new(kind))
@@ -201,7 +200,7 @@ pub fn decode(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> {
         kind
     };
 
-    // 전체 바이트 = consumed prefix + core.bytes
+    // Full source bytes are the consumed prefixes followed by core bytes.
     let mut total_bytes = bytes[..consumed].to_vec();
     total_bytes.extend_from_slice(&core.bytes);
 
@@ -213,8 +212,8 @@ pub fn decode(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> {
     })
 }
 
-/// 본 함수는 prefix가 모두 제거된 바이트 슬라이스를 받아 단일 명령어를 디코드.
-/// 호출자는 `decode`이며, prefix 처리는 거기서 수행. opcode 그룹별 헬퍼들에 디스패치.
+/// Decodes one instruction from a byte slice after prefixes have been removed.
+/// The caller, `decode`, handles prefixes; this function dispatches to opcode-group helpers.
 fn decode_core(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> {
     if bytes.is_empty() {
         return Err(DecodeError::Truncated { needed: 1, got: 0 });
@@ -246,25 +245,24 @@ fn decode_core(bytes: &[u8], cs_ip: SegOff) -> Result<Instruction, DecodeError> 
         return Ok(i);
     }
 
-    // V30 (NEC uPD70116) 확장 — `0x0F` secondary opcode.
-    // 8086에서는 0x0F가 `POP CS` (POP_CS는 `decode_push_pop`이 처리하지 않음 — 단지 V30이
-    // 같은 byte를 secondary prefix로 redefine했을 뿐). 본 디코더는 V30 의미로 처리.
+    // V30 (NEC uPD70116) `0x0F` secondary-opcode extension. On 8086, 0x0F is POP CS;
+    // V30 redefines the same byte as a secondary prefix, which is the meaning used here.
     if op0 == 0x0F {
         return Ok(decode_v30_0f(bytes, cs_ip));
     }
 
-    // 알려지지 않은 opcode는 1바이트 Unknown으로
+    // Unknown opcodes become one-byte Unknown values.
     Ok(unknown1(cs_ip, op0))
 }
 
-/// V30 (NEC uPD70116) `0x0F` secondary opcode 디코드.
+/// Decodes V30 (NEC uPD70116) `0x0F` secondary opcodes.
 ///
-/// 출처: NEC uPD70116 (V30) 데이터시트 §3 "Instruction Set Extensions".
-/// 알 수 없는 secondary는 `Unknown { raw: [0x0F, secondary] }` (2바이트)로 떨어진다 —
-/// linear sweep을 8086 path 대비 1바이트 더 진전시켜 V30-only 코드 영역의 mis-alignment 감소.
+/// Source: NEC uPD70116 (V30) data sheet, section 3, "Instruction Set Extensions".
+/// An unknown secondary becomes `Unknown { raw: [0x0F, secondary] }`, advancing a linear
+/// sweep one byte farther than the 8086 path and reducing misalignment in V30-only code.
 fn decode_v30_0f(bytes: &[u8], cs_ip: SegOff) -> Instruction {
     if bytes.len() < 2 {
-        // 2번째 byte 없음 — 1바이트 Unknown으로
+        // Missing second byte: return a one-byte Unknown.
         return unknown1(cs_ip, 0x0F);
     }
     let sec = bytes[1];
@@ -373,7 +371,7 @@ fn decode_v30_0f(bytes: &[u8], cs_ip: SegOff) -> Instruction {
             };
             insn(cs_ip, bytes[..4].to_vec(), kind)
         }
-        // BRKEM imm8 — native stream의 정적 분석 경계
+        // BRKEM imm8 marks a static-analysis boundary in the native stream.
         0xFF => {
             if bytes.len() < 3 {
                 return unknown_v30(cs_ip, sec);
@@ -389,7 +387,7 @@ fn decode_v30_0f(bytes: &[u8], cs_ip: SegOff) -> Instruction {
     }
 }
 
-/// V30 secondary opcode 인식 실패 시 2바이트(`0x0F`+secondary)를 `Unknown`으로.
+/// Returns both bytes (`0x0F` plus secondary) as Unknown for an unrecognized V30 opcode.
 fn unknown_v30(cs_ip: SegOff, sec: u8) -> Instruction {
     Instruction {
         cs_ip,
@@ -401,7 +399,7 @@ fn unknown_v30(cs_ip: SegOff, sec: u8) -> Instruction {
     }
 }
 
-/// REP/REPNE prefix가 의미를 갖는 string 명령어 판별.
+/// Determines which string instructions give a REP-family prefix semantic meaning.
 fn is_string_op(kind: &InstructionKind) -> bool {
     matches!(
         kind,
@@ -432,10 +430,10 @@ fn is_comparison_string_op(kind: &InstructionKind) -> bool {
     )
 }
 
-/// segment override prefix를 명령어의 메모리 operand에 주입.
-/// 메모리 operand가 없는 명령어는 그대로 반환.
+/// Applies a segment override prefix to an instruction's memory operands.
+/// Instructions without memory operands are returned unchanged.
 ///
-/// **신규 메모리-바운드 InstructionKind variant 추가 시 세 곳 모두 갱신 필요**:
+/// **When adding a memory-bearing `InstructionKind` variant, update all three sites:**
 /// `decode.rs::inject_seg_override`, `emit.rs::find_mem_seg`, `emit.rs::strip_mem_seg`.
 fn inject_seg_override(kind: InstructionKind, seg: Option<Sreg>) -> InstructionKind {
     let s = match seg {
@@ -550,7 +548,7 @@ fn inject_seg_override(kind: InstructionKind, seg: Option<Sreg>) -> InstructionK
             a: with_seg(a),
             b: with_seg(b),
         },
-        // 시프트/로테이트도 메모리 operand 가능
+        // Shift and rotate destinations may also be memory operands.
         InstructionKind::Rol { dest, count } => InstructionKind::Rol {
             dest: with_seg(dest),
             count,
@@ -579,7 +577,7 @@ fn inject_seg_override(kind: InstructionKind, seg: Option<Sreg>) -> InstructionK
             dest: with_seg(dest),
             count,
         },
-        // V30 0x0F 확장 — 메모리 operand를 받는 variant들
+        // V30 0x0F extension variants that accept memory operands.
         InstructionKind::Rol4 { rm } => InstructionKind::Rol4 { rm: with_seg(rm) },
         InstructionKind::Ror4 { rm } => InstructionKind::Ror4 { rm: with_seg(rm) },
         InstructionKind::Test1 { target, bit } => InstructionKind::Test1 {
@@ -670,8 +668,8 @@ fn has_implicit_segment_source(kind: &InstructionKind) -> bool {
     }
 }
 
-/// 단일 바이트 명령어 그룹: NOP, HLT, IRET, INT3, INT n, 플래그 명령 (Intel SDM Vol 2A
-/// 부록 B), sign-extend (CBW/CWD), 문자열 명령
+/// Single-byte instruction group: NOP, HLT, IRET, INT3, INT n, flag instructions
+/// (Intel SDM Volume 2A, Appendix B), sign extension (CBW/CWD), and string instructions.
 /// (MOVSB/MOVSW/CMPSB/CMPSW/STOSB/STOSW/LODSB/LODSW/SCASB/SCASW).
 fn decode_simple_byte(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
     match op0 {
@@ -709,7 +707,7 @@ fn decode_simple_byte(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instructio
         // sign-extend (Intel SDM Vol 2A B.1.4.5).
         0x98 => Some(insn(cs_ip, vec![0x98], InstructionKind::Cbw)),
         0x99 => Some(insn(cs_ip, vec![0x99], InstructionKind::Cwd)),
-        // 플래그 명령 (Intel SDM Vol 2A B.1.4.4 — `*F` family).
+        // Flag instructions (Intel SDM Volume 2A, B.1.4.4, the `*F` family).
         0x9B => Some(insn(cs_ip, vec![0x9B], InstructionKind::Wait)),
         0x9C => Some(insn(cs_ip, vec![0x9C], InstructionKind::Pushf)),
         0x9D => Some(insn(cs_ip, vec![0x9D], InstructionKind::Popf)),
@@ -722,7 +720,7 @@ fn decode_simple_byte(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instructio
         0xFB => Some(insn(cs_ip, vec![0xFB], InstructionKind::Sti)),
         0xFC => Some(insn(cs_ip, vec![0xFC], InstructionKind::Cld)),
         0xFD => Some(insn(cs_ip, vec![0xFD], InstructionKind::Std)),
-        // 문자열 명령 (단일 바이트). REP/REPNE prefix는 `decode` 진입부에서 처리.
+        // Single-byte string instructions; the `decode` entry point handles REP/REPNE.
         0xA4 => Some(insn(cs_ip, vec![0xA4], InstructionKind::Movsb)),
         0xA5 => Some(insn(cs_ip, vec![0xA5], InstructionKind::Movsw)),
         0xA6 => Some(insn(cs_ip, vec![0xA6], InstructionKind::Cmpsb)),
@@ -737,7 +735,7 @@ fn decode_simple_byte(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instructio
     }
 }
 
-/// 80186-compatible V30 forms와 native external-FPU selector.
+/// 80186-compatible V30 forms and native external-FPU selectors.
 fn decode_v30_native_additions(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
     let single = match op0 {
         0x60 => Some(InstructionKind::Pusha),
@@ -936,7 +934,7 @@ fn decode_v30_native_additions(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<I
     None
 }
 
-/// 분기 그룹: Jcc rel8, LOOP family, JCXZ, JMP short/near/far, CALL near/far, RET, RETF.
+/// Branch group: Jcc rel8, LOOP family, JCXZ, short/near/far JMP, near/far CALL, RET, and RETF.
 fn decode_branches(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
     // Jcc rel8 (0x70-0x7F)
     if (0x70..=0x7F).contains(&op0) {
@@ -951,7 +949,7 @@ fn decode_branches(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> 
             InstructionKind::Jcc { cond, target },
         ));
     }
-    // LOOPNE/LOOPE/LOOP (0xE0-0xE2) — CX 감소를 수반하는 조건 분기.
+    // LOOPNE/LOOPE/LOOP (0xE0-0xE2), conditional branches that decrement CX.
     if (0xE0..=0xE2).contains(&op0) {
         if bytes.len() < 2 {
             return Some(unknown1(cs_ip, op0));
@@ -1082,7 +1080,7 @@ fn decode_branches(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> 
     }
 }
 
-/// PUSH/POP 그룹: r16 단축형, sreg 단축형, 0xFF /6 (PUSH r/m16), 0x8F /0 (POP r/m16).
+/// PUSH/POP group: r16 and sreg short forms, 0xFF /6 (PUSH r/m16), and 0x8F /0 (POP r/m16).
 fn decode_push_pop(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
     // PUSH r16 (0x50-0x57) / POP r16 (0x58-0x5F)
     if (0x50..=0x57).contains(&op0) {
@@ -1172,15 +1170,14 @@ fn decode_push_pop(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> 
         _ => {}
     }
 
-    // PUSH r/m16 (0xFF /6) — Phase D-3부터 Group 5 통합 헬퍼 `decode_group_5`에서 처리.
-    // (이전엔 본 헬퍼에서 reg=6만 매치했으나 INC/DEC/CALL/JMP indirect와 함께 0xFF
-    // 분기가 한 곳으로 집중되도록 이동.)
+    // PUSH r/m16 (0xFF /6) is handled by the consolidated Group 5 helper `decode_group_5`,
+    // together with INC/DEC and indirect CALL/JMP forms.
 
     // POP r/m16 (0x8F /0)
-    // Canonical 정책 (emit.rs 모듈 doc 참조): reg form (mod=11)이 들어오면
-    // `InstructionKind::Pop { dest: Reg16 }`로 디코드 — emit는 항상 0x58+r 단축형으로.
-    // 즉 `0x8F 0xC3` → decode → emit → `0x5B` (byte 변경, kind 보존). 메모리 form (mod≠11)은
-    // 0x8F /0으로 emit.
+    // Canonical policy (see emit.rs): a register form (mod=11) decodes to
+    // `InstructionKind::Pop { dest: Reg16 }`, then emits as short form 0x58+r.
+    // Thus `0x8F 0xC3` -> decode -> emit -> `0x5B`, changing bytes but preserving the kind.
+    // Memory forms continue to emit as 0x8F /0.
     if op0 == 0x8F {
         if bytes.len() < 2 {
             return Some(unknown1(cs_ip, op0));
@@ -1205,17 +1202,16 @@ fn decode_push_pop(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> 
     None
 }
 
-/// MOV 그룹: r/m ↔ r (0x88-0x8B), r/m ↔ sreg (0x8C/0x8E), acc ↔ moffs (0xA0-0xA3),
-/// r ← imm 단축형 (0xB0-0xBF), r/m ← imm (0xC6/0xC7 /0).
+/// MOV group: r/m <-> r (0x88-0x8B), r/m <-> sreg (0x8C/0x8E), acc <-> moffs
+/// (0xA0-0xA3), r <- imm short forms (0xB0-0xBF), and r/m <- imm (0xC6/0xC7 /0).
 fn decode_mov(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
     // MOV r/m, r (0x88, 0x89) — direction = 0 (r/m ← r)
     // MOV r, r/m (0x8A, 0x8B) — direction = 1 (r ← r/m)
     //
-    // Canonical 정책 (emit.rs 모듈 doc 참조): reg-reg (mod=11) 케이스에서 0x88/0x89와
-    // 0x8A/0x8B는 같은 의미의 redundant encoding. 본 디코더는 의미 그대로 디코드하므로
-    // 두 인코딩이 같은 `Mov { dest, src }` kind를 만든다 — 예: `0x89 0xC4`와 `0x8B 0xE0`은
-    // 모두 `Mov { dest: SP, src: AX }`로 디코드. emit는 항상 0x88/0x89 (dir=0)을 선택해
-    // decode → emit → decode → emit 안정점에 도달.
+    // Canonical policy (see emit.rs): in reg-reg (mod=11) cases, 0x88/0x89 and 0x8A/0x8B
+    // are redundant encodings of the same meaning. Both therefore produce one
+    // `Mov { dest, src }` kind. For example, `0x89 0xC4` and `0x8B 0xE0` both decode to
+    // `Mov { dest: SP, src: AX }`. Emission selects 0x88/0x89 (dir=0), reaching a fixed point.
     if matches!(op0, 0x88..=0x8B) {
         if bytes.len() < 2 {
             return Some(unknown1(cs_ip, op0));
@@ -1406,7 +1402,7 @@ fn decode_mov(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
     None
 }
 
-/// ALU family op — Group 1 reg field 인덱스와 일치 (0..=7).
+/// ALU operation indexed by its Group 1 reg field (0..=7).
 ///
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AluOp {
@@ -1449,12 +1445,13 @@ impl AluOp {
     }
 }
 
-/// ALU 그룹: ADD/OR/AND/SUB/XOR/CMP의 직접 인코딩 (0x00-0x05, 0x08-0x0D, 0x20-0x25,
-/// 0x28-0x2D, 0x30-0x35, 0x38-0x3D) + Group 1 즉시값 (0x80/0x81/0x82/0x83).
+/// ALU group: direct encodings for ADD/OR/AND/SUB/XOR/CMP (0x00-0x05, 0x08-0x0D,
+/// 0x20-0x25, 0x28-0x2D, 0x30-0x35, 0x38-0x3D) plus Group 1 immediates
+/// (0x80/0x81/0x82/0x83).
 ///
-/// 8086 ALU 직접 인코딩과 Group 1 immediate 형식을 모두 포함한다.
+/// Includes both direct 8086 ALU encodings and Group 1 immediate forms.
 fn decode_alu(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
-    // ALU 직접 인코딩 — base = (op_index << 3), offset 0..=5
+    // Direct ALU encoding: base = op_index << 3, offset 0..=5.
     // base+0/1: OP r/m, r (W=offset&1)
     // base+2/3: OP r, r/m  (W=offset&1)
     // base+4:   OP AL, imm8
@@ -1471,7 +1468,7 @@ fn decode_alu(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
         return Some(decode_alu_direct(bytes, cs_ip, op0, aluop, alu_off));
     }
 
-    // Group 1 즉시값 (0x80, 0x81, 0x82, 0x83)
+    // Group 1 immediates (0x80, 0x81, 0x82, 0x83).
     if matches!(op0, 0x80..=0x83) {
         return Some(decode_alu_group1(bytes, cs_ip, op0));
     }
@@ -1479,7 +1476,7 @@ fn decode_alu(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
     None
 }
 
-/// ALU 직접 인코딩의 6가지 변종 처리 (op0 & 0x07 = 0..=5).
+/// Handles the six direct ALU forms (op0 & 0x07 = 0..=5).
 fn decode_alu_direct(
     bytes: &[u8],
     cs_ip: SegOff,
@@ -1559,11 +1556,11 @@ fn decode_alu_direct(
                 aluop.make_kind(Operand::Reg16(Reg16::AX), Operand::Imm16(imm)),
             )
         }
-        _ => unreachable!("alu_off는 0..=5로 제한됨"),
+        _ => unreachable!("alu_off is limited to 0..=5"),
     }
 }
 
-/// Group 1 즉시값 (0x80/0x81/0x82/0x83) — OP r/m, imm.
+/// Group 1 immediates (0x80/0x81/0x82/0x83): OP r/m, imm.
 fn decode_alu_group1(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
     if bytes.len() < 2 {
         return unknown1(cs_ip, op0);
@@ -1605,7 +1602,7 @@ fn decode_alu_group1(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
             let v = (bytes[imm_off] as i8) as i16 as u16;
             (Operand::Imm16(v), 1)
         }
-        _ => unreachable!("op0는 0x80..=0x83"),
+        _ => unreachable!("op0 is in 0x80..=0x83"),
     };
     let total = imm_off + imm_used;
     insn(cs_ip, bytes[..total].to_vec(), aluop.make_kind(rm_op, src))
@@ -1614,11 +1611,11 @@ fn decode_alu_group1(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
 /// TEST + INC/DEC short + Group 3/4/5 (0xF6/0xF7/0xFE/0xFF).
 ///
 /// Group 3 (0xF6/0xF7): /0=TEST, /2=NOT, /3=NEG, /4-/7=MUL/IMUL/DIV/IDIV.
-/// Group 4 (0xFE): /0=INC, /1=DEC. 그 외 invalid.
+/// Group 4 (0xFE): /0=INC and /1=DEC; other fields are invalid.
 /// Group 5 (0xFF): /0=INC, /1=DEC, /2/3=CALL indirect, /4/5=JMP indirect, /6=PUSH r/m.
 ///
-/// 0xFF는 Phase D-2에서 `decode_push_pop`이 reg=6만 처리하던 것을 본 헬퍼로 이동 — 모든
-/// Group 5 케이스를 단일 진입점에서 처리.
+/// Handles every Group 5 case in one entry point, including the 0xFF reg=6 PUSH form formerly
+/// handled by `decode_push_pop`.
 fn decode_test_inc_dec_neg(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
     // TEST r/m, r (0x84/0x85)
     if matches!(op0, 0x84 | 0x85) {
@@ -1677,7 +1674,7 @@ fn decode_test_inc_dec_neg(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instr
         ));
     }
 
-    // INC reg16 (0x40-0x47) / DEC reg16 (0x48-0x4F) — 단축형
+    // INC reg16 (0x40-0x47) and DEC reg16 (0x48-0x4F) short forms.
     if (0x40..=0x47).contains(&op0) {
         return Some(insn(
             cs_ip,
@@ -1774,7 +1771,7 @@ fn decode_group_3(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
     }
 }
 
-/// Group 4 (0xFE + ModR/M) — INC/DEC r/m8. /0=INC /1=DEC, 그 외는 invalid.
+/// Group 4 (0xFE plus ModR/M): INC/DEC r/m8. /0=INC, /1=DEC; others are invalid.
 fn decode_group_4(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
     if bytes.len() < 2 {
         return unknown1(cs_ip, op0);
@@ -1800,18 +1797,18 @@ fn decode_group_4(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
 
 /// Group 5 (0xFF + ModR/M) — INC/DEC r/m16, CALL/JMP indirect, PUSH r/m16.
 ///
-/// reg field 매핑:
+/// Reg-field mapping:
 /// - 0 = INC r/m16
 /// - 1 = DEC r/m16
-/// - 2 = CALL near r/m16 (간접) → `CallTarget::IndirectNear`
-/// - 3 = CALL far m16:16 (간접) → `CallTarget::IndirectFar` (mem only — reg form은 Unknown)
-/// - 4 = JMP near r/m16 (간접) → `JmpTarget::IndirectNear`
-/// - 5 = JMP far m16:16 (간접) → `JmpTarget::IndirectFar` (mem only — reg form은 Unknown)
+/// - 2 = indirect near CALL r/m16 -> `CallTarget::IndirectNear`
+/// - 3 = indirect far CALL m16:16 -> `CallTarget::IndirectFar` (memory only)
+/// - 4 = indirect near JMP r/m16 -> `JmpTarget::IndirectNear`
+/// - 5 = indirect far JMP m16:16 -> `JmpTarget::IndirectFar` (memory only)
 /// - 6 = PUSH r/m16
 /// - 7 = invalid → Unknown
 ///
-/// `/3`과 `/5`의 mem operand는 32비트 far pointer (CS:IP)를 메모리에서 로드 — near indirect와
-/// 의미가 다르다. reg form (mod=11)은 spec-undefined.
+/// Memory operands for `/3` and `/5` load a 32-bit far pointer (CS:IP), distinct from near
+/// indirect forms. Register forms (mod=11) are undefined.
 fn decode_group_5(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
     if bytes.len() < 2 {
         return unknown1(cs_ip, op0);
@@ -1836,8 +1833,8 @@ fn decode_group_5(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
             Operand::Mem(m) => InstructionKind::Call {
                 target: CallTarget::IndirectFar(m),
             },
-            // reg form은 spec-undefined — far indirect는 메모리에서 32비트 far pointer
-            // 로드를 요구. silent하게 near로 normalize하지 않는다.
+            // Register form is undefined: far indirect requires a 32-bit pointer in memory.
+            // Do not silently normalize it to a near form.
             _ => return unknown1(cs_ip, op0),
         },
         4 => InstructionKind::Jmp {
@@ -1850,23 +1847,23 @@ fn decode_group_5(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Instruction {
             _ => return unknown1(cs_ip, op0),
         },
         6 => InstructionKind::Push { src: rm_op },
-        _ => unreachable!("reg_field 7은 위에서 거부됨"),
+        _ => unreachable!("reg_field 7 was rejected above"),
     };
     insn(cs_ip, bytes[..total].to_vec(), kind)
 }
 
-/// Phase D-4: 시프트/로테이트 (Group 2, 0xD0-0xD3) + I/O (0xE4-0xE7, 0xEC-0xEF) +
+/// Phase D-4: shifts/rotates (Group 2, 0xD0-0xD3), I/O (0xE4-0xE7, 0xEC-0xEF), and
 /// LEA (0x8D) + XCHG (0x86/0x87 + 0x91-0x97).
 ///
-/// - **시프트 Group 2** (0xD0-0xD3 + ModR/M): reg field로 op 선택.
+/// - **Shift Group 2** (0xD0-0xD3 plus ModR/M): the reg field selects the operation.
 ///   0=ROL, 1=ROR, 2=RCL, 3=RCR, 4=SHL/SAL(canonical: SHL), 5=SHR, 7=SAR.
-///   6=reserved는 Unknown.
+///   Reserved selector 6 becomes Unknown.
 ///   bit 0 = W (byte/word), bit 1 = count source (0=imm 1, 1=CL).
-/// - **I/O**: imm8 form (0xE4-0xE7) + DX form (0xEC-0xEF), AL/AX는 LSB로 결정.
-/// - **LEA**: reg form (mod=11)은 의미상 invalid → Unknown.
-/// - **XCHG**: 0x91-0x97은 `XCHG AX, r16` 단축형 (0x90은 NOP). 0x86/0x87은 일반 r/m ↔ r 형식.
+/// - **I/O**: imm8 forms (0xE4-0xE7) and DX forms (0xEC-0xEF); the LSB selects AL/AX.
+/// - **LEA**: register form (mod=11) is semantically invalid and becomes Unknown.
+/// - **XCHG**: 0x91-0x97 are `XCHG AX, r16` short forms (0x90 is NOP); 0x86/0x87 are general r/m <-> r forms.
 fn decode_shift_io_lea_xchg(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Instruction> {
-    // Group 2 시프트/로테이트 (0xD0/0xD1/0xD2/0xD3)
+    // Group 2 shifts and rotates (0xD0/0xD1/0xD2/0xD3).
     if matches!(op0, 0xD0..=0xD3) {
         if bytes.len() < 2 {
             return Some(unknown1(cs_ip, op0));
@@ -1889,7 +1886,7 @@ fn decode_shift_io_lea_xchg(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Inst
             1 => InstructionKind::Ror { dest: rm_op, count },
             2 => InstructionKind::Rcl { dest: rm_op, count },
             3 => InstructionKind::Rcr { dest: rm_op, count },
-            // canonical: SHL/SAL은 같은 인코딩 → 디코더는 Shl로 통일.
+            // SHL and SAL share one encoding; canonical decoding uses Shl.
             4 => InstructionKind::Shl { dest: rm_op, count },
             5 => InstructionKind::Shr { dest: rm_op, count },
             7 => InstructionKind::Sar { dest: rm_op, count },
@@ -1949,7 +1946,7 @@ fn decode_shift_io_lea_xchg(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Inst
             },
         ));
     }
-    // I/O — DX 형식 (0xEC-0xEF)
+    // I/O with DX (0xEC-0xEF).
     if op0 == 0xEC {
         return Some(insn(
             cs_ip,
@@ -1979,7 +1976,7 @@ fn decode_shift_io_lea_xchg(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Inst
         ));
     }
 
-    // LEA r16, m (0x8D /r) — m이 register form (mod=11)이면 invalid → Unknown.
+    // LEA r16, m (0x8D /r): a register-form source (mod=11) is invalid and becomes Unknown.
     if op0 == 0x8D {
         if bytes.len() < 2 {
             return Some(unknown1(cs_ip, op0));
@@ -2007,7 +2004,7 @@ fn decode_shift_io_lea_xchg(bytes: &[u8], cs_ip: SegOff, op0: u8) -> Option<Inst
         ));
     }
 
-    // XCHG AX, r16 (0x91-0x97) — 0x90은 NOP으로 이미 처리됨 (decode_simple_byte).
+    // XCHG AX, r16 (0x91-0x97); 0x90 was already handled as NOP by decode_simple_byte.
     if (0x91..=0x97).contains(&op0) {
         return Some(insn(
             cs_ip,
@@ -2068,7 +2065,7 @@ fn unknown1(cs_ip: SegOff, b: u8) -> Instruction {
     }
 }
 
-/// 원본 회귀 fixture만을 위한 관대한 linear sweep.
+/// Permissive linear sweep for source regression fixtures only.
 #[cfg(test)]
 pub fn decode_block(bytes: &[u8], start: SegOff) -> Vec<Instruction> {
     let mut out = Vec::new();

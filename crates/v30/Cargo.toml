@@ -10,6 +10,7 @@ description = "Typed NEC V30 native instruction model and static analysis"
 [dependencies]
 expected-write = { path = "../expected-write" }
 thiserror.workspace = true
+typed-isa-core = { path = "../typed-isa-core" }
 
 [lints]
 workspace = true

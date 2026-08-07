@@ -5,7 +5,7 @@ use expected_write::{
 
 use crate::{AssembledProgram, InstructionAddress, PROFILE_ID, encode_bytes, format_instruction};
 
-/// Typed V30 assembly source를 Expected Write 검증에 연결하는 adapter.
+/// Adapter connecting typed V30 assembly sources to Expected Write verification.
 pub struct ExpectedWriteVerifier<ResolveSource> {
     resolve_source: ResolveSource,
 }

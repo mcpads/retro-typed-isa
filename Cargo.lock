@@ -3,6 +3,32 @@
 version = 4
 
 [[package]]
+name = "allegrex"
+version = "0.1.0"
+dependencies = [
+ "expected-write",
+ "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
+name = "arm7tdmi"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
+name = "arm946e-s"
+version = "0.1.0"
+dependencies = [
+ "arm7tdmi",
+ "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
 name = "expected-write"
 version = "0.1.0"
 dependencies = [
@@ -14,6 +40,16 @@ name = "huc6280"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
+name = "i386"
+version = "0.1.0"
+dependencies = [
+ "expected-write",
+ "thiserror",
+ "typed-isa-core",
 ]
 
 [[package]]
@@ -21,6 +57,15 @@ name = "m68000"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
+name = "powerpc-750cl"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "typed-isa-core",
 ]
 
 [[package]]
@@ -37,6 +82,7 @@ name = "psx-r3000a"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "typed-isa-core",
 ]
 
 [[package]]
@@ -49,10 +95,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "r5900"
+version = "0.1.0"
+dependencies = [
+ "expected-write",
+ "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
 name = "rp2a03"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "typed-isa-core",
 ]
 
 [[package]]
@@ -60,6 +116,7 @@ name = "sh2"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "typed-isa-core",
 ]
 
 [[package]]
@@ -67,6 +124,15 @@ name = "sh4"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
+name = "sm83"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "typed-isa-core",
 ]
 
 [[package]]
@@ -101,6 +167,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tlcs900h"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
+name = "typed-isa-core"
+version = "0.1.0"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -112,15 +190,46 @@ version = "0.1.0"
 dependencies = [
  "expected-write",
  "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
+name = "v30mz"
+version = "0.1.0"
+dependencies = [
+ "expected-write",
+ "thiserror",
+ "typed-isa-core",
+ "v30",
+]
+
+[[package]]
+name = "v810"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "typed-isa-core",
+]
+
+[[package]]
+name = "vr4300"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "typed-isa-core",
 ]
 
 [[package]]
 name = "w65c816"
 version = "0.1.0"
+dependencies = [
+ "typed-isa-core",
+]
 
 [[package]]
 name = "z80"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "typed-isa-core",
 ]

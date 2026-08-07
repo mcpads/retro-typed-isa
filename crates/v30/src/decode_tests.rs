@@ -46,7 +46,7 @@ fn modrm_mod00_no_disp() {
 
 #[test]
 fn modrm_mod00_rm110_disp16_special() {
-    // mod=00 r/m=110 → [disp16] (BP가 아닌 absolute)
+    // mod=00 r/m=110 -> [disp16] (absolute, not BP-relative).
     // displacement = 0x1234 (little-endian)
     let (op, used) = decode_modrm_rm(0b00_000_110, OpSize::Word, &[0x34, 0x12]).unwrap();
     assert_eq!(used, 2);
@@ -91,7 +91,7 @@ fn modrm_mod10_disp16() {
 
 #[test]
 fn modrm_reg_field_word() {
-    // reg field 추출
+    // Extract the reg field.
     assert_eq!(decode_modrm_reg16(0b00_000_000), Reg16::AX);
     assert_eq!(decode_modrm_reg16(0b00_011_000), Reg16::BX);
     assert_eq!(decode_modrm_reg16(0b00_111_000), Reg16::DI);
@@ -106,9 +106,9 @@ fn modrm_reg_field_byte() {
 
 #[test]
 fn modrm_truncated_displacement_returns_err() {
-    // mod=01 인데 disp8 바이트가 부족
+    // mod=01 with a missing disp8 byte.
     assert!(decode_modrm_rm(0b01_000_000, OpSize::Word, &[]).is_err());
-    // mod=10 인데 disp16 바이트가 1개만 있음
+    // mod=10 with only one disp16 byte.
     assert!(decode_modrm_rm(0b10_000_000, OpSize::Word, &[0x12]).is_err());
 }
 
@@ -237,7 +237,7 @@ fn decode_loop_truncated_preserves_opcode() {
 
 #[test]
 fn decode_jmp_short() {
-    // 0xEB 0xFE = JMP $-2 (무한루프)
+    // 0xEB 0xFE = JMP $-2 (infinite loop).
     let r = decode(&[0xEB, 0xFE], ip0()).unwrap();
     assert_eq!(
         r.kind,
@@ -325,7 +325,7 @@ fn decode_retf_imm() {
 
 #[test]
 fn decode_jmp_near_truncated() {
-    // 0xE9 한 바이트만 — Unknown { raw: vec![0xE9] }으로 떨어져야 sweep이 진행됨
+    // A lone 0xE9 must become Unknown { raw: vec![0xE9] } so the sweep advances.
     let r = decode(&[0xE9], ip0()).unwrap();
     assert_eq!(r.kind, InstructionKind::Unknown { raw: vec![0xE9] });
     assert_eq!(r.bytes, vec![0xE9]);
@@ -333,7 +333,7 @@ fn decode_jmp_near_truncated() {
 
 #[test]
 fn decode_jmp_far_truncated() {
-    // 0xEA + 3바이트 (4바이트 부족) — Unknown { raw: vec![0xEA] }
+    // 0xEA plus only three of four required bytes becomes Unknown { raw: vec![0xEA] }.
     let r = decode(&[0xEA, 0x00, 0x00, 0x00], ip0()).unwrap();
     assert_eq!(r.kind, InstructionKind::Unknown { raw: vec![0xEA] });
     assert_eq!(r.bytes, vec![0xEA]);
@@ -341,7 +341,7 @@ fn decode_jmp_far_truncated() {
 
 #[test]
 fn decode_ret_imm_truncated() {
-    // 0xC2 + 1바이트 (2바이트 부족) — Unknown { raw: vec![0xC2] }
+    // 0xC2 plus only one of two required bytes becomes Unknown { raw: vec![0xC2] }.
     let r = decode(&[0xC2, 0x04], ip0()).unwrap();
     assert_eq!(r.kind, InstructionKind::Unknown { raw: vec![0xC2] });
     assert_eq!(r.bytes, vec![0xC2]);
@@ -432,15 +432,15 @@ fn decode_push_pop_sreg() {
         }
     );
 
-    // POP CS (0x0F)는 본 마일스톤에서 Unknown
+    // POP CS (0x0F) remains unknown in this milestone.
     let r = decode(&[0x0F], ip0()).unwrap();
     assert!(matches!(r.kind, InstructionKind::Unknown { .. }));
 }
 
 #[test]
 fn decode_pop_cs_invalid_unknown() {
-    // 0x0F는 8086에서 POP CS (대부분 ROM에서 미사용; 286+에서는 escape opcode).
-    // 본 디코더는 Unknown으로 떨어뜨림 — sweep 연속성 보존.
+    // 0x0F is POP CS on 8086 (rare in ROMs) and an escape opcode on 286+.
+    // This decoder returns Unknown to preserve linear-sweep continuity.
     let r = decode(&[0x0F], ip0()).unwrap();
     assert!(matches!(r.kind, InstructionKind::Unknown { .. }));
 }
@@ -744,7 +744,7 @@ fn decode_mov_rm16_imm_mem_form() {
     }
 }
 
-// ─── Canonical round-trip 보장 테스트 (spec §1.1, §4.4.1) ────────────────────
+// Canonical round-trip tests (spec sections 1.1 and 4.4.1).
 
 #[test]
 fn decode_mov_reg_reg_via_8b_form_yields_correct_kind() {
@@ -763,8 +763,8 @@ fn decode_mov_reg_reg_via_8b_form_yields_correct_kind() {
 
 #[test]
 fn decode_mov_reg_reg_two_encodings_yield_same_kind() {
-    // 같은 의미(MOV SP, AX)의 두 redundant encoding이 같은 InstructionKind를 만들어야
-    // canonical round-trip이 성립한다.
+    // Two redundant encodings of MOV SP, AX must produce the same InstructionKind
+    // for the canonical round trip to hold.
     //
     //   0x89 0xC4 = MOV r/m16, r16 (r/m ← r form, dir=0)
     //     ModR/M 0xC4 = mod=11 reg=000(AX) r/m=100(SP)
@@ -775,7 +775,10 @@ fn decode_mov_reg_reg_two_encodings_yield_same_kind() {
     //     → dest=reg=SP, src=r/m=AX → MOV SP, AX
     let r1 = decode(&[0x89, 0xC4], ip0()).unwrap();
     let r2 = decode(&[0x8B, 0xE0], ip0()).unwrap();
-    assert_eq!(r1.kind, r2.kind, "두 redundant encoding이 다른 kind를 만듦");
+    assert_eq!(
+        r1.kind, r2.kind,
+        "redundant encodings produced different kinds"
+    );
     match r1.kind {
         InstructionKind::Mov {
             dest: Operand::Reg16(Reg16::SP),
@@ -787,7 +790,7 @@ fn decode_mov_reg_reg_two_encodings_yield_same_kind() {
 
 // ─── ALU family (ADD/OR/ADC/SBB/AND/SUB/XOR/CMP) ────────────────────────────
 //
-// 8개 op이 동일한 6가지 직접 인코딩 + Group 1 즉시값 형태를 공유한다.
+// Eight operations share six direct encodings and the Group 1 immediate forms.
 
 #[test]
 fn decode_alu_add_rm_r() {
@@ -861,7 +864,7 @@ fn decode_alu_adc_and_sbb_accumulator_immediates() {
 
 #[test]
 fn decode_alu_xor_self() {
-    // 0x33 0xC0 = XOR AX, AX (흔한 0 클리어 패턴)
+    // 0x33 0xC0 = XOR AX, AX (a common zeroing idiom).
     // r ← r/m form: reg=000=AX r/m=000=AX
     let r = decode(&[0x33, 0xC0], ip0()).unwrap();
     assert_eq!(
@@ -931,7 +934,7 @@ fn decode_alu_group1_imm8_sx() {
 
 #[test]
 fn decode_alu_group1_imm8_sx_negative() {
-    // 0x83 /0 ib(sx) = ADD r/m16, sign-extended imm8 (음수)
+    // 0x83 /0 ib(sx) = ADD r/m16, sign-extended negative imm8.
     // 0x83 0xC4 0xFE = ADD SP, -2 (mod=11 reg=000=ADD r/m=100=SP, imm=0xFE=-2 sign-extended → 0xFFFE)
     let r = decode(&[0x83, 0xC4, 0xFE], ip0()).unwrap();
     assert_eq!(
@@ -1226,7 +1229,7 @@ fn decode_jmp_indirect_via_ff_4() {
 
 #[test]
 fn decode_call_far_indirect() {
-    // 0xFF /3 = CALL far m16:16 (간접) — mem operand 전용
+    // 0xFF /3 = indirect far CALL m16:16; memory operand only.
     // 0xFF 0x1E 0x34 0x12 = CALL FAR [0x1234]
     //   ModR/M 0x1E = mod=00 reg=011(/3) r/m=110 → [disp16]
     let r = decode(&[0xFF, 0x1E, 0x34, 0x12], ip0()).unwrap();
@@ -1246,7 +1249,7 @@ fn decode_call_far_indirect() {
 
 #[test]
 fn decode_jmp_far_indirect() {
-    // 0xFF /5 = JMP far m16:16 (간접) — mem operand 전용
+    // 0xFF /5 = indirect far JMP m16:16; memory operand only.
     // 0xFF 0x2E 0x34 0x12 = JMP FAR [0x1234]
     //   ModR/M 0x2E = mod=00 reg=101(/5) r/m=110 → [disp16]
     let r = decode(&[0xFF, 0x2E, 0x34, 0x12], ip0()).unwrap();
@@ -1266,33 +1269,33 @@ fn decode_jmp_far_indirect() {
 
 #[test]
 fn decode_call_far_indirect_reg_form_unknown() {
-    // 0xFF /3 reg form (mod=11)은 spec-undefined → Unknown으로 떨어져야 함.
-    // far indirect는 메모리에서 32비트 far pointer를 로드 — reg에서는 의미 없음.
+    // The 0xFF /3 register form (mod=11) is undefined and must become Unknown.
+    // Far indirect addressing loads a 32-bit far pointer from memory and has no register form.
     // 0xFF 0xDB = mod=11 reg=011(/3) r/m=011(BX)
     let r = decode(&[0xFF, 0xDB], ip0()).unwrap();
     assert!(
         matches!(r.kind, InstructionKind::Unknown { .. }),
-        "0xFF /3 reg form은 Unknown이어야 함, got {:?}",
+        "0xFF /3 register form must be Unknown, got {:?}",
         r.kind
     );
 }
 
 #[test]
 fn decode_jmp_far_indirect_reg_form_unknown() {
-    // 0xFF /5 reg form (mod=11)도 spec-undefined → Unknown
+    // The 0xFF /5 register form (mod=11) is likewise undefined and becomes Unknown.
     // 0xFF 0xEB = mod=11 reg=101(/5) r/m=011(BX)
     let r = decode(&[0xFF, 0xEB], ip0()).unwrap();
     assert!(
         matches!(r.kind, InstructionKind::Unknown { .. }),
-        "0xFF /5 reg form은 Unknown이어야 함, got {:?}",
+        "0xFF /5 register form must be Unknown, got {:?}",
         r.kind
     );
 }
 
 #[test]
 fn decode_alu_byte_form_0x82() {
-    // 0x82는 0x80과 같은 의미의 alt byte form (ALU r/m8, imm8) — 8086 official table에는
-    // 둘 다 존재하지만 최신 매뉴얼은 0x80만 권장. 디코더는 0x82도 받아 같은 kind를 만든다.
+    // 0x82 is an alternate byte form of 0x80 (ALU r/m8, imm8). Both appear in the
+    // official 8086 table, though newer manuals recommend 0x80. Both decode to one kind.
     // 0x82 0xF8 0x42 = CMP AL, 0x42 (mod=11 reg=111=CMP r/m=000=AL)
     let r = decode(&[0x82, 0xF8, 0x42], ip0()).unwrap();
     assert_eq!(
@@ -1306,7 +1309,7 @@ fn decode_alu_byte_form_0x82() {
 
 #[test]
 fn decode_push_rm16_via_ff_6_still_works() {
-    // Group 5 통합 후에도 0xFF /6 = PUSH r/m16이 작동해야 함 (Phase D-2 회귀 방지)
+    // 0xFF /6 = PUSH r/m16 must still work after consolidating Group 5.
     // 0xFF 0x36 0x34 0x12 = PUSH word [0x1234]
     let r = decode(&[0xFF, 0x36, 0x34, 0x12], ip0()).unwrap();
     match r.kind {
@@ -1334,7 +1337,7 @@ fn decode_group3_not() {
 
 #[test]
 fn decode_group4_unsupported_returns_unknown() {
-    // 0xFE /2..7는 invalid → Unknown
+    // 0xFE /2..7 are invalid and become Unknown.
     // 0xFE 0xD0 = (reg=010 r/m=000 AL) → Unknown
     let r = decode(&[0xFE, 0xD0], ip0()).unwrap();
     assert!(matches!(r.kind, InstructionKind::Unknown { .. }));
@@ -1342,10 +1345,10 @@ fn decode_group4_unsupported_returns_unknown() {
 
 #[test]
 fn decode_pop_rm16_reg_form_yields_pop_reg_kind() {
-    // POP r/m16 (0x8F /0)의 reg form은 단축형 0x58+r과 같은 kind로 디코드되어야
-    // canonical round-trip 성립 — emit 시 항상 단축형으로 변환됨.
+    // The register form of POP r/m16 (0x8F /0) must decode to the same kind as
+    // short form 0x58+r; emission always selects the short form.
     //   0x8F 0xC3 = mod=11 reg=000 r/m=011(BX) → POP BX
-    //   0x5B = POP BX (단축형)
+    //   0x5B = POP BX (short form)
     let group_form = decode(&[0x8F, 0xC3], ip0()).unwrap();
     let short_form = decode(&[0x5B], ip0()).unwrap();
     assert_eq!(group_form.kind, short_form.kind);
@@ -1358,7 +1361,7 @@ fn decode_pop_rm16_reg_form_yields_pop_reg_kind() {
 }
 
 // ----------------------------------------------------------------------------
-// Phase D-4: 시프트/로테이트 + I/O + LEA + XCHG
+// Phase D-4: shifts/rotates, I/O, LEA, and XCHG.
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -1499,7 +1502,7 @@ fn decode_xchg_ax_short() {
             b: Operand::Reg16(Reg16::CX),
         }
     );
-    // 0x90은 NOP(특수) — XCHG AX,AX는 디코더에서 NOP으로 떨어진다 (Task 11).
+    // 0x90 is the special NOP encoding; XCHG AX, AX decodes as NOP.
     assert_eq!(decode(&[0x90], ip0()).unwrap().kind, InstructionKind::Nop);
 }
 
@@ -1518,7 +1521,7 @@ fn decode_xchg_rm_r() {
 }
 
 // ----------------------------------------------------------------------------
-// Phase D-4: 문자열 명령 + REP/REPNE + segment override prefix
+// Phase D-4: string instructions, REP/REPNE, and segment override prefixes.
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -1591,7 +1594,7 @@ fn decode_segment_override_es_mov() {
 
 #[test]
 fn decode_bus_lock_prefix_preserved() {
-    // 0xF0 0x87 0x07 = BUSLOCK XCHG [BW], AW. prefix와 typed 의미를 모두 보존한다.
+    // 0xF0 0x87 0x07 = BUSLOCK XCHG [BW], AW; preserve both prefix and typed meaning.
     let r = decode(&[0xF0, 0x87, 0x07], ip0()).unwrap();
     assert!(r.prefixes.bus_lock);
     assert!(matches!(
@@ -1607,14 +1610,14 @@ fn decode_bus_lock_prefix_preserved() {
 
 #[test]
 fn decode_rep_on_non_string_falls_through() {
-    // REP 0xF3가 string이 아닌 명령에 붙으면 kind에 wrap되지 않는다 (prefix 무시).
-    // 0xF3 0x90 = REP NOP — 본 디코더는 NOP만 반환.
+    // REP 0xF3 on a non-string instruction does not create a semantic wrapper.
+    // 0xF3 0x90 = REP NOP; this decoder returns NOP only.
     let r = decode(&[0xF3, 0x90], ip0()).unwrap();
     assert_eq!(r.kind, InstructionKind::Nop);
 }
 
 // ----------------------------------------------------------------------------
-// 플래그 명령 (Intel SDM Vol 2A 부록 B) + sign-extend (CBW/CWD).
+// Flag instructions (Intel SDM Volume 2A, Appendix B) and sign extension (CBW/CWD).
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -1633,7 +1636,7 @@ fn decode_flag_sahf_lahf() {
 
 #[test]
 fn decode_flag_wait() {
-    // 0x9B = WAIT (FPU 동기, 단독 PC-9801에서는 NOP과 거의 등가)
+    // 0x9B = WAIT (FPU synchronization; nearly equivalent to NOP without an FPU).
     assert_eq!(decode(&[0x9B], ip0()).unwrap().kind, InstructionKind::Wait);
 }
 
@@ -1667,7 +1670,7 @@ fn decode_sign_extend_cbw_cwd() {
 }
 
 // ----------------------------------------------------------------------------
-// V30 (uPD70116) 확장 prefix — REPC (0x65) / REPNC (0x64).
+// V30 (uPD70116) extension prefixes: REPC (0x65) and REPNC (0x64).
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -1676,7 +1679,7 @@ fn decode_v30_repc_prefix_sets_flag() {
     let r = decode(&[0x65, 0xA6], ip0()).unwrap();
     assert!(
         r.prefixes.repc,
-        "REPC prefix는 Prefixes.repc에 보존되어야 함"
+        "REPC prefix must be preserved in Prefixes.repc"
     );
     assert!(!r.prefixes.repnc);
     assert_eq!(r.bytes, vec![0x65, 0xA6]);
@@ -1688,15 +1691,15 @@ fn decode_v30_repnc_prefix_sets_flag() {
     let r = decode(&[0x64, 0xAE], ip0()).unwrap();
     assert!(
         r.prefixes.repnc,
-        "REPNC prefix는 Prefixes.repnc에 보존되어야 함"
+        "REPNC prefix must be preserved in Prefixes.repnc"
     );
     assert!(!r.prefixes.repc);
     assert_eq!(r.bytes, vec![0x64, 0xAE]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// V30 (NEC uPD70116) 0x0F secondary opcode 디코드 테스트.
-// 출처: NEC uPD70116 데이터시트 §3 "Instruction Set Extensions".
+// V30 (NEC uPD70116) 0x0F secondary-opcode decoding tests.
+// Source: NEC uPD70116 data sheet, section 3, "Instruction Set Extensions".
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -1807,8 +1810,8 @@ fn decode_v30_brkem() {
 
 #[test]
 fn decode_v30_unknown_secondary_two_byte_unknown() {
-    // 0F 99 — V30 reference에 없는 secondary → 2바이트 Unknown으로 떨어진다
-    // (8086 path 대비 한 byte 더 진전).
+    // 0F 99 is absent from the V30 reference and becomes a two-byte Unknown,
+    // advancing one byte farther than the 8086 path.
     let r = decode(&[0x0F, 0x99], ip0()).unwrap();
     assert_eq!(
         r.kind,
@@ -1821,7 +1824,7 @@ fn decode_v30_unknown_secondary_two_byte_unknown() {
 
 #[test]
 fn decode_v30_truncated_secondary_falls_back() {
-    // 0x0F만 있고 다음 byte 없음 → 1바이트 Unknown (sweep 연속성 보존).
+    // A lone 0x0F becomes a one-byte Unknown to preserve sweep continuity.
     let r = decode(&[0x0F], ip0()).unwrap();
     assert_eq!(r.kind, InstructionKind::Unknown { raw: vec![0x0F] });
     assert_eq!(r.bytes, vec![0x0F]);

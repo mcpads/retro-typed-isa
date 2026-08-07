@@ -250,7 +250,7 @@ fn emit_push_mem() {
 
 #[test]
 fn emit_pop_reg_uses_short_form() {
-    // POP BX → 0x5B (단축형 우선)
+    // POP BX -> 0x5B (prefer the short form).
     assert_eq!(
         emit(&InstructionKind::Pop {
             dest: Operand::Reg16(Reg16::BX)
@@ -277,10 +277,10 @@ fn emit_mov_r_rm_byte() {
         dest: Operand::Reg8(Reg8::AL),
         src: Operand::Reg8(Reg8::CL),
     };
-    // 0x8A는 r ← r/m, 0x88은 r/m ← r — 같은 의미를 두 가지 인코딩으로 표현 가능
-    // emit는 한 가지로 결정해 일관되게 인코딩한다 (여기선 0x8A 선택)
+    // 0x8A is r <- r/m and 0x88 is r/m <- r, so the same meaning has two encodings.
+    // Emission chooses one form consistently (0x8A here).
     let out = emit(&kind).unwrap();
-    // 두 인코딩 모두 허용 (0x88 0xC8 = MOV CL, AL과 동치 — 단, 우리는 dest=AL src=CL이므로 0x8A를 사용)
+    // Both encodings are valid (0x88 0xC8 is MOV CL, AL); this operand order uses 0x8A.
     assert!(out == vec![0x8A, 0xC1] || out == vec![0x88, 0xC8]);
 }
 
@@ -439,7 +439,7 @@ fn emit_alu_xor_self() {
 
 #[test]
 fn emit_alu_cmp_al_imm() {
-    // CMP AL, 0x42 → 0x3C 0x42 (acc 단축형 우선)
+    // CMP AL, 0x42 -> 0x3C 0x42 (prefer the accumulator short form).
     let kind = InstructionKind::Cmp {
         a: Operand::Reg8(Reg8::AL),
         b: Operand::Imm8(0x42),
@@ -449,7 +449,7 @@ fn emit_alu_cmp_al_imm() {
 
 #[test]
 fn emit_alu_cmp_ax_imm16() {
-    // CMP AX, 0x1234 → 0x3D 0x34 0x12 (acc 단축형 우선; sign-ext 불가)
+    // CMP AX, 0x1234 -> 0x3D 0x34 0x12 (accumulator short form; not sign-extendable).
     let kind = InstructionKind::Cmp {
         a: Operand::Reg16(Reg16::AX),
         b: Operand::Imm16(0x1234),
@@ -479,8 +479,8 @@ fn emit_alu_adc_and_sbb() {
 
 #[test]
 fn emit_alu_sub_sp_imm8_uses_0x83() {
-    // SUB SP, 0x10 → 0x83 0xEC 0x10 (sign-extendable imm → 0x83 우선)
-    // SP는 acc가 아니므로 단축형 없음 → Group 1.
+    // SUB SP, 0x10 -> 0x83 0xEC 0x10 (prefer 0x83 for a sign-extendable immediate).
+    // SP is not the accumulator, so Group 1 has no shorter form.
     let kind = InstructionKind::Sub {
         dest: Operand::Reg16(Reg16::SP),
         src: Operand::Imm16(0x0010),
@@ -490,7 +490,7 @@ fn emit_alu_sub_sp_imm8_uses_0x83() {
 
 #[test]
 fn emit_alu_add_sp_neg_imm8_uses_0x83() {
-    // ADD SP, -2 (0xFFFE) → 0x83 0xC4 0xFE (sign-ext 가능 → 0x83)
+    // ADD SP, -2 (0xFFFE) -> 0x83 0xC4 0xFE (sign-extendable, so use 0x83).
     let kind = InstructionKind::Add {
         dest: Operand::Reg16(Reg16::SP),
         src: Operand::Imm16(0xFFFE),
@@ -500,8 +500,8 @@ fn emit_alu_add_sp_neg_imm8_uses_0x83() {
 
 #[test]
 fn emit_alu_and_bx_imm16_uses_0x81() {
-    // AND BX, 0x1234 → 0x81 0xE3 0x34 0x12 (sign-ext 불가 → 0x81)
-    // BX는 acc가 아니므로 단축형 없음.
+    // AND BX, 0x1234 -> 0x81 0xE3 0x34 0x12 (not sign-extendable, so use 0x81).
+    // BX is not the accumulator, so there is no short form.
     let kind = InstructionKind::And {
         dest: Operand::Reg16(Reg16::BX),
         src: Operand::Imm16(0x1234),
@@ -511,7 +511,7 @@ fn emit_alu_and_bx_imm16_uses_0x81() {
 
 #[test]
 fn emit_alu_cmp_rm8_imm8() {
-    // CMP CL, 0x42 → 0x80 0xF9 0x42 (acc 아님 → Group 1 0x80)
+    // CMP CL, 0x42 -> 0x80 0xF9 0x42 (not the accumulator, so use Group 1 0x80).
     let kind = InstructionKind::Cmp {
         a: Operand::Reg8(Reg8::CL),
         b: Operand::Imm8(0x42),
@@ -531,7 +531,7 @@ fn emit_alu_or_rm_r_byte() {
 
 #[test]
 fn emit_alu_and_al_imm() {
-    // AND AL, 0x0F → 0x24 0x0F (acc 단축형)
+    // AND AL, 0x0F -> 0x24 0x0F (accumulator short form).
     let kind = InstructionKind::And {
         dest: Operand::Reg8(Reg8::AL),
         src: Operand::Imm8(0x0F),
@@ -547,7 +547,7 @@ fn emit_alu_canonical_round_trip() {
     let kind = decode(&original, ip0()).unwrap().kind;
     let canonical = emit(&kind).unwrap();
     assert_eq!(canonical, vec![0x01, 0xC3]);
-    // 두 번째 round-trip: 안정점 확인
+    // A second round trip confirms the fixed point.
     let kind2 = decode(&canonical, ip0()).unwrap().kind;
     assert_eq!(kind, kind2);
     assert_eq!(emit(&kind2).unwrap(), canonical);
@@ -567,7 +567,7 @@ fn emit_test_rm_r() {
 
 #[test]
 fn emit_test_al_imm() {
-    // TEST AL, 0x42 → 0xA8 0x42 (acc 단축형 우선)
+    // TEST AL, 0x42 -> 0xA8 0x42 (prefer the accumulator short form).
     let kind = InstructionKind::Test {
         a: Operand::Reg8(Reg8::AL),
         b: Operand::Imm8(0x42),
@@ -587,14 +587,14 @@ fn emit_test_ax_imm() {
 
 #[test]
 fn emit_test_rm_imm_non_acc() {
-    // TEST CL, 0x42 → 0xF6 0xC1 0x42 (acc 아님 → Group 3 0xF6 /0)
+    // TEST CL, 0x42 -> 0xF6 0xC1 0x42 (not the accumulator, so use Group 3 0xF6 /0).
     let kind = InstructionKind::Test {
         a: Operand::Reg8(Reg8::CL),
         b: Operand::Imm8(0x42),
     };
     assert_eq!(emit(&kind).unwrap(), vec![0xF6, 0xC1, 0x42]);
 
-    // TEST BX, 0x1234 → 0xF7 0xC3 0x34 0x12 (sign-ext 불가, 항상 imm16)
+    // TEST BX, 0x1234 -> 0xF7 0xC3 0x34 0x12 (TEST always carries imm16 here).
     let kind = InstructionKind::Test {
         a: Operand::Reg16(Reg16::BX),
         b: Operand::Imm16(0x1234),
@@ -604,7 +604,7 @@ fn emit_test_rm_imm_non_acc() {
 
 #[test]
 fn emit_inc_dec_short() {
-    // INC AX → 0x40 (단축형)
+    // INC AX -> 0x40 (short form).
     assert_eq!(
         emit(&InstructionKind::Inc {
             dest: Operand::Reg16(Reg16::AX)
@@ -735,7 +735,7 @@ fn emit_call_far_indirect() {
     };
     assert_eq!(emit(&kind).unwrap(), vec![0xFF, 0x1E, 0x34, 0x12]);
 
-    // round-trip: decode → emit → 동일 bytes
+    // Round trip: decode -> emit -> identical bytes.
     let bytes = emit(&kind).unwrap();
     let kind2 = decode(&bytes, ip0()).unwrap().kind;
     assert_eq!(kind, kind2);
@@ -756,7 +756,7 @@ fn emit_jmp_far_indirect() {
     };
     assert_eq!(emit(&kind).unwrap(), vec![0xFF, 0x2E, 0x34, 0x12]);
 
-    // round-trip: decode → emit → 동일 bytes
+    // Round trip: decode -> emit -> identical bytes.
     let bytes = emit(&kind).unwrap();
     let kind2 = decode(&bytes, ip0()).unwrap().kind;
     assert_eq!(kind, kind2);
@@ -765,19 +765,19 @@ fn emit_jmp_far_indirect() {
 
 #[test]
 fn emit_inc_reg16_uses_short_form_round_trip() {
-    // INC BX를 0xFF /0 form으로 디코드해도 emit는 항상 단축형 0x43.
+    // Even when INC BX is decoded from the 0xFF /0 form, emission uses short form 0x43.
     let kind = decode(&[0xFF, 0xC3], ip0()).unwrap().kind;
     let canonical = emit(&kind).unwrap();
-    assert_eq!(canonical, vec![0x43], "INC BX 단축형");
-    // 안정점 확인
+    assert_eq!(canonical, vec![0x43], "INC BX short form");
+    // Confirm the fixed point.
     let kind2 = decode(&canonical, ip0()).unwrap().kind;
     assert_eq!(kind, kind2);
 }
 
-// ─── Canonical 안정점 테스트 (spec §1.1, §4.4.1) ──────────────────────────────
+// Canonical fixed-point tests (spec sections 1.1 and 4.4.1).
 //
-// 8086 ISA의 redundant encoding(예: reg-reg MOV의 0x88/0x89 vs 0x8A/0x8B)은
-// 하나의 canonical form으로 결정적 인코딩됨을 검증한다.
+// Verify that redundant 8086 encodings, such as the reg-reg MOV alternatives,
+// deterministically converge on one canonical form.
 
 fn ip0() -> SegOff {
     SegOff { seg: 0, off: 0 }
@@ -785,12 +785,12 @@ fn ip0() -> SegOff {
 
 #[test]
 fn mov_reg_reg_emits_canonical_dir0_form() {
-    // MOV SP, AX의 두 redundant encoding이 같은 kind → 같은 canonical bytes (0x89 0xC4).
+    // Two redundant MOV SP, AX encodings produce one kind and canonical byte sequence.
     let kind1 = decode(&[0x89, 0xC4], ip0()).unwrap().kind;
     let kind2 = decode(&[0x8B, 0xE0], ip0()).unwrap().kind;
-    assert_eq!(kind1, kind2, "두 redundant encoding이 같은 kind여야");
+    assert_eq!(kind1, kind2, "redundant encodings must produce one kind");
 
-    // emit는 항상 canonical 0x89 form (r/m ← r, dir=0)
+    // Emission always uses canonical form 0x89 (r/m <- r, dir=0).
     let canonical = emit(&kind1).unwrap();
     assert_eq!(
         canonical,
@@ -798,41 +798,41 @@ fn mov_reg_reg_emits_canonical_dir0_form() {
         "canonical = r/m=SP/100, reg=AX/000"
     );
 
-    // 두 번째 kind도 같은 canonical bytes
+    // The second kind emits the same canonical bytes.
     let canonical2 = emit(&kind2).unwrap();
     assert_eq!(canonical2, canonical);
 }
 
 #[test]
 fn mov_reg_reg_canonical_round_trip_fixed_point() {
-    // non-canonical 입력의 안정점 도달 확인:
+    // Confirm convergence from a non-canonical input:
     //   decode(0x8B 0xE0) → kind1
-    //   emit(kind1) → bytes1 (canonical, 0x89 0xC4 — original과 다름)
+    //   emit(kind1) -> bytes1 (canonical 0x89 0xC4, different from the source)
     //   decode(bytes1) → kind2
     //   emit(kind2) → bytes2
-    // 안정점: kind1 == kind2, bytes1 == bytes2.
+    // Fixed point: kind1 == kind2 and bytes1 == bytes2.
     let original = vec![0x8B, 0xE0]; // non-canonical MOV SP, AX
     let kind1 = decode(&original, ip0()).unwrap().kind;
     let bytes1 = emit(&kind1).unwrap();
     let kind2 = decode(&bytes1, ip0()).unwrap().kind;
     let bytes2 = emit(&kind2).unwrap();
 
-    assert_eq!(kind1, kind2, "decode kind 불안정");
-    assert_eq!(bytes1, bytes2, "canonical 안정점 도달 실패");
+    assert_eq!(kind1, kind2, "decoded kind is unstable");
+    assert_eq!(bytes1, bytes2, "failed to reach the canonical fixed point");
     assert_ne!(
         bytes1, original,
-        "non-canonical 입력은 첫 emit에서 byte 변경되어야 정상"
+        "the first emission must change non-canonical source bytes"
     );
 }
 
 #[test]
 fn pop_rm_reg_form_emits_short_form() {
-    // POP BX를 Group form 0x8F /0으로 디코드해도 emit는 항상 단축형 0x58+r.
+    // Even when POP BX is decoded from Group form 0x8F /0, emission uses 0x58+r.
     let kind = decode(&[0x8F, 0xC3], ip0()).unwrap().kind; // POP BX (Group form)
     let canonical = emit(&kind).unwrap();
-    assert_eq!(canonical, vec![0x5B], "POP BX 단축형");
+    assert_eq!(canonical, vec![0x5B], "POP BX short form");
 
-    // 다시 디코드해도 같은 kind, 같은 emit 결과
+    // Decoding again yields the same kind and emission result.
     let kind2 = decode(&canonical, ip0()).unwrap().kind;
     assert_eq!(kind, kind2);
     assert_eq!(emit(&kind2).unwrap(), canonical);
@@ -841,7 +841,7 @@ fn pop_rm_reg_form_emits_short_form() {
 #[test]
 fn mov_mem_disp_zero_canonical_uses_mod00() {
     // [BX+SI] + disp=0 → mod=00 (no disp byte) canonical.
-    // BP base는 mod=00이 [disp16]로 예약되어 강제 disp이지만, 그 외 base는 disp=0이면 mod=00.
+    // BP must carry a displacement because mod=00 denotes [disp16]; other zero-displacement bases use mod=00.
     let mem = Operand::Mem(Mem {
         seg: None,
         base: MemBase::BxSi,
@@ -854,12 +854,12 @@ fn mov_mem_disp_zero_canonical_uses_mod00() {
     };
     let bytes = emit(&kind).unwrap();
     // 0x89 (MOV r/m16, r16) + ModR/M = mod=00 reg=000(AX) r/m=000(BX+SI) = 0x00
-    // 총 2바이트, displacement 없음.
+    // Two bytes total, with no displacement.
     assert_eq!(bytes, vec![0x89, 0x00], "disp=0 BxSi → mod=00, no disp");
 }
 
 // ----------------------------------------------------------------------------
-// Phase D-4: 시프트/로테이트 + I/O + LEA + XCHG
+// Phase D-4: shifts/rotates, I/O, LEA, and XCHG.
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -992,7 +992,7 @@ fn emit_xchg_rm_r() {
 }
 
 // ----------------------------------------------------------------------------
-// Phase D-4: 문자열 명령 + REP/REPNE + segment override prefix
+// Phase D-4: string instructions, REP/REPNE, and segment override prefixes.
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -1036,7 +1036,7 @@ fn emit_seg_override_mov() {
 
 #[test]
 fn emit_seg_override_moffs_short_form() {
-    // MOV AX, DS:[0x1234] — 단축형 0xA1이 segment override 처리.
+    // MOV AX, DS:[0x1234]: short form 0xA1 carries the segment override.
     // 0x3E 0xA1 0x34 0x12
     let mem = Operand::Mem(Mem {
         seg: Some(Sreg::DS),
@@ -1061,12 +1061,12 @@ fn emit_decode_round_trip_seg_override() {
 }
 
 // ----------------------------------------------------------------------------
-// 플래그 명령 + sign-extend — emit + decode round-trip 검증.
+// Flag and sign-extension instructions: verify emit/decode round trips.
 // ----------------------------------------------------------------------------
 
 #[test]
 fn emit_flag_single_bytes() {
-    // Intel SDM Vol 2A 부록 B의 single-byte 플래그/sign-extend 명령들.
+    // Single-byte flag and sign-extension instructions from Intel SDM Volume 2A, Appendix B.
     let cases: &[(InstructionKind, u8)] = &[
         (InstructionKind::Wait, 0x9B),
         (InstructionKind::Pushf, 0x9C),
@@ -1094,7 +1094,7 @@ fn emit_flag_single_bytes() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// V30 (NEC uPD70116) 0x0F secondary opcode emit + round-trip 테스트.
+// V30 (NEC uPD70116) 0x0F secondary-opcode emission and round-trip tests.
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn ip() -> SegOff {

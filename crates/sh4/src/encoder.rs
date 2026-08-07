@@ -9,6 +9,15 @@ use crate::instruction::{
 /// An SH-4 instruction cannot be represented by the declared 16-bit profile.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
+    #[error("SH-4 instruction address {address:#x} exceeds the 32-bit address space")]
+    AddressOutOfRange { address: u64 },
+    #[error("SH-4 instruction address 0x{address:08X} is not two-byte aligned")]
+    UnalignedInstructionAddress { address: u32 },
+    #[error("SH-4 {form:?} is not valid under {fpscr:?}")]
+    FpscrStateMismatch {
+        form: InstructionForm,
+        fpscr: FpscrState,
+    },
     #[error("SH-4 {form:?} displacement {displacement} exceeds its four-bit field")]
     FourBitDisplacementOutOfRange {
         form: InstructionForm,

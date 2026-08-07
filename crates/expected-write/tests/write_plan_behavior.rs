@@ -56,6 +56,46 @@ fn apply_accepts_only_the_owned_change() {
 }
 
 #[test]
+fn write_may_occupy_only_part_of_a_larger_target_region() {
+    let baseline = [0, 1, 2, 3];
+    let plan = WritePlan::new()
+        .region(region("larger-target", 0..4, RegionKind::Data))
+        .write(write(
+            "single-byte",
+            "layout",
+            1,
+            &[1],
+            &[9],
+            WriteIntent::Data,
+        ));
+
+    assert_eq!(plan.apply(&baseline, None).unwrap(), [0, 9, 2, 3]);
+}
+
+#[test]
+fn grown_write_requires_original_bytes_only_for_its_existing_overlap() {
+    let baseline = [0, 1, 2];
+    let plan = WritePlan::new()
+        .resize(ResizePlan {
+            owner: "layout".to_owned(),
+            purpose: "extend final write".to_owned(),
+            expected_input_len: 3,
+            output_len: 5,
+        })
+        .region(region("tail", 2..5, RegionKind::Data))
+        .write(write(
+            "straddled-tail",
+            "layout",
+            2,
+            &[2],
+            &[8, 9, 10],
+            WriteIntent::Data,
+        ));
+
+    assert_eq!(plan.apply(&baseline, None).unwrap(), [0, 1, 8, 9, 10]);
+}
+
+#[test]
 fn original_mismatch_fails_before_writing() {
     let baseline = [0, 7, 2, 3];
     assert!(matches!(
@@ -79,6 +119,28 @@ fn owners_cannot_overlap() {
         plan.apply(&baseline, None),
         Err(WritePlanError::OverlappingWrites { first_owner, second_owner, .. })
             if first_owner == "layout" && second_owner == "checksum"
+    ));
+}
+
+#[test]
+fn identical_writes_still_conflict_for_the_same_owner() {
+    let baseline = [0, 1, 2, 3];
+    let plan = data_plan().write(write(
+        "duplicate-location",
+        "layout",
+        1,
+        &[1, 2],
+        &[8, 9],
+        WriteIntent::Data,
+    ));
+
+    assert!(matches!(
+        plan.apply(&baseline, None),
+        Err(WritePlanError::OverlappingWrites {
+            first_owner,
+            second_owner,
+            ..
+        }) if first_owner == "layout" && second_owner == "layout"
     ));
 }
 

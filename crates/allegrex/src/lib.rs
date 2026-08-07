@@ -1,0 +1,32 @@
+//! Static Sony Allegrex instruction-set profile for PSP executable code.
+//!
+//! The normative sources are Sony Computer Entertainment's *ALLEGREX
+//! Instruction Manual*, *FPU Instruction Manual*, and *VFPU Instruction
+//! Manual*, all from PSP Hardware Manual Release 1.0.0. This crate covers the
+//! instruction encodings documented by those three manuals. It does not use an
+//! external disassembler as a completeness oracle.
+//!
+//! Instructions are fixed-width and serialize in the little-endian byte order
+//! used by PSP executable images. Execution, timing, pipeline state, and
+//! simulation are outside this crate.
+
+pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
+
+mod assembler;
+mod codec;
+mod expected_write;
+mod instruction;
+mod vfpu;
+
+pub use assembler::{AssembledProgram, Assembler, AssemblerError};
+pub use codec::{
+    Allegrex, DecodeError, EncodeError, decode_bytes, decode_word, encode_bytes, encode_word,
+};
+pub use expected_write::ExpectedWriteVerifier;
+pub use instruction::*;
+pub use typed_isa_core::InstructionSpan;
+pub use vfpu::*;
+
+pub fn format_instruction(instruction: &Instruction) -> String {
+    format!("{:?}", instruction)
+}

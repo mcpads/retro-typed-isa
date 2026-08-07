@@ -1,0 +1,16 @@
+[package]
+name = "i386"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Typed Intel 80386 instruction model and static analysis"
+
+[dependencies]
+expected-write = { path = "../expected-write" }
+thiserror.workspace = true
+typed-isa-core = { path = "../typed-isa-core" }
+
+[lints]
+workspace = true
