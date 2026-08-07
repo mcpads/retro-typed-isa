@@ -4,17 +4,26 @@ use core::fmt;
 
 use crate::isa::{AddressingMode, InstructionForm, Mnemonic, OPCODE_TABLE, WidthState, opcode_for};
 
+/// Typed operand values serialized according to the instruction form and width state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operand {
+    /// Implied or accumulator form with no encoded operand bytes.
     None,
+    /// One unsigned byte.
     Byte(u8),
+    /// One little-endian 16-bit word.
     Word(u16),
+    /// One little-endian 24-bit address held in a `u32`.
     Long(u32),
+    /// Signed 8-bit post-instruction displacement.
     Relative8(i8),
+    /// Signed 16-bit post-instruction displacement.
     Relative16(i16),
     /// Encoded byte order is destination bank followed by source bank.
     BlockMove {
+        /// Destination data-bank byte encoded first.
         destination_bank: u8,
+        /// Source data-bank byte encoded second.
         source_bank: u8,
     },
 }
@@ -33,14 +42,19 @@ impl Operand {
     }
 }
 
+/// One typed W65C816 instruction and its concrete operand value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instruction {
+    /// Operation mnemonic.
     pub mnemonic: Mnemonic,
+    /// Operand interpretation selected by the opcode.
     pub mode: AddressingMode,
+    /// Typed operand value matching `mode` and the active width state.
     pub operand: Operand,
 }
 
 impl Instruction {
+    /// Construct a typed instruction; operand/profile validation occurs at lowering.
     pub const fn new(mnemonic: Mnemonic, mode: AddressingMode, operand: Operand) -> Self {
         Self {
             mnemonic,
@@ -49,10 +63,12 @@ impl Instruction {
         }
     }
 
+    /// Return the semantic form with the operand value removed.
     pub const fn form(&self) -> InstructionForm {
         InstructionForm::new(self.mnemonic, self.mode)
     }
 
+    /// Return the complete encoded length under an explicit width state.
     pub fn encoded_len(&self, widths: WidthState) -> Result<usize, EncodeError> {
         let opcode = opcode_for(self.mnemonic, self.mode).ok_or(EncodeError::UnknownEncoding {
             mnemonic: self.mnemonic,
@@ -63,16 +79,27 @@ impl Instruction {
     }
 }
 
+/// One typed instruction decoded from the beginning of a source slice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedInstruction {
+    /// Exact physical opcode byte.
     pub opcode: u8,
+    /// Typed instruction and operand value.
     pub instruction: Instruction,
+    /// Exact number of source bytes consumed.
     pub len: usize,
 }
 
+/// A fail-closed reason that source bytes do not contain one complete instruction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeError {
-    Truncated { expected: usize, found: usize },
+    /// The source ends before the width-dependent instruction is complete.
+    Truncated {
+        /// Complete encoded length required under the supplied width state.
+        expected: usize,
+        /// Number of source bytes actually available.
+        found: usize,
+    },
 }
 
 impl fmt::Display for DecodeError {
@@ -90,18 +117,28 @@ impl fmt::Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
+/// A fail-closed reason that a typed instruction cannot be lowered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EncodeError {
+    /// No official opcode encodes the requested mnemonic and addressing mode.
     UnknownEncoding {
+        /// Requested operation mnemonic.
         mnemonic: Mnemonic,
+        /// Requested operand interpretation.
         mode: AddressingMode,
     },
+    /// The operand type does not match the form and current width state.
     OperandMismatch {
+        /// Requested operation mnemonic.
         mnemonic: Mnemonic,
+        /// Requested operand interpretation.
         mode: AddressingMode,
+        /// Human-readable operand category required by the profile.
         expected: &'static str,
+        /// Human-readable category of the supplied operand.
         found: &'static str,
     },
+    /// A purported 24-bit address has bits set above bit 23.
     LongOperandOutOfRange(u32),
 }
 
@@ -186,11 +223,13 @@ pub fn encode_bytes(instruction: &Instruction, widths: WidthState) -> Result<Vec
 // Compatibility names for the existing consumer. New code uses the explicit
 // byte-lowering names shared by every profile.
 #[doc(hidden)]
+/// Compatibility wrapper for [`decode_bytes`].
 pub fn decode(bytes: &[u8], widths: WidthState) -> Result<DecodedInstruction, DecodeError> {
     decode_bytes(bytes, widths)
 }
 
 #[doc(hidden)]
+/// Compatibility wrapper for [`encode_bytes`].
 pub fn encode(instruction: &Instruction, widths: WidthState) -> Result<Vec<u8>, EncodeError> {
     encode_bytes(instruction, widths)
 }

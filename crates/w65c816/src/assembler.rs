@@ -6,18 +6,26 @@ use std::fmt;
 use crate::codec::{DecodeError, EncodeError, Instruction, Operand, decode_bytes, encode_bytes};
 use crate::isa::{AddressingMode, Mnemonic, OPCODE_TABLE, WidthState, opcode_for};
 
+/// CPU mode needed to determine M/X-dependent immediate widths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CpuMode {
+    /// Emulation mode, where accumulator and index widths are both eight bits.
     Emulation,
+    /// Native mode with explicit accumulator and index widths.
     Native(WidthState),
 }
 
 impl CpuMode {
+    /// Native mode with eight-bit accumulator and index registers.
     pub const NATIVE_M8_X8: Self = Self::Native(WidthState::M8_X8);
+    /// Native mode with eight-bit accumulator and sixteen-bit index registers.
     pub const NATIVE_M8_X16: Self = Self::Native(WidthState::M8_X16);
+    /// Native mode with sixteen-bit accumulator and eight-bit index registers.
     pub const NATIVE_M16_X8: Self = Self::Native(WidthState::M16_X8);
+    /// Native mode with sixteen-bit accumulator and index registers.
     pub const NATIVE_M16_X16: Self = Self::Native(WidthState::M16_X16);
 
+    /// Return the effective accumulator and index widths for this mode.
     pub const fn widths(self) -> WidthState {
         match self {
             Self::Emulation => WidthState::M8_X8,
@@ -51,21 +59,25 @@ enum Statement {
     AssumeMode(CpuMode),
 }
 
+/// Two-pass builder for typed W65C816 code, labels, explicit data, and mode assumptions.
 #[derive(Debug, Clone, Default)]
 pub struct Assembler {
     statements: Vec<Statement>,
 }
 
 impl Assembler {
+    /// Construct an empty assembly program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Define a label at the current byte position.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.statements.push(Statement::Label(name.into()));
         self
     }
 
+    /// Append one typed instruction interpreted under the current CPU mode.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.statements.push(Statement::Instruction(instruction));
         self
@@ -103,6 +115,10 @@ impl Assembler {
         self
     }
 
+    /// Resolve labels, lower typed code, and verify every instruction span.
+    ///
+    /// The complete output must remain within one 64 KiB program bank. Immediate
+    /// widths follow `initial_mode`, REP/SEP transitions, and explicit assumptions.
     pub fn assemble(
         &self,
         origin: u32,
@@ -242,14 +258,20 @@ impl Assembler {
     }
 }
 
+/// Location, width state, and identity of one instruction in assembled output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstructionSpan {
+    /// Byte offset relative to the beginning of the assembled program.
     pub offset: usize,
+    /// Number of bytes occupied by the instruction.
     pub len: usize,
+    /// M/X widths used to lower and verify the instruction.
     pub widths: WidthState,
+    /// Typed instruction that produced the bytes in this span.
     pub instruction: Instruction,
 }
 
+/// Checked single-bank output with resolved labels and verified instruction spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     origin: u32,
@@ -259,54 +281,82 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Return the 24-bit address assigned to the first output byte.
     pub fn origin(&self) -> u32 {
         self.origin
     }
 
+    /// Borrow the complete assembled code and explicit data bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consume the program and return its complete byte sequence.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Return the resolved 24-bit address of a defined label, if present.
     pub fn label_address(&self, name: &str) -> Option<u32> {
         self.labels.get(name).copied()
     }
 
+    /// Borrow the locations and identities of executable instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan] {
         &self.instructions
     }
 }
 
+/// A fail-closed reason that W65C816 assembly did not produce a program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssemblerError {
+    /// Post-placement decoding failed.
     Decode(DecodeError),
+    /// Typed instruction construction or lowering failed.
     Encode(EncodeError),
+    /// The requested origin exceeds the 24-bit address space.
     OriginOutOfRange(u32),
+    /// Address calculation overflowed the host or 24-bit address range.
     AddressOverflow,
+    /// The complete output crosses a 64 KiB program-bank boundary.
     CrossesBankBoundary {
+        /// Address assigned to the first output byte.
         origin: u32,
+        /// Complete or intermediate output length that does not fit.
         len: usize,
     },
+    /// A label name was defined more than once.
     DuplicateLabel(String),
+    /// A label reference names no definition in the program.
     UndefinedLabel(String),
+    /// A label was requested for a runtime-relative or otherwise unsupported mode.
     UnsupportedLabelMode(AddressingMode),
+    /// A relative label target does not fit the selected displacement width.
     RelativeOutOfRange {
+        /// Target label name.
         label: String,
+        /// Required byte displacement from the post-instruction address.
         displacement: i64,
+        /// Signed encoded displacement width.
         bits: u8,
     },
+    /// A 16-bit address form targets a different program bank.
     BankMismatch {
+        /// Target label name.
         label: String,
+        /// Program bank containing the instruction.
         origin_bank: u8,
+        /// Program bank containing the target.
         target_bank: u8,
     },
+    /// A preceding status operation made immediate width state unknowable.
     CpuModeUnknown {
+        /// Offset requiring a new explicit mode assumption.
         offset: usize,
     },
+    /// An emitted instruction changed identity during byte round-trip verification.
     VerificationFailed {
+        /// Byte offset of the inconsistent instruction span.
         offset: usize,
     },
 }

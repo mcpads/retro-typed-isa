@@ -6,6 +6,8 @@
 //! Arbitrary data can be emitted by the assembler, but it is never accepted as
 //! a fallback for an unsupported instruction.
 
+#![deny(missing_docs)]
+
 /// Stable identifier for the CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
@@ -30,15 +32,20 @@ pub use isa::{
 pub trait W65C816Profile:
     typed_isa_core::TypedIsa<Instruction = Instruction, Form = InstructionForm>
 {
+    /// Width state fixed by this static profile.
     const WIDTHS: WidthState;
 }
 
+/// Static profile with eight-bit accumulator and index registers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct W65C816M8X8;
+/// Static profile with eight-bit accumulator and sixteen-bit index registers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct W65C816M8X16;
+/// Static profile with sixteen-bit accumulator and eight-bit index registers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct W65C816M16X8;
+/// Static profile with sixteen-bit accumulator and index registers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct W65C816M16X16;
 
@@ -95,8 +102,11 @@ implement_profile!(W65C816M16X16, "w65c816-m16-x16", WidthState::M16_X16);
 
 // Kept until the existing consumer can be migrated in its own authorized change.
 #[doc(hidden)]
+/// Compatibility alias for the checked assembler.
 pub type Program = Assembler;
 #[doc(hidden)]
+/// Compatibility alias for [`AssemblerError`].
 pub type AsmError = AssemblerError;
 #[doc(hidden)]
+/// Compatibility alias for [`DisassemblyError`].
 pub type DisasmError = DisassemblyError;

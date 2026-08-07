@@ -10,56 +10,104 @@ use crate::assembler::{CpuMode, transition_mode};
 use crate::codec::{DecodeError, DecodedInstruction, Operand, decode_bytes};
 use crate::isa::{AddressingMode, Mnemonic};
 
+/// Static control-transfer classification for one placed instruction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlFlow {
+    /// Execution continues at the next sequential address.
     FallThrough {
+        /// Address immediately after the instruction.
         next: u32,
     },
+    /// A conditional or unconditional relative branch.
     Branch {
+        /// Direct branch target in the current program bank.
         target: u32,
+        /// Address reached when the condition is false, or `None` for BRA/BRL.
         fallthrough: Option<u32>,
     },
+    /// A subroutine call, possibly through an indirect pointer.
     Call {
+        /// Direct static target, or `None` for an indirect call.
         target: Option<u32>,
+        /// Address immediately after the call instruction.
         return_address: u32,
     },
+    /// An unconditional jump, possibly through an indirect pointer.
     Jump {
+        /// Direct static target, or `None` for an indirect jump.
         target: Option<u32>,
     },
+    /// Control returns through a stack-supplied address.
     Return,
+    /// Control enters a BRK or COP vector.
     Interrupt,
+    /// Execution waits for an interrupt and then resumes sequentially.
     Wait {
+        /// Sequential address at which execution resumes.
         resume_address: u32,
     },
+    /// The processor clock stops until reset.
     Stop,
 }
 
+/// One instruction decoded at a caller-declared 24-bit code location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacedInstruction {
+    /// Byte offset relative to the declared range.
     pub offset: usize,
+    /// 24-bit CPU address of the opcode byte.
     pub address: u32,
+    /// Exact source bytes consumed for the instruction.
     pub raw: Vec<u8>,
+    /// CPU mode used to determine immediate operand widths.
     pub mode_before: CpuMode,
+    /// Statically known mode after the instruction, or `None` when unknowable.
     pub mode_after: Option<CpuMode>,
+    /// Typed decode result.
     pub decoded: DecodedInstruction,
+    /// Placement-aware static control-flow classification.
     pub control_flow: ControlFlow,
 }
 
+/// Complete linear decode of one caller-declared, single-bank code range.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Disassembly {
+    /// 24-bit address assigned to the first source byte.
     pub origin: u32,
+    /// Number of source bytes consumed by the declared range.
     pub byte_len: usize,
+    /// CPU mode supplied for the entry instruction.
     pub initial_mode: CpuMode,
+    /// Mode after the final instruction, or `None` if the final transition is unknown.
     pub final_mode: Option<CpuMode>,
+    /// Sequential placed instructions covering every source byte.
     pub instructions: Vec<PlacedInstruction>,
 }
 
+/// A fail-closed reason that a declared range could not be decoded linearly.
 #[derive(Debug)]
 pub enum DisassemblyError {
+    /// The origin exceeds the W65C816's 24-bit address space.
     OriginOutOfRange(u32),
-    CrossesBankBoundary { origin: u32, len: usize },
-    CpuModeUnknown { offset: usize },
-    Decode { offset: usize, source: DecodeError },
+    /// The declared range crosses a 64 KiB program-bank boundary.
+    CrossesBankBoundary {
+        /// Address assigned to the first source byte.
+        origin: u32,
+        /// Declared byte length that does not fit in the bank.
+        len: usize,
+    },
+    /// A preceding instruction made M/X width state statically unknowable.
+    CpuModeUnknown {
+        /// Offset of the first instruction requiring a new mode assumption.
+        offset: usize,
+    },
+    /// An instruction failed to decode under the current width state.
+    Decode {
+        /// Offset at which decoding failed.
+        offset: usize,
+        /// Underlying byte-decoder failure.
+        source: DecodeError,
+    },
 }
 
 impl fmt::Display for DisassemblyError {
