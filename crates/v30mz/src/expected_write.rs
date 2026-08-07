@@ -8,11 +8,17 @@ use crate::{
     verify_placed_program,
 };
 
+/// Expected Write adapter backed by a project-controlled typed-source resolver.
+///
+/// The resolver receives an `assembly_source_id` and must return the assembled
+/// V30MZ program associated with that external identity. Replacement bytes are
+/// independently decoded and reassembled by this adapter.
 pub struct ExpectedWriteVerifier<ResolveSource> {
     resolve_source: ResolveSource,
 }
 
 impl<ResolveSource> ExpectedWriteVerifier<ResolveSource> {
+    /// Construct a verifier from a project-controlled assembly-source resolver.
     pub fn new(resolve_source: ResolveSource) -> Self {
         Self { resolve_source }
     }

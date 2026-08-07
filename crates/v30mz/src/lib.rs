@@ -17,6 +17,8 @@
 //! [hardware-manual]: https://www.renesas.com/en/document/lbr/v30mztm-hardware-preliminary
 //! [instruction-manual]: https://www.renesas.com/en/document/mah/16-bit-v-seriestm-instruction
 
+#![deny(missing_docs)]
+
 use typed_isa_core::{
     DecodedInstruction as ProtocolDecodedInstruction, InstructionBytes, TypedIsa,
 };
@@ -46,20 +48,27 @@ pub struct V30Mz;
 pub struct Instruction(VSeriesInstruction);
 
 impl Instruction {
+    /// Validate a common V-series instruction against the V30MZ profile boundary.
+    ///
+    /// Instructions whose canonical encoding uses a V30HL-only or otherwise
+    /// undefined V30MZ primary opcode are rejected.
     pub fn new(instruction: VSeriesInstruction) -> Result<Self, EncodeError> {
         let bytes = v30::encode_bytes(&instruction).map_err(EncodeError::BaseProfile)?;
         validate_v30mz_encoding(&bytes)?;
         Ok(Self(instruction))
     }
 
+    /// Borrow the shared V-series semantic instruction.
     pub fn as_v_series(&self) -> &VSeriesInstruction {
         &self.0
     }
 
+    /// Consume this profile proof and return the shared V-series instruction.
     pub fn into_v_series(self) -> VSeriesInstruction {
         self.0
     }
 
+    /// Return the semantic encoding form of this validated instruction.
     pub fn form(&self) -> InstructionForm {
         InstructionForm(
             v30::InstructionForm::of(&self.0)
@@ -81,6 +90,7 @@ impl TryFrom<VSeriesInstruction> for Instruction {
 pub struct InstructionForm(v30::InstructionForm);
 
 impl InstructionForm {
+    /// Borrow the common V-series form selected by this V30MZ instruction.
     pub fn as_v_series(&self) -> &v30::InstructionForm {
         &self.0
     }
@@ -89,20 +99,27 @@ impl InstructionForm {
 /// A V30MZ prefix byte preserved in source order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Prefix {
+    /// Override the default segment for the following instruction.
     Segment(SegmentRegister),
+    /// Assert exclusive bus access for a supported read-modify-write instruction.
     BusLock,
+    /// Repeat a supported string operation while the zero flag is clear.
     Repne,
+    /// Repeat a supported string operation, using its profile-defined flag condition.
     Rep,
 }
 
+/// Source-ordered prefix bytes consumed before one V30MZ instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PrefixSequence(Vec<Prefix>);
 
 impl PrefixSequence {
+    /// Borrow the decoded prefixes in their original byte order.
     pub fn as_slice(&self) -> &[Prefix] {
         &self.0
     }
 
+    /// Return whether the instruction had no explicit prefix bytes.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -118,41 +135,64 @@ pub struct DecodedInstruction {
 }
 
 impl DecodedInstruction {
+    /// Borrow the typed V30MZ instruction identity.
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
     }
 
+    /// Consume the decode result and return its typed instruction identity.
     pub fn into_instruction(self) -> Instruction {
         self.instruction
     }
 
+    /// Return the complete encoded length, including prefixes.
     pub fn byte_len(&self) -> usize {
         self.byte_len
     }
 
+    /// Borrow the source-ordered prefixes decoded before the instruction.
     pub fn prefixes(&self) -> &PrefixSequence {
         &self.prefixes
     }
 
+    /// Borrow the exact source bytes consumed for this instruction.
     pub fn source_bytes(&self) -> &[u8] {
         &self.source_bytes
     }
 }
 
+/// A fail-closed reason that source bytes are not one valid V30MZ instruction.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DecodeError {
+    /// The source ends before a complete instruction can be decoded.
     #[error("input bytes truncated: needed at least {needed}, got {got}")]
-    Truncated { needed: usize, got: usize },
+    Truncated {
+        /// Minimum byte count required to continue decoding.
+        needed: usize,
+        /// Byte count available to the decoder.
+        got: usize,
+    },
+    /// The first non-prefix byte is not assigned by the V30MZ profile.
     #[error("undefined V30MZ primary opcode {opcode:#04X}")]
-    UndefinedPrimaryOpcode { opcode: u8 },
+    UndefinedPrimaryOpcode {
+        /// Rejected primary opcode byte.
+        opcode: u8,
+    },
+    /// The bytes violate an operand or selector constraint of an assigned opcode.
     #[error("invalid V30MZ encoding")]
     InvalidEncoding,
 }
 
+/// A fail-closed reason that a typed value cannot be lowered as V30MZ code.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EncodeError {
+    /// Canonical lowering selected a primary opcode absent from V30MZ.
     #[error("instruction uses undefined V30MZ primary opcode {opcode:#04X}")]
-    UndefinedPrimaryOpcode { opcode: u8 },
+    UndefinedPrimaryOpcode {
+        /// Rejected primary opcode byte.
+        opcode: u8,
+    },
+    /// Shared V-series lowering rejected the instruction or its operands.
     #[error(transparent)]
     BaseProfile(v30::EncodeError),
 }
@@ -200,6 +240,7 @@ pub fn encode_bytes(instruction: &Instruction) -> Result<Vec<u8>, EncodeError> {
     Ok(bytes)
 }
 
+/// Format one V30MZ instruction using the common canonical V-series syntax.
 pub fn format_instruction(instruction: &Instruction) -> String {
     v30::format_instruction(instruction.as_v_series())
 }
@@ -280,15 +321,26 @@ impl TypedIsa for V30Mz {
     }
 }
 
+/// One instruction proven to occupy a specific location in a verified program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacedInstruction {
+    /// Segmented instruction address used for static control-flow resolution.
     pub address: InstructionAddress,
+    /// Byte offset relative to the beginning of the verified program.
     pub offset: usize,
+    /// Complete encoded length, including prefixes.
     pub byte_len: usize,
+    /// Typed instruction decoded and re-encoded at this location.
     pub instruction: Instruction,
+    /// Static control-flow classification with any direct target resolved.
     pub control_flow: ControlFlow,
 }
 
+/// Decode and canonically re-encode every instruction in a placed byte sequence.
+///
+/// The sequence must remain inside the 64 KiB code segment selected by
+/// `origin`. This verifies generated code structure; it does not execute or
+/// simulate the program.
 pub fn verify_placed_program(
     bytes: &[u8],
     origin: InstructionAddress,
@@ -332,23 +384,37 @@ pub fn verify_placed_program(
     Ok(instructions)
 }
 
+/// A fail-closed reason that a placed V30MZ program was not statically verified.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProgramVerificationError {
+    /// The program extends past the end of its starting 64 KiB code segment.
     #[error("program at {origin:?} with {byte_len} bytes crosses the 64 KiB code segment")]
     CodeSegmentBoundary {
+        /// Address assigned to the first byte of the program.
         origin: InstructionAddress,
+        /// Complete byte length that does not fit in the segment.
         byte_len: usize,
     },
+    /// Bytes at a placed address do not decode as a V30MZ instruction.
     #[error("decode failed at {address:?}: {source}")]
     Decode {
+        /// Address at which decoding failed.
         address: InstructionAddress,
+        /// Profile decode failure.
         source: DecodeError,
     },
+    /// A decoded instruction cannot be canonically lowered at its address.
     #[error("encode failed at {address:?}: {source}")]
     Encode {
+        /// Address of the instruction that could not be lowered.
         address: InstructionAddress,
+        /// Profile encode failure.
         source: EncodeError,
     },
+    /// Source bytes decode successfully but differ from canonical generated code.
     #[error("instruction at {address:?} is not in canonical generated-code form")]
-    NonCanonicalEncoding { address: InstructionAddress },
+    NonCanonicalEncoding {
+        /// Address of the non-canonical source encoding.
+        address: InstructionAddress,
+    },
 }
