@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 use crate::instruction::{
-    AddressingMode, ControlFlow, InstructionForm, Mnemonic, OPCODE_TABLE, canonical_opcode,
+    AddressingMode, ControlFlow, InstructionForm, Mnemonic, canonical_opcode, instruction_form,
     opcode_is_documented,
 };
 
@@ -51,8 +51,7 @@ impl Operand {
 
 /// One typed HuC6280 instruction.
 ///
-/// The exact opcode selector is retained so undocumented one-byte NOP aliases
-/// can decode and re-encode without byte canonicalization.
+/// The exact documented opcode selector is retained for byte-exact lowering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Instruction {
     opcode: u8,
@@ -75,11 +74,14 @@ impl Instruction {
         Ok(instruction)
     }
 
-    /// Construct the exact hardware encoding selected by `opcode`.
+    /// Construct the exact documented encoding selected by `opcode`.
     ///
     /// Unlike arbitrary byte emission, this validates the typed operand
     /// against the opcode's declared form before succeeding.
     pub fn from_opcode(opcode: u8, operand: Operand) -> Result<Self, EncodeError> {
+        if !opcode_is_documented(opcode) {
+            return Err(EncodeError::UndocumentedOpcode { opcode });
+        }
         let instruction = Self { opcode, operand };
         validate_operand(&instruction)?;
         Ok(instruction)
@@ -90,7 +92,10 @@ impl Instruction {
     }
 
     pub const fn form(self) -> InstructionForm {
-        OPCODE_TABLE[self.opcode as usize]
+        match instruction_form(self.opcode) {
+            Some(form) => form,
+            None => panic!("Instruction contains an undocumented HuC6280 opcode"),
+        }
     }
 
     pub const fn mnemonic(self) -> Mnemonic {
@@ -175,6 +180,12 @@ impl Instruction {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum DecodeError {
+    /// The selector is one of the 22 slots left undefined by Hudson's manual.
+    #[error("opcode {opcode:#04x} is undefined by the HuC6280 software manual")]
+    UndocumentedOpcode {
+        /// Rejected opcode selector.
+        opcode: u8,
+    },
     #[error("truncated opcode {opcode:#04x}: expected {expected} byte(s), found {found}")]
     Truncated {
         opcode: u8,
@@ -185,6 +196,12 @@ pub enum DecodeError {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum EncodeError {
+    /// The requested exact selector is not assigned by Hudson's manual.
+    #[error("opcode {opcode:#04x} is undefined by the HuC6280 software manual")]
+    UndocumentedOpcode {
+        /// Rejected opcode selector.
+        opcode: u8,
+    },
     #[error("no HuC6280 encoding for {mnemonic} {mode:?}")]
     UnknownEncoding {
         mnemonic: Mnemonic,
@@ -213,7 +230,9 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<Instruction, DecodeError> {
             found: 0,
         });
     };
-    let form = OPCODE_TABLE[opcode as usize];
+    let Some(form) = instruction_form(opcode) else {
+        return Err(DecodeError::UndocumentedOpcode { opcode });
+    };
     let expected = form.encoded_len();
     if bytes.len() < expected {
         return Err(DecodeError::Truncated {

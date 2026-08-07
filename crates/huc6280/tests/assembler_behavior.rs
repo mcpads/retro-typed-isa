@@ -105,13 +105,13 @@ fn declared_data_is_separate_from_verified_instruction_spans() {
         .word(0x1234)
         .label_word("after")
         .label("after")
-        .emit(Instruction::from_opcode(0x0B, Operand::None).unwrap());
+        .emit(Instruction::from_opcode(0xEA, Operand::None).unwrap());
     let program = assembler.assemble(0x4000).unwrap();
 
-    assert_eq!(program.bytes(), [0xDE, 0xAD, 0x34, 0x12, 0x06, 0x40, 0x0B]);
+    assert_eq!(program.bytes(), [0xDE, 0xAD, 0x34, 0x12, 0x06, 0x40, 0xEA]);
     assert_eq!(program.instruction_spans().len(), 1);
     assert_eq!(program.instruction_spans()[0].offset, 6);
-    assert_eq!(program.instruction_spans()[0].instruction.opcode(), 0x0B);
+    assert_eq!(program.instruction_spans()[0].instruction.opcode(), 0xEA);
 }
 
 #[test]

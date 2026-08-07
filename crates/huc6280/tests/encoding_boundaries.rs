@@ -1,13 +1,16 @@
 use huc6280::{
-    AddressingMode, ControlFlow, DecodeError, EncodeError, Instruction, Mnemonic, OPCODE_TABLE,
-    Operand, decode_bytes, encode_bytes, format_bytes, format_instruction,
+    AddressingMode, ControlFlow, DecodeError, EncodeError, Instruction, Mnemonic, Operand,
+    decode_bytes, encode_bytes, format_bytes, format_instruction, instruction_form,
 };
 
 #[test]
 fn every_multibyte_opcode_rejects_each_truncated_prefix() {
     let padded = [0u8; 7];
     for opcode in 0..=u8::MAX {
-        let expected = OPCODE_TABLE[opcode as usize].encoded_len();
+        let Some(form) = instruction_form(opcode) else {
+            continue;
+        };
+        let expected = form.encoded_len();
         for found in 1..expected {
             let mut bytes = padded;
             bytes[0] = opcode;

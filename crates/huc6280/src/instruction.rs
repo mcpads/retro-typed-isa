@@ -164,9 +164,7 @@ impl AddressingMode {
 
 /// A semantic instruction form with operand values removed.
 ///
-/// Several undocumented opcode bytes have the same `NOP`/implied form. They
-/// remain distinct encoded selectors in [`OPCODE_TABLE`] but appear only once
-/// in [`InstructionForm::all`].
+/// Only forms assigned by Hudson's software manual belong to this denominator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InstructionForm {
     pub mnemonic: Mnemonic,
@@ -181,8 +179,14 @@ impl InstructionForm {
     /// Complete, duplicate-free semantic-form denominator for this profile.
     pub fn all() -> impl Iterator<Item = Self> {
         (0..OPCODE_TABLE.len()).filter_map(|index| {
+            if !opcode_is_documented(index as u8) {
+                return None;
+            }
             let form = OPCODE_TABLE[index];
-            (!OPCODE_TABLE[..index].contains(&form)).then_some(form)
+            let seen = (0..index).any(|previous| {
+                opcode_is_documented(previous as u8) && OPCODE_TABLE[previous] == form
+            });
+            (!seen).then_some(form)
         })
     }
 
@@ -198,12 +202,10 @@ const fn op(mnemonic: Mnemonic, mode: AddressingMode) -> InstructionForm {
 use AddressingMode::*;
 use Mnemonic::*;
 
-/// Complete hardware opcode profile, indexed by the first instruction byte.
-///
-/// The 234 documented opcode slots each select a distinct semantic form. The
-/// 22 otherwise undefined slots execute as one-byte NOP aliases on the modeled
-/// hardware and therefore share one form while retaining their opcode index.
-pub const OPCODE_TABLE: [InstructionForm; 256] = [
+// Full selector layout used internally to keep the manual matrix legible. The
+// placeholder forms at the 22 undefined slots are never exposed as supported
+// instructions; `instruction_form` filters them out.
+pub(crate) const OPCODE_TABLE: [InstructionForm; 256] = [
     // $00-$0F
     op(Brk, Implied),
     op(Ora, ZeroPageIndexedIndirectX),
@@ -504,6 +506,17 @@ pub const fn opcode_is_documented(opcode: u8) -> bool {
             | 0xFB
             | 0xFC
     )
+}
+
+/// Return the manual-defined form for an opcode selector.
+///
+/// The 22 slots left undefined by Hudson's software manual return `None`.
+pub const fn instruction_form(opcode: u8) -> Option<InstructionForm> {
+    if opcode_is_documented(opcode) {
+        Some(OPCODE_TABLE[opcode as usize])
+    } else {
+        None
+    }
 }
 
 pub(crate) fn canonical_opcode(form: InstructionForm) -> Option<u8> {
