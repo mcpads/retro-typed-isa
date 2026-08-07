@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
+use std::marker::PhantomData;
 
 use thiserror::Error;
-use typed_isa_core::{InstructionBytes, InstructionSpan};
+use typed_isa_core::{InstructionSpan, TypedIsa};
 
 use crate::{
     BranchOptions, ConditionRegisterBit, EncodeError, Instruction, InstructionForm,
-    InstructionModifiers, Operand, encode_bytes,
+    InstructionModifiers, Operand, PowerPc750Cl, PowerPcGekko,
 };
 
 #[derive(Debug, Clone)]
@@ -25,12 +26,28 @@ enum Node {
     Data(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Assembler {
+#[derive(Debug, Clone)]
+pub struct ProfileAssembler<P> {
     nodes: Vec<Node>,
+    profile: PhantomData<P>,
 }
 
-impl Assembler {
+pub type Assembler = ProfileAssembler<PowerPc750Cl>;
+pub type GekkoAssembler = ProfileAssembler<PowerPcGekko>;
+
+impl<P> Default for ProfileAssembler<P> {
+    fn default() -> Self {
+        Self {
+            nodes: Vec::new(),
+            profile: PhantomData,
+        }
+    }
+}
+
+impl<P> ProfileAssembler<P>
+where
+    P: TypedIsa<Instruction = Instruction, Form = InstructionForm, EncodeError = EncodeError>,
+{
     pub fn new() -> Self {
         Self::default()
     }
@@ -123,14 +140,13 @@ impl Assembler {
                 });
             }
             let address = placed_address(origin, bytes.len())?;
-            let encoded = encode_bytes(&instruction, address)?;
+            let encoded = P::encode_one(&instruction, address)?;
             let offset = bytes.len();
-            bytes.extend_from_slice(&encoded);
+            bytes.extend_from_slice(encoded.as_slice());
             instruction_spans.push(InstructionSpan {
                 offset,
                 address,
-                bytes: InstructionBytes::new(encoded.to_vec())
-                    .expect("PowerPC instructions are non-empty"),
+                bytes: encoded,
                 instruction,
             });
         }

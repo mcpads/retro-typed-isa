@@ -14,23 +14,28 @@ use crate::instruction::{
 #[derive(Debug, Clone, Copy)]
 pub struct PowerPc750Cl;
 
+#[derive(Debug, Clone, Copy)]
+pub struct PowerPcGekko;
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
-    #[error("PowerPC 750CL instruction address {address:#018x} is not four-byte aligned")]
+    #[error("PowerPC Gekko/750CL instruction address {address:#018x} is not four-byte aligned")]
     UnalignedAddress { address: u64 },
-    #[error("PowerPC 750CL address {address:#018x} exceeds the 32-bit address space")]
+    #[error("PowerPC Gekko/750CL address {address:#018x} exceeds the 32-bit address space")]
     AddressOutOfRange { address: u64 },
-    #[error("truncated PowerPC 750CL instruction: needed 4 bytes, got {got}")]
+    #[error("truncated PowerPC Gekko/750CL instruction: needed 4 bytes, got {got}")]
     UnexpectedEnd { got: usize },
-    #[error("reserved or out-of-profile PowerPC 750CL instruction word {word:#010x}")]
+    #[error("reserved or out-of-profile PowerPC Gekko/750CL instruction word {word:#010x}")]
     ReservedWord { word: u32 },
+    #[error("special-purpose register {register:?} is not available on IBM Gekko")]
+    GekkoUnavailableSpecialPurposeRegister { register: SpecialPurposeRegister },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
-    #[error("PowerPC 750CL instruction address {address:#018x} is not four-byte aligned")]
+    #[error("PowerPC Gekko/750CL instruction address {address:#018x} is not four-byte aligned")]
     UnalignedAddress { address: u64 },
-    #[error("PowerPC 750CL address {address:#018x} exceeds the 32-bit address space")]
+    #[error("PowerPC Gekko/750CL address {address:#018x} exceeds the 32-bit address space")]
     AddressOutOfRange { address: u64 },
     #[error("instruction has {actual} operands; {expected} required")]
     OperandCount { actual: usize, expected: usize },
@@ -72,9 +77,11 @@ pub enum EncodeError {
     BranchOutOfRange { address: u32, target: u32 },
     #[error("signed immediate {value} does not fit the {bits}-bit field")]
     ImmediateOutOfRange { value: i16, bits: u8 },
+    #[error("special-purpose register {register:?} is not available on IBM Gekko")]
+    GekkoUnavailableSpecialPurposeRegister { register: SpecialPurposeRegister },
 }
 
-pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
+fn decode_common_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
     let address = checked_address_decode(address)?;
     let form = InstructionForm::detect(word).ok_or(DecodeError::ReservedWord { word })?;
     let support = form.modifier_support();
@@ -95,17 +102,41 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
         .map_err(|_| DecodeError::ReservedWord { word })
 }
 
-pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
+fn decode_common_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
         .ok_or(DecodeError::UnexpectedEnd { got: source.len() })?;
-    decode_word(
+    decode_common_word(
         u32::from_be_bytes(bytes.try_into().expect("four-byte slice")),
         address,
     )
 }
 
-pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
+pub fn decode_750cl_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
+    decode_common_word(word, address)
+}
+
+pub fn decode_750cl_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
+    decode_common_bytes(source, address)
+}
+
+pub fn decode_gekko_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
+    let instruction = decode_common_word(word, address)?;
+    validate_gekko_decode(&instruction)?;
+    Ok(instruction)
+}
+
+pub fn decode_gekko_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
+    let bytes = source
+        .get(..4)
+        .ok_or(DecodeError::UnexpectedEnd { got: source.len() })?;
+    decode_gekko_word(
+        u32::from_be_bytes(bytes.try_into().expect("four-byte slice")),
+        address,
+    )
+}
+
+fn encode_common_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
     let address = checked_address_encode(address)?;
     let definition = instruction.form().definition();
     let mut word = definition.bits;
@@ -131,8 +162,47 @@ pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, Encod
     Ok(word)
 }
 
-pub fn encode_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
-    Ok(encode_word(instruction, address)?.to_be_bytes())
+pub fn encode_750cl_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
+    encode_common_word(instruction, address)
+}
+
+pub fn encode_750cl_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
+    Ok(encode_common_word(instruction, address)?.to_be_bytes())
+}
+
+pub fn encode_gekko_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
+    validate_gekko_encode(instruction)?;
+    encode_common_word(instruction, address)
+}
+
+pub fn encode_gekko_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
+    Ok(encode_gekko_word(instruction, address)?.to_be_bytes())
+}
+
+fn gekko_unavailable_register(instruction: &Instruction) -> Option<SpecialPurposeRegister> {
+    instruction
+        .operands()
+        .iter()
+        .find_map(|operand| match operand {
+            Operand::SpecialPurposeRegister(register) if !register.is_available_on_gekko() => {
+                Some(*register)
+            }
+            _ => None,
+        })
+}
+
+fn validate_gekko_decode(instruction: &Instruction) -> Result<(), DecodeError> {
+    if let Some(register) = gekko_unavailable_register(instruction) {
+        return Err(DecodeError::GekkoUnavailableSpecialPurposeRegister { register });
+    }
+    Ok(())
+}
+
+fn validate_gekko_encode(instruction: &Instruction) -> Result<(), EncodeError> {
+    if let Some(register) = gekko_unavailable_register(instruction) {
+        return Err(EncodeError::GekkoUnavailableSpecialPurposeRegister { register });
+    }
+    Ok(())
 }
 
 fn checked_address_decode(address: u64) -> Result<u32, DecodeError> {
@@ -392,7 +462,7 @@ fn encode_branch_target(
 }
 
 impl TypedIsa for PowerPc750Cl {
-    const PROFILE_ID: &'static str = crate::PROFILE_ID;
+    const PROFILE_ID: &'static str = crate::POWERPC_750CL_PROFILE_ID;
 
     type Instruction = Instruction;
     type Form = InstructionForm;
@@ -407,7 +477,7 @@ impl TypedIsa for PowerPc750Cl {
         source: &[u8],
         address: u64,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
-        let instruction = decode_bytes(source, address)?;
+        let instruction = decode_750cl_bytes(source, address)?;
         let bytes = InstructionBytes::new(source[..4].to_vec())
             .expect("PowerPC instructions are non-empty");
         Ok(ProtocolDecodedInstruction::new(instruction, bytes))
@@ -417,7 +487,39 @@ impl TypedIsa for PowerPc750Cl {
         instruction: &Self::Instruction,
         address: u64,
     ) -> Result<InstructionBytes, Self::EncodeError> {
-        let bytes = encode_bytes(instruction, address)?;
+        let bytes = encode_750cl_bytes(instruction, address)?;
+        Ok(InstructionBytes::new(bytes.to_vec()).expect("PowerPC instructions are non-empty"))
+    }
+}
+
+impl TypedIsa for PowerPcGekko {
+    const PROFILE_ID: &'static str = crate::GEKKO_PROFILE_ID;
+
+    type Instruction = Instruction;
+    type Form = InstructionForm;
+    type DecodeError = DecodeError;
+    type EncodeError = EncodeError;
+
+    fn form(instruction: &Self::Instruction) -> Result<Self::Form, Self::EncodeError> {
+        validate_gekko_encode(instruction)?;
+        Ok(instruction.form())
+    }
+
+    fn decode_one(
+        source: &[u8],
+        address: u64,
+    ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
+        let instruction = decode_gekko_bytes(source, address)?;
+        let bytes = InstructionBytes::new(source[..4].to_vec())
+            .expect("PowerPC instructions are non-empty");
+        Ok(ProtocolDecodedInstruction::new(instruction, bytes))
+    }
+
+    fn encode_one(
+        instruction: &Self::Instruction,
+        address: u64,
+    ) -> Result<InstructionBytes, Self::EncodeError> {
+        let bytes = encode_gekko_bytes(instruction, address)?;
         Ok(InstructionBytes::new(bytes.to_vec()).expect("PowerPC instructions are non-empty"))
     }
 }

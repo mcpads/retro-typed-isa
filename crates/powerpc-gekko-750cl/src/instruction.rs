@@ -116,7 +116,7 @@ impl FpscrImmediate {
     }
 }
 
-/// A PowerPC or 750CL-specific SPR listed in Tables 2-55 and 2-56.
+/// A Gekko or PowerPC 750CL SPR listed in the processors' programming-model tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u16)]
 pub enum SpecialPurposeRegister {
@@ -313,6 +313,31 @@ impl SpecialPurposeRegister {
             1022 => Self::ThermalManagement3,
             _ => return None,
         })
+    }
+
+    pub(crate) const fn is_available_on_gekko(self) -> bool {
+        !matches!(
+            self,
+            Self::InstructionBat4Upper
+                | Self::InstructionBat4Lower
+                | Self::InstructionBat5Upper
+                | Self::InstructionBat5Lower
+                | Self::InstructionBat6Upper
+                | Self::InstructionBat6Lower
+                | Self::InstructionBat7Upper
+                | Self::InstructionBat7Lower
+                | Self::DataBat4Upper
+                | Self::DataBat4Lower
+                | Self::DataBat5Upper
+                | Self::DataBat5Lower
+                | Self::DataBat6Upper
+                | Self::DataBat6Lower
+                | Self::DataBat7Upper
+                | Self::DataBat7Lower
+                | Self::HardwareImplementation4
+                | Self::ThermalDataCacheLower
+                | Self::ThermalDataCacheUpper
+        )
     }
 
     pub(crate) const fn can_read(self) -> bool {

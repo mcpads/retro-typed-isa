@@ -8,7 +8,7 @@ members = [
     "crates/huc6280",
     "crates/i386",
     "crates/m68000",
-    "crates/powerpc-750cl",
+    "crates/powerpc-gekko-750cl",
     "crates/psx-r3000a",
     "crates/r5900",
     "crates/rp2a03",

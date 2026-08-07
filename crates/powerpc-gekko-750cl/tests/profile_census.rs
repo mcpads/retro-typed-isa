@@ -1,8 +1,14 @@
 use std::collections::BTreeSet;
 
-use powerpc_750cl::{DECLARED_FORM_COUNT, InstructionForm, decode_word, encode_word};
+use powerpc_gekko_750cl::{
+    DECLARED_FORM_COUNT, InstructionForm, PowerPc750Cl, PowerPcGekko, decode_750cl_word,
+    encode_750cl_word,
+};
+use typed_isa_core::TypedIsa;
 
-// IBM 750CL User's Manual, Appendix A Table A-1 and Appendix B Table B-1.
+// IBM Gekko User's Manual Appendix A and IBM 750CL User's Manual Appendix A
+// Table A-1 plus Appendix B Table B-1. Both manuals define this same selector
+// set. Gekko/750CL SPR-map differences are covered separately.
 // These canonical selector words are intentionally independent of the
 // production form iterator and decoder tables.
 //
@@ -50,12 +56,25 @@ const SOURCE_PRIMARY_FORM_COUNTS: [usize; 64] = [
 ];
 
 #[test]
-fn source_tables_cover_every_declared_form_once() {
+fn ibm_source_tables_cover_every_declared_form_for_both_profiles() {
     let source_forms = SOURCE_CANONICAL_WORDS
         .into_iter()
         .map(|word| {
-            let instruction = decode_word(word, 0).unwrap();
-            assert_eq!(encode_word(&instruction, 0), Ok(word));
+            let instruction = decode_750cl_word(word, 0).unwrap();
+            assert_eq!(encode_750cl_word(&instruction, 0), Ok(word));
+            let bytes = word.to_be_bytes();
+            assert_eq!(
+                PowerPcGekko::decode_one(&bytes, 0)
+                    .unwrap()
+                    .into_instruction(),
+                instruction
+            );
+            assert_eq!(
+                PowerPc750Cl::decode_one(&bytes, 0)
+                    .unwrap()
+                    .into_instruction(),
+                instruction
+            );
             instruction.form()
         })
         .collect::<BTreeSet<_>>();

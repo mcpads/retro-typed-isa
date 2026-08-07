@@ -1,4 +1,4 @@
-use powerpc_750cl::{
+use powerpc_gekko_750cl::{
     Assembler, AssemblerError, GeneralRegister, Instruction, InstructionForm, Operand,
 };
 

@@ -61,7 +61,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "powerpc-750cl"
+name = "powerpc-gekko-750cl"
 version = "0.1.0"
 dependencies = [
  "thiserror",

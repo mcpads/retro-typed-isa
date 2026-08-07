@@ -17,7 +17,7 @@ The CPU-independent `expected-write` crate verifies immutable-source preconditio
 
 ## Crates
 
-- CPU profiles: `w65c816`, `psx-r3000a`, `huc6280`, `rp2a03`, `sh2`, `z80`, `sh4`, `m68000`, `v30`, `v30mz`, `sm83`, `v810`, `arm7tdmi`, `arm946e-s`, `tlcs900h`, `vr4300`, `powerpc-750cl`, `i386`, `allegrex`, `r5900`
+- CPU profiles: `w65c816`, `psx-r3000a`, `huc6280`, `rp2a03`, `sh2`, `z80`, `sh4`, `m68000`, `v30`, `v30mz`, `sm83`, `v810`, `arm7tdmi`, `arm946e-s`, `tlcs900h`, `vr4300`, `powerpc-gekko-750cl`, `i386`, `allegrex`, `r5900`
 - Shared protocol: `typed-isa-core`
 - Final-byte verification: `expected-write`
 

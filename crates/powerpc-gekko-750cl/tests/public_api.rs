@@ -1,8 +1,10 @@
-use powerpc_750cl::{
+use powerpc_gekko_750cl::{
     DecodeError, EncodeError, FloatingRegister, GeneralRegister, Instruction, InstructionForm,
-    InstructionModifiers, Operand, OperandKind, PairedSingleWidth, QuantizationRegister,
-    SpecialPurposeRegister, decode_bytes, decode_word, encode_bytes, encode_word,
+    InstructionModifiers, Operand, OperandKind, PairedSingleWidth, PowerPc750Cl, PowerPcGekko,
+    QuantizationRegister, SpecialPurposeRegister, decode_750cl_bytes, decode_750cl_word,
+    encode_750cl_bytes, encode_750cl_word,
 };
+use typed_isa_core::TypedIsa;
 
 fn gpr(index: u8) -> GeneralRegister {
     GeneralRegister::new(index).unwrap()
@@ -10,6 +12,12 @@ fn gpr(index: u8) -> GeneralRegister {
 
 fn fpr(index: u8) -> FloatingRegister {
     FloatingRegister::new(index).unwrap()
+}
+
+#[test]
+fn processor_profiles_keep_their_hardware_identity() {
+    assert_eq!(PowerPcGekko::PROFILE_ID, "powerpc-gekko");
+    assert_eq!(PowerPc750Cl::PROFILE_ID, "powerpc-750cl");
 }
 
 #[test]
@@ -24,13 +32,16 @@ fn typed_instruction_lowers_to_big_endian_bytes() {
     )
     .unwrap();
 
-    assert_eq!(encode_word(&instruction, 0x8000_0000), Ok(0x3801_0140));
     assert_eq!(
-        encode_bytes(&instruction, 0x8000_0000),
+        encode_750cl_word(&instruction, 0x8000_0000),
+        Ok(0x3801_0140)
+    );
+    assert_eq!(
+        encode_750cl_bytes(&instruction, 0x8000_0000),
         Ok([0x38, 0x01, 0x01, 0x40])
     );
     assert_eq!(
-        decode_bytes(&[0x38, 0x01, 0x01, 0x40], 0x8000_0000).unwrap(),
+        decode_750cl_bytes(&[0x38, 0x01, 0x01, 0x40], 0x8000_0000).unwrap(),
         instruction
     );
 }
@@ -52,8 +63,8 @@ fn record_and_overflow_are_explicit_typed_modifiers() {
     )
     .unwrap();
 
-    assert_eq!(encode_word(&instruction, 0), Ok(0x7f9d_f615));
-    assert_eq!(decode_word(0x7f9d_f615, 0).unwrap(), instruction);
+    assert_eq!(encode_750cl_word(&instruction, 0), Ok(0x7f9d_f615));
+    assert_eq!(decode_750cl_word(0x7f9d_f615, 0).unwrap(), instruction);
 
     assert_eq!(
         Instruction::with_modifiers(
@@ -92,8 +103,8 @@ fn paired_single_fields_have_semantic_types() {
     )
     .unwrap();
 
-    assert_eq!(encode_word(&instruction, 0), Ok(0xe064_fff0));
-    assert_eq!(decode_word(0xe064_fff0, 0).unwrap(), instruction);
+    assert_eq!(encode_750cl_word(&instruction, 0), Ok(0xe064_fff0));
+    assert_eq!(decode_750cl_word(0xe064_fff0, 0).unwrap(), instruction);
 }
 
 #[test]
@@ -107,8 +118,8 @@ fn addis_uses_the_manuals_signed_immediate_semantics() {
         ],
     )
     .unwrap();
-    assert_eq!(encode_word(&instruction, 0), Ok(0x3c64_ffff));
-    assert_eq!(decode_word(0x3c64_ffff, 0).unwrap(), instruction);
+    assert_eq!(encode_750cl_word(&instruction, 0), Ok(0x3c64_ffff));
+    assert_eq!(decode_750cl_word(0x3c64_ffff, 0).unwrap(), instruction);
 
     assert_eq!(
         Instruction::new(
@@ -137,7 +148,7 @@ fn special_purpose_register_access_follows_manual_directions() {
         ],
     )
     .unwrap();
-    assert_eq!(encode_word(&read_pvr, 0), Ok(0x7c7f_42a6));
+    assert_eq!(encode_750cl_word(&read_pvr, 0), Ok(0x7c7f_42a6));
 
     assert_eq!(
         Instruction::new(
@@ -161,9 +172,12 @@ fn special_purpose_register_access_follows_manual_directions() {
         ],
     )
     .unwrap();
-    assert_eq!(encode_word(&write_compatibility_sda, 0), Ok(0x7c9f_eba6));
     assert_eq!(
-        decode_word(0x7c9f_eba6, 0).unwrap(),
+        encode_750cl_word(&write_compatibility_sda, 0),
+        Ok(0x7c9f_eba6)
+    );
+    assert_eq!(
+        decode_750cl_word(0x7c9f_eba6, 0).unwrap(),
         write_compatibility_sda
     );
 
@@ -183,7 +197,7 @@ fn special_purpose_register_access_follows_manual_directions() {
 
     let unlisted_selector = 0x7c00_02a6;
     assert_eq!(
-        decode_word(unlisted_selector, 0),
+        decode_750cl_word(unlisted_selector, 0),
         Err(DecodeError::ReservedWord {
             word: unlisted_selector,
         })
@@ -242,7 +256,7 @@ fn manual_invalid_operand_combinations_fail_before_lowering() {
             [
                 Operand::GeneralRegister(gpr(30)),
                 Operand::GeneralRegister(gpr(0)),
-                Operand::StringByteCount(powerpc_750cl::StringByteCount::new(12).unwrap()),
+                Operand::StringByteCount(powerpc_gekko_750cl::StringByteCount::new(12).unwrap()),
             ],
         ),
         Err(EncodeError::LoadRangeIncludesAddress {
@@ -263,13 +277,15 @@ fn manual_invalid_operand_combinations_fail_before_lowering() {
         Err(EncodeError::StringLoadDestinationAliasesAddress { register: gpr(4) })
     );
 
-    let decrement_count = powerpc_750cl::BranchOptions::new(0).unwrap();
+    let decrement_count = powerpc_gekko_750cl::BranchOptions::new(0).unwrap();
     assert_eq!(
         Instruction::new(
             InstructionForm::Bcctr,
             [
                 Operand::BranchOptions(decrement_count),
-                Operand::ConditionRegisterBit(powerpc_750cl::ConditionRegisterBit::new(0).unwrap(),),
+                Operand::ConditionRegisterBit(
+                    powerpc_gekko_750cl::ConditionRegisterBit::new(0).unwrap(),
+                ),
             ],
         ),
         Err(EncodeError::CountRegisterBranchDecrementsCount {
@@ -279,7 +295,7 @@ fn manual_invalid_operand_combinations_fail_before_lowering() {
 
     let invalid_lwzu = 0x8440_0000;
     assert_eq!(
-        decode_word(invalid_lwzu, 0),
+        decode_750cl_word(invalid_lwzu, 0),
         Err(DecodeError::ReservedWord { word: invalid_lwzu })
     );
 }
@@ -288,20 +304,25 @@ fn manual_invalid_operand_combinations_fail_before_lowering() {
 fn branch_targets_are_checked_at_placement() {
     let relative =
         Instruction::new(InstructionForm::B, [Operand::BranchTarget(0x8000_0100)]).unwrap();
-    assert_eq!(encode_word(&relative, 0x8000_0000), Ok(0x4800_0100));
-    assert_eq!(decode_word(0x4800_0100, 0x8000_0000).unwrap(), relative);
+    assert_eq!(encode_750cl_word(&relative, 0x8000_0000), Ok(0x4800_0100));
+    assert_eq!(
+        decode_750cl_word(0x4800_0100, 0x8000_0000).unwrap(),
+        relative
+    );
 
     let too_far = Instruction::new(
         InstructionForm::Bc,
         [
-            Operand::BranchOptions(powerpc_750cl::BranchOptions::new(20).unwrap()),
-            Operand::ConditionRegisterBit(powerpc_750cl::ConditionRegisterBit::new(0).unwrap()),
+            Operand::BranchOptions(powerpc_gekko_750cl::BranchOptions::new(20).unwrap()),
+            Operand::ConditionRegisterBit(
+                powerpc_gekko_750cl::ConditionRegisterBit::new(0).unwrap(),
+            ),
             Operand::BranchTarget(0x8001_0000),
         ],
     )
     .unwrap();
     assert_eq!(
-        encode_word(&too_far, 0x8000_0000),
+        encode_750cl_word(&too_far, 0x8000_0000),
         Err(EncodeError::BranchOutOfRange {
             address: 0x8000_0000,
             target: 0x8001_0000,
@@ -312,11 +333,11 @@ fn branch_targets_are_checked_at_placement() {
 #[test]
 fn invalid_words_and_operand_shapes_fail_closed() {
     assert_eq!(
-        decode_bytes(&[0x38, 0x01, 0x01], 0),
+        decode_750cl_bytes(&[0x38, 0x01, 0x01], 0),
         Err(DecodeError::UnexpectedEnd { got: 3 })
     );
     assert_eq!(
-        decode_word(0, 0),
+        decode_750cl_word(0, 0),
         Err(DecodeError::ReservedWord { word: 0 })
     );
     assert_eq!(GeneralRegister::new(32), None);
