@@ -6,6 +6,8 @@
 //! unsupported opcodes, unknown command functions, and non-zero reserved
 //! fields.
 
+#![deny(missing_docs)]
+
 /// Stable identifier for the CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 

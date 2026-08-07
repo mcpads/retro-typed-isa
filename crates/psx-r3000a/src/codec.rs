@@ -236,6 +236,7 @@ pub fn encode_bytes(instruction: &Instruction, pc: u32) -> Result<[u8; 4], Encod
     Ok(encode_word(instruction, pc)?.to_le_bytes())
 }
 
+/// Decodes a whole little-endian instruction stream placed at `origin`.
 pub fn decode_le_bytes(bytes: &[u8], origin: u32) -> Result<Vec<Instruction>, DecodeError> {
     if origin & 3 != 0 {
         return Err(DecodeError::UnalignedInstructionAddress { address: origin });
@@ -257,6 +258,7 @@ pub fn decode_le_bytes(bytes: &[u8], origin: u32) -> Result<Vec<Instruction>, De
     Ok(instructions)
 }
 
+/// Encodes a whole semantic instruction stream in PlayStation byte order.
 pub fn encode_le_bytes(instructions: &[Instruction], origin: u32) -> Result<Vec<u8>, EncodeError> {
     if origin & 3 != 0 {
         return Err(EncodeError::UnalignedInstructionAddress { address: origin });
@@ -773,68 +775,165 @@ const fn immediate_signed(word: u32) -> i16 {
     word as u16 as i16
 }
 
+/// Failure to decode one instruction or a placed instruction stream.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum DecodeError {
+    /// A shared-protocol address exceeds the 32-bit PlayStation address space.
     #[error("instruction address {address:#x} exceeds the 32-bit PlayStation address space")]
-    AddressOutOfRange { address: u64 },
+    AddressOutOfRange {
+        /// Rejected address.
+        address: u64,
+    },
+    /// An instruction address is not four-byte aligned.
     #[error("instruction address {address:#010x} is not word-aligned")]
-    UnalignedInstructionAddress { address: u32 },
+    UnalignedInstructionAddress {
+        /// Rejected address.
+        address: u32,
+    },
+    /// A byte stream does not contain a whole number of instructions.
     #[error("input length {len} is not a whole number of 32-bit instructions")]
-    TruncatedInput { len: usize },
+    TruncatedInput {
+        /// Supplied byte length.
+        len: usize,
+    },
+    /// A stream instruction address overflows 32 bits.
     #[error("instruction address overflows for origin {origin:#010x}, index {index}")]
-    AddressOverflow { origin: u32, index: usize },
+    AddressOverflow {
+        /// Stream origin.
+        origin: u32,
+        /// Zero-based instruction index.
+        index: usize,
+    },
+    /// The primary opcode is not supported by the declared profile.
     #[error("unsupported opcode {opcode:#04x} in word {word:#010x}")]
-    UnsupportedOpcode { word: u32, opcode: u8 },
-    #[error("unsupported SPECIAL function {function:#04x} in word {word:#010x}")]
-    UnsupportedFunction { word: u32, function: u8 },
-    #[error("unsupported REGIMM selector {selector:#04x} in word {word:#010x}")]
-    UnsupportedRegimm { word: u32, selector: u8 },
-    #[error("unsupported COP{coprocessor} selector {selector:#04x} in word {word:#010x}")]
-    UnsupportedCoprocessorForm {
+    UnsupportedOpcode {
+        /// Rejected instruction word.
         word: u32,
-        coprocessor: u8,
+        /// Unsupported six-bit primary opcode.
+        opcode: u8,
+    },
+    /// A SPECIAL instruction uses an unsupported function selector.
+    #[error("unsupported SPECIAL function {function:#04x} in word {word:#010x}")]
+    UnsupportedFunction {
+        /// Rejected instruction word.
+        word: u32,
+        /// Unsupported six-bit function selector.
+        function: u8,
+    },
+    /// A REGIMM instruction uses an unsupported `rt` selector.
+    #[error("unsupported REGIMM selector {selector:#04x} in word {word:#010x}")]
+    UnsupportedRegimm {
+        /// Rejected instruction word.
+        word: u32,
+        /// Unsupported five-bit REGIMM selector.
         selector: u8,
     },
+    /// A coprocessor opcode uses a selector outside the PS1 profile.
+    #[error("unsupported COP{coprocessor} selector {selector:#04x} in word {word:#010x}")]
+    UnsupportedCoprocessorForm {
+        /// Rejected instruction word.
+        word: u32,
+        /// Coprocessor number from the primary opcode.
+        coprocessor: u8,
+        /// Unsupported five-bit `rs` selector.
+        selector: u8,
+    },
+    /// A COP2 command uses an undocumented GTE function selector.
     #[error("unsupported GTE function {function:#04x} in word {word:#010x}")]
-    UnsupportedGteFunction { word: u32, function: u8 },
+    UnsupportedGteFunction {
+        /// Rejected instruction word.
+        word: u32,
+        /// Unsupported six-bit GTE function.
+        function: u8,
+    },
+    /// A recognized form has nonzero or otherwise invalid reserved fields.
     #[error("reserved encoding in word {word:#010x}: {reason}")]
-    ReservedEncoding { word: u32, reason: &'static str },
+    ReservedEncoding {
+        /// Rejected instruction word.
+        word: u32,
+        /// Static description of the violated reserved-field rule.
+        reason: &'static str,
+    },
 }
 
+/// Failure to encode one instruction or a placed instruction stream.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum EncodeError {
+    /// A shared-protocol address exceeds the 32-bit PlayStation address space.
     #[error("instruction address {address:#x} exceeds the 32-bit PlayStation address space")]
-    AddressOutOfRange { address: u64 },
+    AddressOutOfRange {
+        /// Rejected address.
+        address: u64,
+    },
+    /// An instruction address is not four-byte aligned.
     #[error("instruction address {address:#010x} is not word-aligned")]
-    UnalignedInstructionAddress { address: u32 },
+    UnalignedInstructionAddress {
+        /// Rejected address.
+        address: u32,
+    },
+    /// A semantic numeric field exceeds its encoded width.
     #[error("{field} value {value:#x} exceeds {maximum:#x}")]
     FieldOutOfRange {
+        /// Stable field name.
         field: &'static str,
+        /// Rejected value.
         value: u32,
+        /// Largest encodable value.
         maximum: u32,
     },
+    /// A stream instruction address overflows 32 bits.
     #[error("instruction address overflows for origin {origin:#010x}, index {index}")]
-    AddressOverflow { origin: u32, index: usize },
+    AddressOverflow {
+        /// Stream origin.
+        origin: u32,
+        /// Zero-based instruction index.
+        index: usize,
+    },
+    /// A branch or jump target is not four-byte aligned.
     #[error("unaligned control flow from {pc:#010x} to {target:#010x}")]
-    UnalignedControlFlow { pc: u32, target: u32 },
+    UnalignedControlFlow {
+        /// Address of the control-flow instruction.
+        pc: u32,
+        /// Rejected target address.
+        target: u32,
+    },
+    /// A PC-relative branch displacement does not fit 16 signed words.
     #[error("branch from {pc:#010x} to {target:#010x} exceeds signed 16-bit displacement")]
-    BranchOutOfRange { pc: u32, target: u32 },
+    BranchOutOfRange {
+        /// Address of the branch instruction.
+        pc: u32,
+        /// Requested absolute target address.
+        target: u32,
+    },
+    /// A direct jump target is outside the region selected by `pc + 4`.
     #[error("jump from {pc:#010x} to {target:#010x} crosses a 256 MiB region")]
-    JumpRegionMismatch { pc: u32, target: u32 },
+    JumpRegionMismatch {
+        /// Address of the jump instruction.
+        pc: u32,
+        /// Requested absolute target address.
+        target: u32,
+    },
 }
 
+/// Failure of placed-program decode and exact byte round-trip verification.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum VerifyError {
+    /// Decoding the placed bytes failed.
     #[error("placed-program decode failed: {0}")]
     Decode(DecodeError),
+    /// Re-encoding a decoded instruction at the same address failed.
     #[error("placed-program encode failed: {0}")]
     Encode(EncodeError),
+    /// Re-encoding produced a different instruction word.
     #[error(
         "placed instruction at {pc:#010x} round-tripped as {encoded:#010x}, not {original:#010x}"
     )]
     RoundTripMismatch {
+        /// Address of the mismatched instruction.
         pc: u32,
+        /// Original instruction word.
         original: u32,
+        /// Word produced by semantic re-encoding.
         encoded: u32,
     },
 }

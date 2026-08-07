@@ -5,43 +5,77 @@ use std::fmt;
 pub struct Register(u8);
 
 impl Register {
+    /// Constant-zero register (`$zero`).
     pub const ZERO: Self = Self(0);
+    /// Assembler-temporary register (`$at`).
     pub const AT: Self = Self(1);
+    /// Function-result register 0 (`$v0`).
     pub const V0: Self = Self(2);
+    /// Function-result register 1 (`$v1`).
     pub const V1: Self = Self(3);
+    /// Argument register 0 (`$a0`).
     pub const A0: Self = Self(4);
+    /// Argument register 1 (`$a1`).
     pub const A1: Self = Self(5);
+    /// Argument register 2 (`$a2`).
     pub const A2: Self = Self(6);
+    /// Argument register 3 (`$a3`).
     pub const A3: Self = Self(7);
+    /// Caller-saved temporary register 0 (`$t0`).
     pub const T0: Self = Self(8);
+    /// Caller-saved temporary register 1 (`$t1`).
     pub const T1: Self = Self(9);
+    /// Caller-saved temporary register 2 (`$t2`).
     pub const T2: Self = Self(10);
+    /// Caller-saved temporary register 3 (`$t3`).
     pub const T3: Self = Self(11);
+    /// Caller-saved temporary register 4 (`$t4`).
     pub const T4: Self = Self(12);
+    /// Caller-saved temporary register 5 (`$t5`).
     pub const T5: Self = Self(13);
+    /// Caller-saved temporary register 6 (`$t6`).
     pub const T6: Self = Self(14);
+    /// Caller-saved temporary register 7 (`$t7`).
     pub const T7: Self = Self(15);
+    /// Callee-saved register 0 (`$s0`).
     pub const S0: Self = Self(16);
+    /// Callee-saved register 1 (`$s1`).
     pub const S1: Self = Self(17);
+    /// Callee-saved register 2 (`$s2`).
     pub const S2: Self = Self(18);
+    /// Callee-saved register 3 (`$s3`).
     pub const S3: Self = Self(19);
+    /// Callee-saved register 4 (`$s4`).
     pub const S4: Self = Self(20);
+    /// Callee-saved register 5 (`$s5`).
     pub const S5: Self = Self(21);
+    /// Callee-saved register 6 (`$s6`).
     pub const S6: Self = Self(22);
+    /// Callee-saved register 7 (`$s7`).
     pub const S7: Self = Self(23);
+    /// Caller-saved temporary register 8 (`$t8`).
     pub const T8: Self = Self(24);
+    /// Caller-saved temporary register 9 (`$t9`).
     pub const T9: Self = Self(25);
+    /// Kernel-reserved register 0 (`$k0`).
     pub const K0: Self = Self(26);
+    /// Kernel-reserved register 1 (`$k1`).
     pub const K1: Self = Self(27);
+    /// Global-pointer register (`$gp`).
     pub const GP: Self = Self(28);
+    /// Stack-pointer register (`$sp`).
     pub const SP: Self = Self(29);
+    /// Frame-pointer register (`$fp`).
     pub const FP: Self = Self(30);
+    /// Return-address register (`$ra`).
     pub const RA: Self = Self(31);
 
+    /// Constructs a register from a five-bit index.
     pub fn new(index: u8) -> Option<Self> {
         (index < 32).then_some(Self(index))
     }
 
+    /// Returns the architectural register index.
     pub const fn index(self) -> u8 {
         self.0
     }
@@ -51,6 +85,7 @@ impl Register {
         Self(index)
     }
 
+    /// Returns the conventional MIPS ABI name without the `$` prefix.
     pub const fn name(self) -> &'static str {
         match self.0 {
             0 => "zero",
@@ -104,33 +139,57 @@ impl fmt::Display for Register {
     }
 }
 
+/// One of the 22 documented PlayStation geometry transformation engine commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum GteOpcode {
+    /// Perspective-transform one point (`RTPS`).
     Rtps,
+    /// Normal clipping (`NCLIP`).
     Nclip,
+    /// Outer product (`OP`).
     Op,
+    /// Depth cue one color (`DPCS`).
     Dpcs,
+    /// Interpolate a vector and far color (`INTPL`).
     Intpl,
+    /// Matrix-vector multiplication and vector addition (`MVMVA`).
     Mvmva,
+    /// Normal color depth cue one vector (`NCDS`).
     Ncds,
+    /// Color depth cue (`CDP`).
     Cdp,
+    /// Normal color depth cue three vectors (`NCDT`).
     Ncdt,
+    /// Normal color color one vector (`NCCS`).
     Nccs,
+    /// Color color (`CC`).
     Cc,
+    /// Normal color one vector (`NCS`).
     Ncs,
+    /// Normal color three vectors (`NCT`).
     Nct,
+    /// Square vector (`SQR`).
     Sqr,
+    /// Depth cue color light (`DCPL`).
     Dcpl,
+    /// Depth cue three colors (`DPCT`).
     Dpct,
+    /// Average of three z values (`AVSZ3`).
     Avsz3,
+    /// Average of four z values (`AVSZ4`).
     Avsz4,
+    /// Perspective-transform three points (`RTPT`).
     Rtpt,
+    /// General-purpose interpolation without accumulation (`GPF`).
     Gpf,
+    /// General-purpose interpolation with accumulation (`GPL`).
     Gpl,
+    /// Normal color color three vectors (`NCCT`).
     Ncct,
 }
 
 impl GteOpcode {
+    /// Complete documented GTE command denominator.
     pub const ALL: [Self; 22] = [
         Self::Rtps,
         Self::Nclip,
@@ -156,6 +215,7 @@ impl GteOpcode {
         Self::Ncct,
     ];
 
+    /// Returns the six-bit function code used for hardware dispatch.
     pub const fn function(self) -> u8 {
         match self {
             Self::Rtps => 0x01,
@@ -196,12 +256,19 @@ impl GteOpcode {
 /// it for dispatch, but preserving it makes decode/encode byte-exact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GteCommand {
+    /// Semantic GTE command selected by the six-bit function field.
     pub opcode: GteOpcode,
+    /// Preserved five-bit conventional command number ignored by dispatch.
     pub fake: u8,
+    /// Selects the 12-bit fractional shift when set.
     pub shift_fraction: bool,
+    /// Two-bit matrix selector.
     pub matrix: u8,
+    /// Two-bit input-vector selector.
     pub vector: u8,
+    /// Two-bit translation or control-vector selector.
     pub control_vector: u8,
+    /// Enables positive-only result limiting when set.
     pub limit_unsigned: bool,
 }
 
@@ -210,7 +277,11 @@ macro_rules! define_instruction_forms {
         /// Semantic instruction forms included in the PlayStation R3000A profile.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum InstructionForm {
-            $($form),+,
+            $(
+                #[doc = concat!("The `", stringify!($form), "` instruction form.")]
+                $form
+            ),+,
+            /// A GTE command form distinguished by its documented function code.
             Gte(GteOpcode),
         }
 
@@ -236,313 +307,545 @@ define_instruction_forms!(
     Bgezal, J, Jal, Jr, Jalr, Syscall, Break, Mfc0, Mtc0, Rfe, Mfc2, Mtc2, Cfc2, Ctc2, Lwc2, Swc2,
 );
 
+/// A semantic PlayStation R3000A instruction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
+    /// The `add` instruction.
     Add {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `addu` instruction.
     Addu {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `sub` instruction.
     Sub {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `subu` instruction.
     Subu {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `and` instruction.
     And {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `or` instruction.
     Or {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `xor` instruction.
     Xor {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `nor` instruction.
     Nor {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `slt` instruction.
     Slt {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `sltu` instruction.
     Sltu {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
 
+    /// The `addi` instruction.
     Addi {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Immediate value.
         immediate: i16,
     },
+    /// The `addiu` instruction.
     Addiu {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Immediate value.
         immediate: i16,
     },
+    /// The `andi` instruction.
     Andi {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Immediate value.
         immediate: u16,
     },
+    /// The `ori` instruction.
     Ori {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Immediate value.
         immediate: u16,
     },
+    /// The `xori` instruction.
     Xori {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Immediate value.
         immediate: u16,
     },
+    /// The `lui` instruction.
     Lui {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Immediate value.
         immediate: u16,
     },
+    /// The `slti` instruction.
     Slti {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Immediate value.
         immediate: i16,
     },
+    /// The `sltiu` instruction.
     Sltiu {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Immediate value.
         immediate: i16,
     },
 
+    /// The `sll` instruction.
     Sll {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Immediate shift amount; encoding requires a value below 32.
         shift: u8,
     },
+    /// The `srl` instruction.
     Srl {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Immediate shift amount; encoding requires a value below 32.
         shift: u8,
     },
+    /// The `sra` instruction.
     Sra {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Immediate shift amount; encoding requires a value below 32.
         shift: u8,
     },
+    /// The `sllv` instruction.
     Sllv {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
     },
+    /// The `srlv` instruction.
     Srlv {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
     },
+    /// The `srav` instruction.
     Srav {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
     },
 
+    /// The `mult` instruction.
     Mult {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `multu` instruction.
     Multu {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `div` instruction.
     Div {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `divu` instruction.
     Divu {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
     },
+    /// The `mfhi` instruction.
     Mfhi {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
     },
+    /// The `mthi` instruction.
     Mthi {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
     },
+    /// The `mflo` instruction.
     Mflo {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
     },
+    /// The `mtlo` instruction.
     Mtlo {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
     },
 
+    /// The `lb` instruction.
     Lb {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `lbu` instruction.
     Lbu {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `lh` instruction.
     Lh {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `lhu` instruction.
     Lhu {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `lw` instruction.
     Lw {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `lwl` instruction.
     Lwl {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `lwr` instruction.
     Lwr {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `sb` instruction.
     Sb {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `sh` instruction.
     Sh {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `sw` instruction.
     Sw {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `swl` instruction.
     Swl {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `swr` instruction.
     Swr {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
 
+    /// The `beq` instruction.
     Beq {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `bne` instruction.
     Bne {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `blez` instruction.
     Blez {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `bgtz` instruction.
     Bgtz {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `bltz` instruction.
     Bltz {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `bgez` instruction.
     Bgez {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `bltzal` instruction.
     Bltzal {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `bgezal` instruction.
     Bgezal {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `j` instruction.
     J {
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `jal` instruction.
     Jal {
+        /// Absolute control-flow target resolved against the placed instruction.
         target: u32,
     },
+    /// The `jr` instruction.
     Jr {
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
     },
+    /// The `jalr` instruction.
     Jalr {
+        /// Encoded `rd` register or coprocessor-register field.
         rd: Register,
+        /// Encoded `rs` general-purpose register field.
         rs: Register,
     },
 
+    /// The `syscall` instruction.
     Syscall {
+        /// Embedded system-call or break code.
         code: u32,
     },
+    /// The `break` instruction.
     Break {
+        /// Embedded system-call or break code.
         code: u32,
     },
+    /// The `mfc0` instruction.
     Mfc0 {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rd` register or coprocessor-register field.
         rd: u8,
     },
+    /// The `mtc0` instruction.
     Mtc0 {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rd` register or coprocessor-register field.
         rd: u8,
     },
+    /// The `rfe` instruction.
     Rfe,
+    /// The `mfc2` instruction.
     Mfc2 {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rd` register or coprocessor-register field.
         rd: u8,
     },
+    /// The `mtc2` instruction.
     Mtc2 {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rd` register or coprocessor-register field.
         rd: u8,
     },
+    /// The `cfc2` instruction.
     Cfc2 {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rd` register or coprocessor-register field.
         rd: u8,
     },
+    /// The `ctc2` instruction.
     Ctc2 {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: Register,
+        /// Encoded `rd` register or coprocessor-register field.
         rd: u8,
     },
+    /// The `lwc2` instruction.
     Lwc2 {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: u8,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `swc2` instruction.
     Swc2 {
+        /// Encoded `rt` general-purpose or coprocessor-register field.
         rt: u8,
+        /// Base general-purpose register for the memory address.
         base: Register,
+        /// Signed byte displacement from the base register.
         offset: i16,
     },
+    /// The `GTE command` instruction.
     Gte(GteCommand),
 }
 
 impl Instruction {
+    /// Returns the semantic instruction form.
     pub const fn form(&self) -> InstructionForm {
         match self {
             Self::Add { .. } => InstructionForm::Add,
@@ -616,6 +919,7 @@ impl Instruction {
         }
     }
 
+    /// Constructs the canonical all-zero `sll $zero, $zero, 0` no-op.
     pub const fn nop() -> Self {
         Self::Sll {
             rd: Register::ZERO,
@@ -624,6 +928,7 @@ impl Instruction {
         }
     }
 
+    /// Classifies control flow and resolves explicit absolute targets.
     pub fn control_flow(&self) -> ControlFlow {
         match self {
             Self::J { target } => ControlFlow::Jump { target: *target },
@@ -647,11 +952,12 @@ impl Instruction {
         }
     }
 
+    /// Returns whether the instruction requires one following delay-slot instruction.
     pub fn has_delay_slot(&self) -> bool {
         !matches!(self.control_flow(), ControlFlow::FallThrough)
     }
 
-    /// Return the general-purpose register written by this instruction, when
+    /// Returns the general-purpose register written by this instruction, when
     /// the instruction has at most one explicit GPR destination.
     ///
     /// Link instructions report `$ra` (or the explicit `JALR` destination).
@@ -703,15 +1009,36 @@ impl Instruction {
     }
 }
 
+/// Static control-flow classification of one instruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlFlow {
+    /// Execution continues with the next instruction.
     FallThrough,
-    Branch { target: u32 },
-    ConditionalBranch { target: u32 },
-    Jump { target: u32 },
-    Call { target: u32 },
+    /// An unconditional PC-relative branch.
+    Branch {
+        /// Absolute branch target.
+        target: u32,
+    },
+    /// A conditional PC-relative branch.
+    ConditionalBranch {
+        /// Absolute branch target.
+        target: u32,
+    },
+    /// A direct jump within the current 256 MiB region.
+    Jump {
+        /// Absolute jump target.
+        target: u32,
+    },
+    /// A direct or conditional-link call.
+    Call {
+        /// Absolute call target.
+        target: u32,
+    },
+    /// A register-indirect jump through `$ra`.
     Return,
+    /// A register-indirect jump through another register.
     IndirectJump,
+    /// A register-indirect jump that writes a link register.
     IndirectCall,
 }
 

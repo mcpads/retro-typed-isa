@@ -5,64 +5,81 @@ use thiserror::Error;
 use crate::codec::{EncodeError, VerifyError, encode_word, verify_placed_program};
 use crate::instruction::{Instruction, Register};
 
+/// Label-resolving assembler for typed PlayStation R3000A instructions.
+///
+/// Assembly validates branch reach, jump regions, delay slots, and semantic
+/// decode/encode round trips after final placement.
 #[derive(Debug, Clone, Default)]
 pub struct Assembler {
     nodes: Vec<Node>,
 }
 
 impl Assembler {
+    /// Creates an empty assembler program.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Declares `name` at the current instruction address.
     pub fn label(&mut self, name: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Label(name.into()));
         self
     }
 
+    /// Appends one semantic instruction.
     pub fn emit(&mut self, instruction: Instruction) -> &mut Self {
         self.nodes.push(Node::Instruction(instruction));
         self
     }
 
+    /// Appends all semantic instructions from `instructions`.
     pub fn emit_all(&mut self, instructions: impl IntoIterator<Item = Instruction>) -> &mut Self {
         self.nodes
             .extend(instructions.into_iter().map(Node::Instruction));
         self
     }
 
+    /// Appends `beq rs, rt, label`.
     pub fn beq(&mut self, rs: Register, rt: Register, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Beq { rs, rt }, label)
     }
 
+    /// Appends `bne rs, rt, label`.
     pub fn bne(&mut self, rs: Register, rt: Register, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bne { rs, rt }, label)
     }
 
+    /// Appends `blez rs, label`.
     pub fn blez(&mut self, rs: Register, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Blez { rs }, label)
     }
 
+    /// Appends `bgtz rs, label`.
     pub fn bgtz(&mut self, rs: Register, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bgtz { rs }, label)
     }
 
+    /// Appends `bltz rs, label`.
     pub fn bltz(&mut self, rs: Register, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bltz { rs }, label)
     }
 
+    /// Appends `bgez rs, label`.
     pub fn bgez(&mut self, rs: Register, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bgez { rs }, label)
     }
 
+    /// Appends `bltzal rs, label`.
     pub fn bltzal(&mut self, rs: Register, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bltzal { rs }, label)
     }
 
+    /// Appends `bgezal rs, label`.
     pub fn bgezal(&mut self, rs: Register, label: impl Into<String>) -> &mut Self {
         self.branch(LabelBranch::Bgezal { rs }, label)
     }
 
+    /// Appends an unconditional direct jump to `label`.
     pub fn jump(&mut self, label: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Jump {
             link: false,
@@ -71,6 +88,7 @@ impl Assembler {
         self
     }
 
+    /// Appends a direct jump-and-link call to `label`.
     pub fn call(&mut self, label: impl Into<String>) -> &mut Self {
         self.nodes.push(Node::Jump {
             link: true,
@@ -87,6 +105,9 @@ impl Assembler {
         self
     }
 
+    /// Resolves labels and encodes the complete program at `origin`.
+    ///
+    /// Every control-flow instruction must have a non-control-flow delay slot.
     pub fn assemble(&self, origin: u32) -> Result<AssembledProgram, AssemblerError> {
         if origin & 3 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });
@@ -244,6 +265,7 @@ impl LabelBranch {
     }
 }
 
+/// Immutable placed program with semantic instructions and encoded forms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     origin: u32,
@@ -253,22 +275,27 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
+    /// Returns the requested program origin.
     pub fn origin(&self) -> u32 {
         self.origin
     }
 
+    /// Returns the little-endian encoded bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Consumes the program and returns its bytes.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Returns encoded instruction words in placement order.
     pub fn words(&self) -> &[u32] {
         &self.words
     }
 
+    /// Returns semantic instructions in placement order.
     pub fn instructions(&self) -> &[Instruction] {
         &self.instructions
     }
@@ -291,40 +318,69 @@ pub fn load_address(register: Register, address: u32) -> [Instruction; 2] {
     ]
 }
 
+/// Failure to resolve, place, encode, or verify an assembler program.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum AssemblerError {
+    /// The requested origin is not four-byte aligned.
     #[error("assembly origin {origin:#010x} is not word-aligned")]
-    UnalignedOrigin { origin: u32 },
+    UnalignedOrigin {
+        /// Rejected origin address.
+        origin: u32,
+    },
+    /// A label name is declared more than once.
     #[error("duplicate label `{label}`")]
-    DuplicateLabel { label: String },
+    DuplicateLabel {
+        /// Duplicated label name.
+        label: String,
+    },
+    /// A control-flow node refers to an undeclared label.
     #[error("undefined label `{label}`")]
-    UndefinedLabel { label: String },
+    UndefinedLabel {
+        /// Missing label name.
+        label: String,
+    },
+    /// The origin plus an instruction offset overflows 32 bits.
     #[error(
         "assembly address overflows for origin {origin:#010x}, instruction {instruction_index}"
     )]
     AddressOverflow {
+        /// Program origin involved in the overflow.
         origin: u32,
+        /// Zero-based instruction index involved in the overflow.
         instruction_index: usize,
     },
+    /// A control-flow instruction is the last instruction in the program.
     #[error("control-flow instruction at {address:#010x} has no delay slot")]
-    MissingDelaySlot { address: u32 },
+    MissingDelaySlot {
+        /// Address of the control-flow instruction.
+        address: u32,
+    },
+    /// A delay slot contains another control-flow instruction.
     #[error(
         "control-flow instruction at {branch_address:#010x} has another control-flow instruction in delay slot {slot_address:#010x}"
     )]
     ControlFlowInDelaySlot {
+        /// Address of the first control-flow instruction.
         branch_address: u32,
+        /// Address of the invalid delay-slot instruction.
         slot_address: u32,
     },
+    /// An instruction failed final placement or encoding.
     #[error("instruction encoding failed: {0}")]
     Encode(EncodeError),
+    /// Post-placement decoding or byte round-trip verification failed.
     #[error("post-placement verification failed: {0}")]
     Verify(VerifyError),
+    /// Decoded semantics differ from the instructions supplied to the assembler.
     #[error(
         "semantic roundtrip mismatch at {address:#010x}: expected {expected:?}, actual {actual:?}"
     )]
     SemanticRoundTripMismatch {
+        /// Address of the mismatched instruction.
         address: u32,
+        /// Instruction supplied to the assembler.
         expected: Instruction,
+        /// Instruction decoded from the assembled word.
         actual: Instruction,
     },
 }
