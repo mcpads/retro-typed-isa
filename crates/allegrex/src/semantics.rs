@@ -6,23 +6,79 @@ use typed_isa_core::{
 };
 
 use crate::{
-    AccumulateOperation, Allegrex, BitFieldOperation, EncodeError, FloatingControlRegister,
-    FloatingRegister, GeneralRegister, Instruction, MatrixRegister, MemoryOperation,
-    SpecialRegister, SystemControlRegister, VectorRegister, VectorSize, VfpuConditionBit,
-    VfpuControlRegister, VfpuInstruction, VfpuOperands, VfpuOperation,
+    AccumulateOperation, Allegrex, BitFieldOperation, DestinationPrefixLane, DestinationSaturation,
+    EncodeError, FloatingControlRegister, FloatingRegister, GeneralRegister, Instruction,
+    MatrixRegister, MemoryOperation, SourcePrefixLane, SourcePrefixValue, SpecialRegister,
+    SystemControlRegister, VectorComponent, VectorRegister, VectorSize, VfpuConditionBit,
+    VfpuControlRegister, VfpuInstruction, VfpuOperands, VfpuOperation, VfpuPrefixUse,
 };
+
+/// Known or conservatively unresolved state of one VFPU source prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SourcePrefixState {
+    /// No pending source transformation; components use identity selection.
+    Inactive,
+    /// The pending per-lane source transformation.
+    Known([SourcePrefixLane; 4]),
+    /// A control-register write made the pending transformation unavailable.
+    Unknown,
+}
+
+/// Known or conservatively unresolved state of the VFPU destination prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DestinationPrefixState {
+    /// No pending destination saturation or write mask.
+    Inactive,
+    /// The pending per-lane destination transformation.
+    Known([DestinationPrefixLane; 4]),
+    /// A control-register write made the pending transformation unavailable.
+    Unknown,
+}
+
+/// VFPU prefix context required to identify source and destination lane effects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VfpuPrefixState {
+    /// Prefix applied to the first vector source.
+    pub source: SourcePrefixState,
+    /// Prefix applied to the second vector source.
+    pub target: SourcePrefixState,
+    /// Prefix applied to vector destinations.
+    pub destination: DestinationPrefixState,
+}
+
+impl VfpuPrefixState {
+    /// Constructs the known state with no pending prefixes.
+    pub const fn inactive() -> Self {
+        Self {
+            source: SourcePrefixState::Inactive,
+            target: SourcePrefixState::Inactive,
+            destination: DestinationPrefixState::Inactive,
+        }
+    }
+
+    /// Constructs a conservative state when all pending prefixes are unavailable.
+    pub const fn unknown() -> Self {
+        Self {
+            source: SourcePrefixState::Unknown,
+            target: SourcePrefixState::Unknown,
+            destination: DestinationPrefixState::Unknown,
+        }
+    }
+}
 
 /// Placed Allegrex instruction used by static analysis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AnalysisPoint {
     /// 32-bit virtual instruction address.
     pub location: crate::CodeLocation,
+    /// Pending VFPU prefixes needed for sound vector-lane effects.
+    pub prefixes: VfpuPrefixState,
 }
 
 impl AnalysisPoint {
     /// Constructs a placed Allegrex instruction.
-    pub const fn new(location: crate::CodeLocation) -> Self {
-        Self { location }
+    pub const fn new(location: crate::CodeLocation, prefixes: VfpuPrefixState) -> Self {
+        Self { location, prefixes }
     }
 }
 
@@ -121,6 +177,15 @@ pub enum Location {
         /// Lane count of the view.
         size: VectorSize,
     },
+    /// One component within a typed VFPU vector view.
+    VfpuVectorLane {
+        /// Encoded vector view.
+        register: VectorRegister,
+        /// Lane count that determines the encoded view.
+        size: VectorSize,
+        /// Selected component within that view.
+        component: VectorComponent,
+    },
     /// One typed VFPU matrix view.
     VfpuMatrix {
         /// Encoded matrix view.
@@ -158,6 +223,16 @@ pub enum SemanticError {
     /// The typed instruction is not encodable by the exact profile.
     #[error(transparent)]
     Encode(#[from] EncodeError),
+    /// A pending VFPU prefix violates the source manual's rule for this form.
+    #[error("{control:?} prefix state is not valid for {operation:?} with vector size {size:?}")]
+    ProhibitedPrefix {
+        /// Instruction operation whose prefix use is undefined.
+        operation: VfpuOperation,
+        /// Instruction vector size, when the form has one.
+        size: Option<VectorSize>,
+        /// Prefix stack whose pending contents violate the form rule.
+        control: VfpuControlRegister,
+    },
 }
 
 /// Shared control-flow result specialized with Allegrex vocabulary.
@@ -177,16 +252,179 @@ pub(crate) fn semantics(
     at: AnalysisPoint,
 ) -> Result<InstructionSemantics, SemanticError> {
     crate::encode_word(instruction, at.location)?;
-    let next = AnalysisPoint::new(at.location.wrapping_add(4));
-    let after_slot = AnalysisPoint::new(at.location.wrapping_add(8));
+    if let Instruction::Vfpu(instruction) = instruction {
+        validate_prefixes(instruction, at.prefixes)?;
+    }
+    let next = successor(instruction, at, at.location.wrapping_add(4));
+    // A control transfer cannot state the prefix effects of its as-yet
+    // unanalyzed delay-slot instruction. Sequence analysis may refine this
+    // context after composing the delay-slot semantics.
+    let after_slot = AnalysisPoint::new(at.location.wrapping_add(8), VfpuPrefixState::unknown());
     let mut accesses = Vec::new();
     let mut references = Vec::new();
-    instruction_accesses(instruction, &mut accesses, &mut references);
+    instruction_accesses(instruction, at, &mut accesses, &mut references);
     Ok(InstructionSemantics {
         control_flow: control_flow(instruction, next, after_slot),
         location_accesses: accesses,
         static_references: references,
     })
+}
+
+fn successor(
+    instruction: &Instruction,
+    mut at: AnalysisPoint,
+    location: crate::CodeLocation,
+) -> AnalysisPoint {
+    at.location = location;
+    let Instruction::Vfpu(instruction) = instruction else {
+        return at;
+    };
+
+    if consumes_prefixes(instruction) {
+        at.prefixes = VfpuPrefixState::inactive();
+    }
+
+    match instruction.operands() {
+        VfpuOperands::SourcePrefix { lanes } => {
+            if instruction.form().operation() == VfpuOperation::SourcePrefix {
+                at.prefixes.source = SourcePrefixState::Known(*lanes);
+            } else {
+                at.prefixes.target = SourcePrefixState::Known(*lanes);
+            }
+        }
+        VfpuOperands::DestinationPrefix { lanes } => {
+            at.prefixes.destination = DestinationPrefixState::Known(*lanes);
+        }
+        VfpuOperands::GeneralAndControl { control, .. }
+            if instruction.form().operation() == VfpuOperation::MoveToControl =>
+        {
+            set_unknown_prefix(&mut at.prefixes, *control);
+        }
+        VfpuOperands::ControlAndVector { control, .. }
+            if instruction.form().operation() == VfpuOperation::MoveToVfpuControl =>
+        {
+            set_unknown_prefix(&mut at.prefixes, *control);
+        }
+        _ => {}
+    }
+    at
+}
+
+fn set_unknown_prefix(prefixes: &mut VfpuPrefixState, control: VfpuControlRegister) {
+    match control {
+        VfpuControlRegister::SourcePrefix => prefixes.source = SourcePrefixState::Unknown,
+        VfpuControlRegister::TargetPrefix => prefixes.target = SourcePrefixState::Unknown,
+        VfpuControlRegister::DestinationPrefix => {
+            prefixes.destination = DestinationPrefixState::Unknown;
+        }
+        _ => {}
+    }
+}
+
+fn consumes_prefixes(instruction: &VfpuInstruction) -> bool {
+    matches!(
+        instruction.operands(),
+        VfpuOperands::ThreeVectors { .. }
+            | VfpuOperands::TwoVectors { .. }
+            | VfpuOperands::ConditionalMove { .. }
+            | VfpuOperands::Compare { .. }
+            | VfpuOperands::Constant { .. }
+            | VfpuOperands::ImmediateAndTwoVectors { .. }
+            | VfpuOperands::VectorImmediate16 { .. }
+            | VfpuOperands::DestinationVector { .. }
+            | VfpuOperands::ThreeMatrices { .. }
+            | VfpuOperands::TwoMatrices { .. }
+            | VfpuOperands::DestinationMatrix { .. }
+            | VfpuOperands::MatrixScale { .. }
+            | VfpuOperands::MatrixVectorTransform { .. }
+            | VfpuOperands::Immediate8AndTwoVectors { .. }
+    )
+}
+
+fn validate_prefixes(
+    instruction: &VfpuInstruction,
+    prefixes: VfpuPrefixState,
+) -> Result<(), SemanticError> {
+    let form = instruction.form();
+    let rules = form.prefix_rules();
+    validate_source_prefix(
+        form,
+        VfpuControlRegister::SourcePrefix,
+        prefixes.source,
+        rules.source,
+    )?;
+    validate_source_prefix(
+        form,
+        VfpuControlRegister::TargetPrefix,
+        prefixes.target,
+        rules.target,
+    )?;
+    validate_destination_prefix(form, prefixes.destination, rules.destination)
+}
+
+fn validate_source_prefix(
+    form: crate::VfpuForm,
+    control: VfpuControlRegister,
+    state: SourcePrefixState,
+    rule: VfpuPrefixUse,
+) -> Result<(), SemanticError> {
+    let valid = match (state, rule) {
+        (SourcePrefixState::Inactive, _) => true,
+        (_, VfpuPrefixUse::Prohibited) => false,
+        (SourcePrefixState::Unknown, VfpuPrefixUse::OnlySwizzle) => false,
+        (SourcePrefixState::Known(lanes), VfpuPrefixUse::OnlySwizzle) => lanes.iter().all(|lane| {
+            !lane.negate
+                && matches!(
+                    lane.value,
+                    SourcePrefixValue::Component {
+                        absolute: false,
+                        ..
+                    }
+                )
+        }),
+        _ => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(prohibited_prefix(form, control))
+    }
+}
+
+fn validate_destination_prefix(
+    form: crate::VfpuForm,
+    state: DestinationPrefixState,
+    rule: VfpuPrefixUse,
+) -> Result<(), SemanticError> {
+    let valid = match (state, rule) {
+        (DestinationPrefixState::Inactive, _) => true,
+        (_, VfpuPrefixUse::Prohibited) => false,
+        (DestinationPrefixState::Unknown, VfpuPrefixUse::OnlyWriteMask) => false,
+        (DestinationPrefixState::Known(lanes), VfpuPrefixUse::OnlyWriteMask) => lanes
+            .iter()
+            .all(|lane| lane.saturation == DestinationSaturation::None),
+        _ => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(prohibited_prefix(
+            form,
+            VfpuControlRegister::DestinationPrefix,
+        ))
+    }
+}
+
+fn prohibited_prefix(form: crate::VfpuForm, control: VfpuControlRegister) -> SemanticError {
+    SemanticError::ProhibitedPrefix {
+        operation: form.operation(),
+        size: form.size(),
+        control,
+    }
+}
+
+fn with_location(point: AnalysisPoint, location: crate::CodeLocation) -> AnalysisPoint {
+    AnalysisPoint { location, ..point }
 }
 
 fn control_flow(
@@ -212,7 +450,7 @@ fn control_flow(
             ..
         } => ControlFlow {
             action: ControlAction::LinkedTransfer {
-                target: ControlTarget::Direct(AnalysisPoint::new(*target)),
+                target: ControlTarget::Direct(with_location(after_slot, *target)),
                 return_site: after_slot,
             },
             fallthrough: Some(after_slot),
@@ -221,12 +459,12 @@ fn control_flow(
         Instruction::Jump { link, target } => ControlFlow {
             action: if *link {
                 ControlAction::LinkedTransfer {
-                    target: ControlTarget::Direct(AnalysisPoint::new(*target)),
+                    target: ControlTarget::Direct(with_location(after_slot, *target)),
                     return_site: after_slot,
                 }
             } else {
                 ControlAction::Transfer {
-                    target: ControlTarget::Direct(AnalysisPoint::new(*target)),
+                    target: ControlTarget::Direct(with_location(after_slot, *target)),
                 }
             },
             fallthrough: None,
@@ -299,7 +537,7 @@ fn branch_flow(
 ) -> ControlFlow {
     ControlFlow {
         action: ControlAction::Transfer {
-            target: ControlTarget::Direct(AnalysisPoint::new(target)),
+            target: ControlTarget::Direct(with_location(after_slot, target)),
         },
         fallthrough: Some(after_slot),
         delay_slot: Some(delay_slot(next, likely)),
@@ -322,6 +560,7 @@ fn trap_flow(kind: Boundary) -> ControlFlow {
 
 fn instruction_accesses(
     instruction: &Instruction,
+    at: AnalysisPoint,
     accesses: &mut Vec<LocationAccess<Location>>,
     references: &mut Vec<StaticReference<Reference>>,
 ) {
@@ -697,7 +936,7 @@ fn instruction_accesses(
                 AccessOccurrence::Conditional,
             );
         }
-        Vfpu(vfpu) => vfpu_accesses(vfpu, accesses, references),
+        Vfpu(vfpu) => vfpu_accesses(vfpu, at.prefixes, accesses, references),
     }
 }
 
@@ -833,11 +1072,16 @@ fn scalar_floating_memory(
 
 fn vfpu_accesses(
     instruction: &VfpuInstruction,
+    prefixes: VfpuPrefixState,
     accesses: &mut Vec<LocationAccess<Location>>,
     references: &mut Vec<StaticReference<Reference>>,
 ) {
     let operation = instruction.form().operation();
     let size = instruction.form().size().unwrap_or(VectorSize::Single);
+    let rules = instruction.form().prefix_rules();
+    let source_prefix = effective_source_prefix(prefixes.source, rules.source);
+    let target_prefix = effective_source_prefix(prefixes.target, rules.target);
+    let destination_prefix = effective_destination_prefix(prefixes.destination, rules.destination);
     match instruction.operands() {
         VfpuOperands::None => {
             if matches!(
@@ -949,15 +1193,25 @@ fn vfpu_accesses(
             left,
             right,
         } => {
-            read(accesses, vfpu_vector(*left, size), AccessOccurrence::Always);
-            read(
+            read_prefixed_vector(
                 accesses,
-                vfpu_vector(*right, size),
+                *left,
+                size,
+                source_prefix,
                 AccessOccurrence::Always,
             );
-            write(
+            read_prefixed_vector(
                 accesses,
-                vfpu_vector(*destination, size),
+                *right,
+                size,
+                target_prefix,
+                AccessOccurrence::Always,
+            );
+            write_prefixed_vector(
+                accesses,
+                *destination,
+                size,
+                destination_prefix,
                 AccessOccurrence::Always,
             );
             prefix_state(accesses);
@@ -976,14 +1230,18 @@ fn vfpu_accesses(
             source,
             ..
         } => {
-            read(
+            read_prefixed_vector(
                 accesses,
-                vfpu_vector(*source, size),
+                *source,
+                size,
+                source_prefix,
                 AccessOccurrence::Always,
             );
-            write(
+            write_prefixed_vector(
                 accesses,
-                vfpu_vector(*destination, size),
+                *destination,
+                size,
+                destination_prefix,
                 AccessOccurrence::Always,
             );
             prefix_state(accesses);
@@ -993,9 +1251,11 @@ fn vfpu_accesses(
             source,
             condition,
         } => {
-            read(
+            read_prefixed_vector(
                 accesses,
-                vfpu_vector(*source, size),
+                *source,
+                size,
+                source_prefix,
                 AccessOccurrence::Always,
             );
             read(
@@ -1003,18 +1263,28 @@ fn vfpu_accesses(
                 vfpu_condition(*condition),
                 AccessOccurrence::Always,
             );
-            write(
+            write_prefixed_vector(
                 accesses,
-                vfpu_vector(*destination, size),
+                *destination,
+                size,
+                destination_prefix,
                 AccessOccurrence::Conditional,
             );
             prefix_state(accesses);
         }
         VfpuOperands::Compare { left, right, .. } => {
-            read(accesses, vfpu_vector(*left, size), AccessOccurrence::Always);
-            read(
+            read_prefixed_vector(
                 accesses,
-                vfpu_vector(*right, size),
+                *left,
+                size,
+                source_prefix,
+                AccessOccurrence::Always,
+            );
+            read_prefixed_vector(
+                accesses,
+                *right,
+                size,
+                target_prefix,
                 AccessOccurrence::Always,
             );
             write(
@@ -1027,9 +1297,11 @@ fn vfpu_accesses(
         VfpuOperands::Constant { destination, .. }
         | VfpuOperands::VectorImmediate16 { destination, .. }
         | VfpuOperands::DestinationVector { destination } => {
-            write(
+            write_prefixed_vector(
                 accesses,
-                vfpu_vector(*destination, size),
+                *destination,
+                size,
+                destination_prefix,
                 AccessOccurrence::Always,
             );
             prefix_state(accesses);
@@ -1184,6 +1456,132 @@ fn vfpu_vector(register: VectorRegister, size: VectorSize) -> Location {
     Location::VfpuVector { register, size }
 }
 
+fn vfpu_vector_lane(
+    register: VectorRegister,
+    size: VectorSize,
+    component: VectorComponent,
+) -> Location {
+    Location::VfpuVectorLane {
+        register,
+        size,
+        component,
+    }
+}
+
+fn active_components(size: VectorSize) -> &'static [VectorComponent] {
+    const COMPONENTS: [VectorComponent; 4] = [
+        VectorComponent::X,
+        VectorComponent::Y,
+        VectorComponent::Z,
+        VectorComponent::W,
+    ];
+    &COMPONENTS[..match size {
+        VectorSize::Single => 1,
+        VectorSize::Pair => 2,
+        VectorSize::Triple => 3,
+        VectorSize::Quad => 4,
+    }]
+}
+
+fn effective_source_prefix(state: SourcePrefixState, rule: VfpuPrefixUse) -> SourcePrefixState {
+    if matches!(rule, VfpuPrefixUse::Valid | VfpuPrefixUse::OnlySwizzle) {
+        state
+    } else {
+        SourcePrefixState::Inactive
+    }
+}
+
+fn effective_destination_prefix(
+    state: DestinationPrefixState,
+    rule: VfpuPrefixUse,
+) -> DestinationPrefixState {
+    if matches!(rule, VfpuPrefixUse::Valid | VfpuPrefixUse::OnlyWriteMask) {
+        state
+    } else {
+        DestinationPrefixState::Inactive
+    }
+}
+
+fn read_prefixed_vector(
+    accesses: &mut Vec<LocationAccess<Location>>,
+    register: VectorRegister,
+    size: VectorSize,
+    prefix: SourcePrefixState,
+    occurrence: AccessOccurrence,
+) {
+    match prefix {
+        SourcePrefixState::Inactive => {
+            for component in active_components(size) {
+                read(
+                    accesses,
+                    vfpu_vector_lane(register, size, *component),
+                    occurrence,
+                );
+            }
+        }
+        SourcePrefixState::Known(lanes) => {
+            for lane in lanes.iter().take(active_components(size).len()) {
+                if let SourcePrefixValue::Component { component, .. } = lane.value {
+                    read(
+                        accesses,
+                        vfpu_vector_lane(register, size, component),
+                        occurrence,
+                    );
+                }
+            }
+        }
+        SourcePrefixState::Unknown => {
+            for component in active_components(VectorSize::Quad) {
+                read(
+                    accesses,
+                    vfpu_vector_lane(register, size, *component),
+                    AccessOccurrence::Conditional,
+                );
+            }
+        }
+    }
+}
+
+fn write_prefixed_vector(
+    accesses: &mut Vec<LocationAccess<Location>>,
+    register: VectorRegister,
+    size: VectorSize,
+    prefix: DestinationPrefixState,
+    occurrence: AccessOccurrence,
+) {
+    match prefix {
+        DestinationPrefixState::Inactive => {
+            for component in active_components(size) {
+                write(
+                    accesses,
+                    vfpu_vector_lane(register, size, *component),
+                    occurrence,
+                );
+            }
+        }
+        DestinationPrefixState::Known(lanes) => {
+            for (component, lane) in active_components(size).iter().zip(lanes) {
+                if !lane.mask {
+                    write(
+                        accesses,
+                        vfpu_vector_lane(register, size, *component),
+                        occurrence,
+                    );
+                }
+            }
+        }
+        DestinationPrefixState::Unknown => {
+            for component in active_components(size) {
+                write(
+                    accesses,
+                    vfpu_vector_lane(register, size, *component),
+                    AccessOccurrence::Conditional,
+                );
+            }
+        }
+    }
+}
+
 fn vfpu_matrix(register: MatrixRegister, size: VectorSize) -> Location {
     Location::VfpuMatrix { register, size }
 }
@@ -1199,6 +1597,11 @@ fn prefix_state(accesses: &mut Vec<LocationAccess<Location>>) {
         VfpuControlRegister::DestinationPrefix,
     ] {
         read(
+            accesses,
+            Location::VfpuControl(control),
+            AccessOccurrence::Always,
+        );
+        write(
             accesses,
             Location::VfpuControl(control),
             AccessOccurrence::Always,
@@ -1406,8 +1809,13 @@ pub(crate) fn storage_relation(left: &Location, right: &Location) -> StorageRela
             Overlapping
         }
         (Location::VfpuVector { .. }, Location::VfpuVector { .. })
+        | (Location::VfpuVector { .. }, Location::VfpuVectorLane { .. })
+        | (Location::VfpuVectorLane { .. }, Location::VfpuVector { .. })
+        | (Location::VfpuVectorLane { .. }, Location::VfpuVectorLane { .. })
         | (Location::VfpuVector { .. }, Location::VfpuMatrix { .. })
         | (Location::VfpuMatrix { .. }, Location::VfpuVector { .. })
+        | (Location::VfpuVectorLane { .. }, Location::VfpuMatrix { .. })
+        | (Location::VfpuMatrix { .. }, Location::VfpuVectorLane { .. })
         | (Location::VfpuMatrix { .. }, Location::VfpuMatrix { .. }) => Unknown,
         (Location::Memory(left), Location::Memory(right)) => {
             if left.address == right.address {

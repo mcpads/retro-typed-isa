@@ -32,9 +32,9 @@ pub use codec::{
 pub use expected_write::ExpectedWriteVerifier;
 pub use instruction::*;
 pub use semantics::{
-    AnalysisPoint, Boundary, ControlFlow, FpuState, ImplicitState, IndirectTarget,
-    InstructionSemantics, Location, MemoryAddress, MemoryLocation, MemoryWidth, Reference,
-    SemanticError,
+    AnalysisPoint, Boundary, ControlFlow, DestinationPrefixState, FpuState, ImplicitState,
+    IndirectTarget, InstructionSemantics, Location, MemoryAddress, MemoryLocation, MemoryWidth,
+    Reference, SemanticError, SourcePrefixState, VfpuPrefixState,
 };
 pub use typed_isa_core::InstructionSpan;
 pub use vfpu::*;

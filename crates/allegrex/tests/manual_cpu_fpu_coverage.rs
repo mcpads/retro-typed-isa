@@ -222,8 +222,11 @@ fn assert_manual_words(words: &[(&str, u32)]) {
             word,
             "{mnemonic}"
         );
-        Allegrex::semantics(&instruction, &AnalysisPoint::new(ADDRESS))
-            .unwrap_or_else(|error| panic!("{mnemonic} semantic failure: {error}"));
+        Allegrex::semantics(
+            &instruction,
+            &AnalysisPoint::new(ADDRESS, allegrex::VfpuPrefixState::inactive()),
+        )
+        .unwrap_or_else(|error| panic!("{mnemonic} semantic failure: {error}"));
     }
 }
 

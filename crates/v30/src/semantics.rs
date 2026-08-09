@@ -336,7 +336,7 @@ fn control_flow(instruction: &Instruction, at: AnalysisPoint, next: AnalysisPoin
         | Instruction::Repc(_)
         | Instruction::Repnc(_) => ControlFlow {
             action: ControlAction::Transfer {
-                target: ControlTarget::Direct(at),
+                target: ControlTarget::Direct(direct(next, at.location)),
             },
             fallthrough: Some(next),
             delay_slot: None,
@@ -348,7 +348,7 @@ fn control_flow(instruction: &Instruction, at: AnalysisPoint, next: AnalysisPoin
         Instruction::Jcc { target, .. } | Instruction::Loop { target, .. } => ControlFlow {
             action: ControlAction::Transfer {
                 target: ControlTarget::Direct(direct(
-                    at,
+                    next,
                     relative_target(next.location, i32::from(*target)),
                 )),
             },
@@ -357,14 +357,14 @@ fn control_flow(instruction: &Instruction, at: AnalysisPoint, next: AnalysisPoin
         },
         Instruction::Jmp { target } => ControlFlow {
             action: ControlAction::Transfer {
-                target: jump_target(target, at, next.location),
+                target: jump_target(target, next),
             },
             fallthrough: None,
             delay_slot: None,
         },
         Instruction::Call { target } => ControlFlow {
             action: ControlAction::LinkedTransfer {
-                target: call_target(target, at, next.location),
+                target: call_target(target, next),
                 return_site: next,
             },
             fallthrough: None,
@@ -436,18 +436,19 @@ fn control_flow(instruction: &Instruction, at: AnalysisPoint, next: AnalysisPoin
 
 fn jump_target(
     target: &JmpTarget,
-    at: AnalysisPoint,
-    next: CodeLocation,
+    next: AnalysisPoint,
 ) -> ControlTarget<AnalysisPoint, IndirectTarget> {
     match target {
-        JmpTarget::Rel8(displacement) => {
-            ControlTarget::Direct(direct(at, relative_target(next, i32::from(*displacement))))
-        }
-        JmpTarget::Rel16(displacement) => {
-            ControlTarget::Direct(direct(at, relative_target(next, i32::from(*displacement))))
-        }
+        JmpTarget::Rel8(displacement) => ControlTarget::Direct(direct(
+            next,
+            relative_target(next.location, i32::from(*displacement)),
+        )),
+        JmpTarget::Rel16(displacement) => ControlTarget::Direct(direct(
+            next,
+            relative_target(next.location, i32::from(*displacement)),
+        )),
         JmpTarget::Far { seg, off } => ControlTarget::Direct(direct(
-            at,
+            next,
             CodeLocation {
                 seg: *seg,
                 off: *off,
@@ -462,15 +463,15 @@ fn jump_target(
 
 fn call_target(
     target: &CallTarget,
-    at: AnalysisPoint,
-    next: CodeLocation,
+    next: AnalysisPoint,
 ) -> ControlTarget<AnalysisPoint, IndirectTarget> {
     match target {
-        CallTarget::Rel16(displacement) => {
-            ControlTarget::Direct(direct(at, relative_target(next, i32::from(*displacement))))
-        }
+        CallTarget::Rel16(displacement) => ControlTarget::Direct(direct(
+            next,
+            relative_target(next.location, i32::from(*displacement)),
+        )),
         CallTarget::Far { seg, off } => ControlTarget::Direct(direct(
-            at,
+            next,
             CodeLocation {
                 seg: *seg,
                 off: *off,

@@ -4,7 +4,8 @@ use sh4::{
     SemanticError, Sh4Pr0Sz0, VectorRegister,
 };
 use typed_isa_core::{
-    AccessKind, AccessOccurrence, LocationAccess, StaticSemantics, StorageRelation,
+    AccessKind, AccessOccurrence, ControlAction, ControlTarget, LocationAccess, StaticSemantics,
+    StorageRelation,
 };
 
 // Normative source: STMicroelectronics and Hitachi, SH-4 32-bit CPU Core
@@ -12,7 +13,7 @@ use typed_isa_core::{
 // effects in the individual instruction descriptions; they are independent of
 // the production decoder and semantic dispatch table.
 //
-// https://www.st.com/resource/en/user_manual/um0341-sh4-32bit-cpu-core-architecture---stmicroelectronics.pdf
+// https://www.st.com/resource/en/user_manual/cd00147165-sh-4-32-bit-cpu-core-architecture-stmicroelectronics.pdf
 
 fn point(general_bank: GeneralRegisterBank, float_bank: FloatBank) -> AnalysisPoint {
     AnalysisPoint::for_profile::<Sh4Pr0Sz0>(0x1000, general_bank, float_bank)
@@ -105,6 +106,41 @@ fn fpscr_control_writes_update_or_invalidate_successor_decode_state() {
         Sh4Pr0Sz0::semantics(&Instruction::Nop, &unknown),
         Err(SemanticError::UnavailableDecodeState),
     );
+}
+
+#[test]
+fn delayed_transfer_defers_post_slot_float_context_until_slot_composition() {
+    let initial = point(GeneralRegisterBank::Primary, FloatBank::Primary);
+    let semantics = Sh4Pr0Sz0::semantics(&Instruction::Bra { disp: 2 }, &initial).unwrap();
+    let slot = semantics.control_flow.delay_slot.unwrap().point;
+    assert_eq!(slot.general_bank, GeneralRegisterBank::Primary);
+    assert_eq!(slot.float_bank, FloatBank::Primary);
+    assert_eq!(slot.fpscr, initial.fpscr);
+
+    let target = match semantics.control_flow.action {
+        ControlAction::Transfer {
+            target: ControlTarget::Direct(target),
+        } => target,
+        action => panic!("expected a direct transfer, got {action:?}"),
+    };
+    assert_eq!(target.general_bank, GeneralRegisterBank::Primary);
+    assert_eq!(target.float_bank, FloatBank::Unknown);
+    assert_eq!(target.fpscr, None);
+}
+
+#[test]
+fn rte_delay_slot_uses_the_sr_context_restored_from_ssr() {
+    let initial = point(GeneralRegisterBank::Primary, FloatBank::Primary);
+    let slot = Sh4Pr0Sz0::semantics(&Instruction::Rte, &initial)
+        .unwrap()
+        .control_flow
+        .delay_slot
+        .unwrap()
+        .point;
+
+    assert_eq!(slot.general_bank, GeneralRegisterBank::Unknown);
+    assert_eq!(slot.float_bank, FloatBank::Primary);
+    assert_eq!(slot.fpscr, initial.fpscr);
 }
 
 #[test]

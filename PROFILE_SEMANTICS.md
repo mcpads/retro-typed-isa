@@ -31,8 +31,8 @@ The classification policy names below use the definitions in [Rejected encoding 
 | `z80` | Zilog-documented profile | none | variable and prefix-based | little-endian operands | Strict decode only |
 | `sh4` | four FPSCR.PR/SZ profiles | SR.MD/RB and FPSCR.FR bank state | 2 bytes | little-endian | Exact encoding per FPSCR profile |
 | `m68000` | Motorola MC68000 | active A7 stack bank | variable in 16-bit words | big-endian | Selector classification |
-| `v30` | native NEC V30 | none | variable and prefix-based | little-endian operands | Strict decode only |
-| `v30mz` | WonderSwan V30MZ subset | none | variable and prefix-based | little-endian operands | Strict decode only |
+| `v30` | native NEC V30 | interrupt-recognition state | variable and prefix-based | little-endian operands | Strict decode only |
+| `v30mz` | WonderSwan V30MZ subset | interrupt-recognition state | variable and prefix-based | little-endian operands | Strict decode only |
 | `sm83` | Sharp SM83 | none | variable with a CB map | little-endian operands | Exact encoding |
 | `v810` | NEC V810 | none | 2 or 4 bytes | little-endian halfwords | Selector classification |
 | `arm7tdmi` | little-endian ARM and Thumb profiles | current processor mode | 4 bytes in ARM; 2 or 4 in Thumb | little-endian | Exact encoding in ARM; selector classification in Thumb |
@@ -40,7 +40,7 @@ The classification policy names below use the definitions in [Rejected encoding 
 | `tlcs900h` | Toshiba TLCS-900/H | current register bank | variable and map-prefix-based | little-endian operands | Strict decode only |
 | `vr4300` | Status.FR=0 and Status.FR=1 CPU/FPU profiles | none | 4 bytes | big-endian | Exact encoding per FR profile |
 | `powerpc-gekko-750cl` | IBM Gekko and PowerPC 750CL | none | 4 bytes | big-endian | Exact encoding per processor profile |
-| `i386` | code-16 and code-32 profiles | x87 TOP state | variable and prefix-based | little-endian operands | Strict decode only |
+| `i386` | code-16 and code-32 profiles | interrupt-recognition state and SS address size | variable and prefix-based | little-endian operands | Strict decode only |
 | `allegrex` | PSP Allegrex CPU, FPU, and VFPU | VFPU prefix state | 4 bytes | little-endian | Exact encoding |
 | `r5900` | PS2 EE CPU, multimedia, COP0, COP1, and VU0 macro mode | none | 4 bytes | little-endian | Exact encoding |
 
@@ -108,7 +108,7 @@ The classification policy names below use the definitions in [Rejected encoding 
 
 ## SH-4
 
-**Profile boundary and state.** The four `Sh4Pr*Sz*` profiles make FPSCR.PR and FPSCR.SZ part of instruction identity. SR.MD/RB and FPSCR.FR are required semantic context because they select physical general and floating-register banks without changing instruction extent. A code location is an aligned 32-bit address. FSCHG and FRCHG produce known state transitions; a general SR, RTE, or FPSCR write makes the successor profile or bank context unavailable unless the written state is independently established.
+**Profile boundary and state.** The four `Sh4Pr*Sz*` profiles make FPSCR.PR and FPSCR.SZ part of instruction identity. SR.MD/RB and FPSCR.FR are required semantic context because they select physical general and floating-register banks without changing instruction extent. A code location is an aligned 32-bit address. FSCHG and FRCHG produce known state transitions; a general SR, RTE, or FPSCR write makes the successor profile or bank context unavailable unless the written state is independently established. An uncomposed delay slot preserves the known context at its entry but leaves post-slot FPSCR and floating-bank context unknown because permitted slot instructions can change them. An RTE slot starts with unknown general-register bank context because its instruction executes using the SR restored from SSR.
 
 **Locations and flow.** Locations cover physical general and banked registers, SR fields, GBR, VBR, SSR, SPC, SGR, DBR, MACH, MACL, PR, FPSCR fields, FPUL, scalar, double, extended, pair, and vector floating registers, plus symbolic memory. Physical R0-R7 bank selection and FR/XF overlap are resolved from explicit context or conservatively unioned when the context is unknown. Flow uses the same SuperH transfer and delay-slot concepts as SH-2 while retaining SH-4-specific trap, exception-return, wait, and state locations.
 
@@ -128,7 +128,7 @@ The classification policy names below use the definitions in [Rejected encoding 
 
 ## NEC V30
 
-**Profile boundary and state.** `V30` models native mode. A direct code location is a segmented address, not a flattened integer. Prefix order belongs to exact encoding identity, while semantic prefixes modify the meaning of the wrapped instruction.
+**Profile boundary and state.** `V30` models native mode. A direct code location is a segmented address, not a flattened integer. Prefix order belongs to exact encoding identity, while semantic prefixes modify the meaning of the wrapped instruction. Interrupt recognition after STI and SS loads is explicit successor context; every taken or repeated direct edge carries the post-instruction state rather than the input state.
 
 **Locations and flow.** Locations cover byte and word registers, segment registers, individual flags, symbolic segmented memory, ports, and documented external registers. Register aliases share physical storage. REP-family prefixes produce conditional repeated accesses without simulating iteration counts; segment overrides alter memory-address selection; bus lock does not create a second semantic table. Flow covers conditional branches and loops, near and far direct or indirect jumps and calls, dedicated returns, software-interrupt traps including conditional INTO, HLT as a wait, and BRKEM as an instruction-set exit.
 
@@ -138,7 +138,7 @@ The classification policy names below use the definitions in [Rejected encoding 
 
 ## NEC V30MZ
 
-**Profile boundary and state.** `V30Mz` uses the V30 native semantic vocabulary only for forms proven to exist on V30MZ. The `0F` extension space and REPC/REPNC prefixes remain outside the profile. Code locations stay segmented.
+**Profile boundary and state.** `V30Mz` uses the V30 native semantic vocabulary only for forms proven to exist on V30MZ. The `0F` extension space and REPC/REPNC prefixes remain outside the profile. Code locations stay segmented, and the shared analysis-point shape retains the same interrupt-recognition successor context.
 
 **Locations and flow.** Storage, flow, and reference shapes that are architecturally identical may reuse the first-party V-series types. Reuse does not import V30-only instructions or semantic entries. Every accepted wrapper instruction has the same effects as its source-proven V30MZ form.
 
@@ -218,23 +218,23 @@ The classification policy names below use the definitions in [Rejected encoding 
 
 ## Intel 80386
 
-**Profile boundary and state.** `I386Code16` and `I386Code32` make the code-segment D-bit default explicit. A direct code location retains code-segment identity and offset; it is not flattened without a descriptor-derived base supplied by a higher layer. Operand- and address-size overrides remain instruction facts. x87 TOP is semantic context because stack-register selectors are relative to it; an unknown TOP conservatively aliases the physical x87 stack.
+**Profile boundary and state.** `I386Code16` and `I386Code32` make the code-segment D-bit default explicit. A direct code location retains code-segment identity and offset; it is not flattened without a descriptor-derived base supplied by a higher layer. Operand- and address-size overrides remain instruction facts. The SS descriptor's address size selects physical stack-register and memory views. Interrupt recognition after STI and SS loads is explicit successor context, and every direct edge carries its post-instruction state.
 
-**Locations and flow.** Locations cover physical general-register storage and its byte/word/dword views, segment, control, debug, test, x87 stack and status locations, EFLAGS fields, symbolic segmented memory, ports, and implicit stack locations. Explicit memory operands retain their architectural `MemoryWidth` object class, while instruction-defined contiguous stack regions use a semantic `MemoryExtent::KnownBytes` rather than borrowing an unrelated operand class. Prefixes modify the wrapped instruction's accesses rather than forming unrelated semantics. Flow covers conditional transfers, loops, near and far direct or indirect jumps and calls, dedicated returns and IRET, explicit software-interrupt and checked-trap forms, HLT and WAIT boundaries, task or gate boundaries represented by admitted forms, and every instruction form that writes the instruction pointer. Code-16 sequential and short-relative offsets wrap at 16 bits; code-32 offsets retain 32-bit wrapping.
+**Locations and flow.** Locations cover physical general-register storage and its byte/word/dword views, segment, control, debug, test, EFLAGS fields, symbolic segmented memory, ports, implicit stack locations, and opaque external numeric-coprocessor state. The 80386 ESC interface retains its command and operand encoding but does not claim the external 80387 value-transfer or stack model. Explicit memory operands retain their architectural `MemoryWidth` object class, while instruction-defined contiguous stack regions use a semantic `MemoryExtent::KnownBytes` rather than borrowing an unrelated operand class. Prefixes modify the wrapped instruction's accesses rather than forming unrelated semantics. Flow covers conditional transfers, loops, near and far direct or indirect jumps and calls, dedicated returns and IRET, explicit software-interrupt and checked-trap forms, HLT and WAIT boundaries, task or gate boundaries represented by admitted forms, and every instruction form that writes the instruction pointer. Code-16 sequential and short-relative offsets wrap at 16 bits; code-32 offsets retain 32-bit wrapping.
 
 **References and classification.** Near references retain the current code segment; far pointers retain selector and offset. Immediate ports and absolute displacements form static references only when the address model establishes them. Prefix and ModR/M parsing is variable length, and invalid sequences have no universal recovery extent, so both profiles remain strict-decode-only.
 
-**Semantic gate.** Code-16 and code-32 use separate denominators over primary, secondary, prefix, and ModR/M maps. The semantic gate covers aliases, partial-register overlap, implicit stack and string registers, flag subsets, far control flow, x87 stack effects, and prefix legality.
+**Semantic gate.** Code-16 and code-32 use separate denominators over primary, secondary, prefix, and ModR/M maps. The semantic gate covers aliases, partial-register overlap, implicit stack and string registers, flag subsets, far control flow, external coprocessor command effects, and prefix legality. A separate 80387 profile would require its own source denominator before exposing x87 stack meaning.
 
 ## Allegrex
 
 **Profile boundary and state.** `Allegrex` covers the declared PSP CPU, FPU, and VFPU manuals. A direct code location is an aligned 32-bit address. The current VFPU source, target, and destination prefixes are semantic context because they select source components and destination masks without changing instruction identity.
 
-**Locations and flow.** Locations cover GPRs, HI, LO, admitted special and control registers, FPRs and FCRs, VFPU scalar/vector/matrix and control locations, prefix state, condition fields, accumulators, and symbolic memory. Register zero never reports a write. VFPU prefix consumption and implicit condition or control effects are explicit; unknown prefix state produces conservative lane overlap rather than a guessed value. Flow covers MIPS branches including likely forms, VFPU branches, jumps, link-producing transfers, BREAK/SYSCALL trap boundaries, and delay-slot execution or annulment. A conventional jump through the link register is not a dedicated return instruction.
+**Locations and flow.** Locations cover GPRs, HI, LO, admitted special and control registers, FPRs and FCRs, VFPU scalar/vector/matrix and control locations, prefix state, condition fields, accumulators, and symbolic memory. Register zero never reports a write. VFPU prefix consumption and implicit condition or control effects are explicit; known valid prefixes select component reads and masked destination writes, while unknown valid prefix state produces conservative conditional lane effects rather than a guessed value. Manual-prohibited or restriction-violating prefix combinations fail closed instead of assigning the unbounded hardware result a normal access set. Instructions for which prefixes have no effect preserve the pending prefix stacks. Flow covers MIPS branches including likely forms, VFPU branches, jumps, link-producing transfers, BREAK/SYSCALL trap boundaries, and delay-slot execution or annulment. A point after an unanalyzed delay slot carries unknown prefix context until sequence analysis composes the slot. A conventional jump through the link register is not a dedicated return instruction.
 
 **References and classification.** Direct branches and jumps form code targets; memory operations remain symbolic ISA accesses unless a separate value-analysis layer refines them. Every word has an exact CPU/FPU/VFPU classification under the declared profile.
 
-**Semantic gate.** CPU, FPU, and VFPU manual-form denominators remain separate and independent. The gate covers all VFPU operand grouping, prefix-state reads and writes, condition codes, branch-likely slots, and implicit accumulator or control effects.
+**Semantic gate.** CPU, FPU, and VFPU manual-form denominators remain separate and independent. The gate covers all 268 rows in the VFPU User's Manual prefix-validity table in addition to VFPU operand grouping, prefix-state reads and writes, condition codes, branch-likely slots, and implicit accumulator or control effects.
 
 ## R5900
 

@@ -385,10 +385,22 @@ fn successor(instruction: &Instruction, at: AnalysisPoint, location: u32) -> Ana
 
 fn control_flow(instruction: &Instruction, at: AnalysisPoint) -> ControlFlow {
     let next = successor(instruction, at, at.location.wrapping_add(2));
-    let after_slot = successor(instruction, at, at.location.wrapping_add(4));
+    let mut after_slot = successor(instruction, at, at.location.wrapping_add(4));
+    // An allowed delay-slot instruction can change FPSCR or FR. Until a
+    // sequence consumer composes the actual slot, the post-slot decode and
+    // physical floating-bank context are therefore unavailable.
+    after_slot.fpscr = None;
+    after_slot.float_bank = FloatBank::Unknown;
+    let slot_general_bank = if matches!(instruction, Instruction::Rte) {
+        // RTE restores SR before executing its delay-slot instruction.
+        GeneralRegisterBank::Unknown
+    } else {
+        at.general_bank
+    };
     let slot = Some(DelaySlot {
         point: AnalysisPoint {
             location: at.location.wrapping_add(2),
+            general_bank: slot_general_bank,
             ..at
         },
         execution: DelaySlotExecution::Always,

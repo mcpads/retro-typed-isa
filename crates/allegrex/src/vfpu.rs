@@ -522,6 +522,34 @@ pub enum VfpuOperation {
     Zero,
 }
 
+/// Source-manual rule for one VFPU prefix stack and instruction form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VfpuPrefixUse {
+    /// The pending prefix does not affect this instruction operand.
+    NoEffect,
+    /// Every encodable prefix transformation is valid.
+    Valid,
+    /// Only component swizzling is valid; constants and value transforms are prohibited.
+    OnlySwizzle,
+    /// Only destination write masking is valid; saturation is prohibited.
+    OnlyWriteMask,
+    /// Applying a pending prefix produces undefined results and is rejected by static semantics.
+    Prohibited,
+    /// This instruction overwrites the corresponding prefix stack.
+    Overwrite,
+}
+
+/// Source, target, and destination prefix rules for one VFPU instruction form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VfpuPrefixRules {
+    /// Rule for the source prefix stack.
+    pub source: VfpuPrefixUse,
+    /// Rule for the target prefix stack.
+    pub target: VfpuPrefixUse,
+    /// Rule for the destination prefix stack.
+    pub destination: VfpuPrefixUse,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// An operand-independent VFPU operation and optional vector size.
 pub struct VfpuForm {
@@ -678,6 +706,111 @@ impl VfpuForm {
     /// Iterates over the complete supported form census.
     pub fn all() -> impl Iterator<Item = Self> {
         VFPU_DESCRIPTORS.iter().map(|descriptor| descriptor.form)
+    }
+
+    /// Returns the PSP manual's source, target, and destination prefix rules.
+    pub const fn prefix_rules(self) -> VfpuPrefixRules {
+        use VfpuOperation::*;
+        use VfpuPrefixUse::{
+            NoEffect as N, OnlySwizzle as S, OnlyWriteMask as W, Overwrite as O, Prohibited as P,
+            Valid as V,
+        };
+
+        const fn rules(
+            source: VfpuPrefixUse,
+            target: VfpuPrefixUse,
+            destination: VfpuPrefixUse,
+        ) -> VfpuPrefixRules {
+            VfpuPrefixRules {
+                source,
+                target,
+                destination,
+            }
+        }
+
+        let is_single = matches!(self.size, Some(VectorSize::Single));
+        match self.operation {
+            BranchFalse | BranchFalseLikely | BranchTrue | BranchTrueLikely | Load | Store
+            | StoreWriteBuffer | StoreLeft | StoreRight | MoveFromVector | MoveFromControl
+            | MoveToVector | MoveToControl | Flush | MoveFromVfpuControl | MoveToVfpuControl
+            | NoOperation | RandomSeed | Synchronize | SynchronizeCpu => rules(N, N, N),
+            AbsoluteValue | Negate | IntegerToFloat => rules(S, N, V),
+            Add
+            | Divide
+            | DotProduct
+            | Maximum
+            | Minimum
+            | Multiply
+            | ScaleByExponent
+            | CompareThreeWay
+            | SetGreaterThanOrEqual
+            | SetLessThan
+            | Subtract => rules(V, V, V),
+            ArcSine | Cosine | Exponential2 | Logarithm2 | Reciprocal | ReciprocalSquareRoot
+            | Sine | SquareRoot => {
+                if is_single {
+                    rules(V, N, V)
+                } else {
+                    rules(P, N, P)
+                }
+            }
+            Average | Determinant | Sum | Scale | Sign => rules(V, P, V),
+            Butterfly1 | Butterfly2 | Sort1 | Sort2 | Sort3 | Sort4 => rules(P, P, V),
+            ConvertColorToInteger
+            | ShortToInteger
+            | UnsignedColorToIntegerFloatScaled
+            | UnsignedShortToInteger => rules(P, N, W),
+            ConditionalMoveFalse | ConditionalMoveTrue => rules(V, P, P),
+            Compare => rules(V, V, N),
+            CrossProduct => rules(P, P, V),
+            CrossProductQuaternion
+            | HomogeneousTransform2
+            | HomogeneousTransform3
+            | HomogeneousTransform4
+            | MatrixMultiply
+            | MatrixScale
+            | QuaternionMultiply
+            | OneComplementScaled
+            | Transform2
+            | Transform3
+            | Transform4 => rules(P, P, P),
+            Constant | FloatImmediate | IntegerImmediate => rules(N, N, V),
+            FloatToHalf
+            | FloatToIntegerDown
+            | FloatToIntegerNearest
+            | FloatToIntegerUp
+            | FloatToIntegerTruncate => rules(V, N, W),
+            HalfToFloat | Identity => rules(P, N, V),
+            HomogeneousDotProduct => rules(P, V, V),
+            IntegerToColor | IntegerToShort | IntegerToUnsignedColor | IntegerToUnsignedShort => {
+                rules(S, N, W)
+            }
+            LeadingBit | SignBitZero | WriteBreakNumber => rules(V, N, V),
+            MatrixIdentity | MatrixMove | MatrixOne | MatrixZero => rules(P, N, P),
+            Move => rules(V, N, V),
+            NegativeReciprocal | NegativeSine | ReciprocalExponential2 => {
+                if is_single {
+                    rules(P, N, V)
+                } else {
+                    rules(P, N, P)
+                }
+            }
+            OneComplement => rules(P, P, V),
+            One | Zero => rules(P, N, V),
+            DestinationPrefix => rules(N, N, O),
+            SourcePrefix => rules(O, N, N),
+            TargetPrefix => rules(N, O, N),
+            RandomFloat1 | RandomFloat2 | RandomInteger => {
+                if is_single {
+                    rules(N, N, V)
+                } else {
+                    rules(N, N, P)
+                }
+            }
+            Rotate => rules(P, N, P),
+            SaturateZeroOne | SaturateNegativeOneOne => rules(V, N, P),
+            ConvertTo4444 | ConvertTo5551 | ConvertTo5650 => rules(S, N, P),
+        }
     }
 }
 

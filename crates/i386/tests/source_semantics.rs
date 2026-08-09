@@ -1,7 +1,7 @@
 use i386::{
     AddressSize, AnalysisPoint, Boundary, CodeLocation, CodeMode, GeneralRegister, I386Code16,
-    I386Code32, InterruptState, Location, MemoryExtent, MemoryWidth, OffsetAddress, Reference,
-    Register8, Register16, Register32, SegmentRegister, SemanticError, decode_bytes,
+    I386Code32, ImplicitState, InterruptState, Location, MemoryExtent, MemoryWidth, OffsetAddress,
+    Reference, Register8, Register16, Register32, SegmentRegister, SemanticError, decode_bytes,
 };
 use typed_isa_core::{
     AccessKind, AccessOccurrence, ControlAction, ControlBoundary, ControlTarget, StaticSemantics,
@@ -214,4 +214,54 @@ fn code_size_profile_mismatch_fails_before_semantics_are_returned() {
             i386::EncodeError::CodeModeMismatch { .. }
         ))
     ));
+}
+
+#[test]
+fn taken_branch_preserves_the_post_instruction_interrupt_state() {
+    let instruction = decode_bytes(&[0x75, 0x02], CodeMode::Code16)
+        .unwrap()
+        .into_instruction();
+    let at = AnalysisPoint::new(
+        CodeLocation::new(8, 0x1000),
+        InterruptState::EnableAfterNextInstruction,
+        AddressSize::Bits16,
+    );
+    let semantics = I386Code16::semantics(&instruction, &at).unwrap();
+
+    assert_eq!(
+        semantics.control_flow.fallthrough.unwrap().interrupt_state,
+        InterruptState::Enabled
+    );
+    assert!(matches!(
+        semantics.control_flow.action,
+        ControlAction::Transfer {
+            target: ControlTarget::Direct(AnalysisPoint {
+                interrupt_state: InterruptState::Enabled,
+                ..
+            })
+        }
+    ));
+}
+
+#[test]
+fn escape_register_commands_keep_external_coprocessor_state_opaque() {
+    let instruction = decode_bytes(&[0xd8, 0xc1], CodeMode::Code16)
+        .unwrap()
+        .into_instruction();
+    let semantics = I386Code16::semantics(&instruction, &point(0, AddressSize::Bits16)).unwrap();
+
+    for kind in [AccessKind::Read, AccessKind::Write] {
+        assert!(has_access(
+            &semantics,
+            Location::Implicit(ImplicitState::Coprocessor),
+            kind,
+            AccessOccurrence::Always,
+        ));
+    }
+    assert!(
+        semantics
+            .location_accesses
+            .iter()
+            .all(|access| { access.location == Location::Implicit(ImplicitState::Coprocessor) })
+    );
 }

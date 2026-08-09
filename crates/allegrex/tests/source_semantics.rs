@@ -1,7 +1,10 @@
 use allegrex::{
-    Allegrex, AnalysisPoint, FpuState, GeneralRegister, ImplicitState, IndirectTarget, Location,
-    MemoryLocation, MemoryWidth, Reference, SystemControlRegister, VfpuConditionBit,
-    VfpuControlRegister, decode_word,
+    Allegrex, AnalysisPoint, DestinationPrefixLane, DestinationPrefixState, DestinationSaturation,
+    FpuState, GeneralRegister, ImplicitState, IndirectTarget, Location, MemoryLocation,
+    MemoryWidth, Reference, SemanticError, SourcePrefixConstant, SourcePrefixLane,
+    SourcePrefixState, SourcePrefixValue, SystemControlRegister, VectorComponent, VectorRegister,
+    VectorSize, VfpuConditionBit, VfpuControlRegister, VfpuForm, VfpuInstruction, VfpuOperands,
+    VfpuOperation, VfpuPrefixState, decode_word,
 };
 use typed_isa_core::{
     AccessKind, AccessOccurrence, ControlAction, ControlBoundary, DelaySlotExecution,
@@ -12,7 +15,11 @@ const ADDRESS: u32 = 0x0880_0000;
 
 fn semantics(word: u32) -> allegrex::InstructionSemantics {
     let instruction = decode_word(word, ADDRESS).unwrap();
-    Allegrex::semantics(&instruction, &AnalysisPoint::new(ADDRESS)).unwrap()
+    Allegrex::semantics(
+        &instruction,
+        &AnalysisPoint::new(ADDRESS, VfpuPrefixState::inactive()),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -24,7 +31,7 @@ fn sony_likely_branch_annuls_only_the_not_taken_delay_slot() {
     );
     assert_eq!(
         semantics.control_flow.fallthrough,
-        Some(AnalysisPoint::new(ADDRESS + 8))
+        Some(AnalysisPoint::new(ADDRESS + 8, VfpuPrefixState::unknown()))
     );
     assert!(semantics.static_references.is_empty());
 }
@@ -36,7 +43,8 @@ fn sony_linked_jump_returns_after_the_delay_slot() {
         semantics.control_flow.action,
         ControlAction::LinkedTransfer {
             return_site: AnalysisPoint {
-                location: 0x0880_0008
+                location: 0x0880_0008,
+                ..
             },
             ..
         }
@@ -166,12 +174,209 @@ fn sony_vfpu_arithmetic_exposes_prefix_inputs_without_claiming_physical_aliases(
         .location_accesses
         .iter()
         .filter_map(|access| {
-            matches!(access.location, Location::VfpuVector { .. }).then_some(access.location)
+            matches!(access.location, Location::VfpuVectorLane { .. }).then_some(access.location)
         })
         .collect();
     assert!(!views.is_empty());
     assert_eq!(
         Allegrex::storage_relation(&views[0], &views[0]),
         StorageRelation::Same
+    );
+}
+
+fn source_constant(value: SourcePrefixConstant) -> SourcePrefixLane {
+    SourcePrefixLane {
+        value: SourcePrefixValue::Constant(value),
+        negate: false,
+    }
+}
+
+fn destination_lane(mask: bool) -> DestinationPrefixLane {
+    DestinationPrefixLane {
+        saturation: DestinationSaturation::None,
+        mask,
+    }
+}
+
+fn vadd_pair() -> allegrex::Instruction {
+    allegrex::Instruction::Vfpu(
+        VfpuInstruction::new(
+            VfpuForm::new(VfpuOperation::Add, Some(VectorSize::Pair)).unwrap(),
+            VfpuOperands::ThreeVectors {
+                destination: VectorRegister::new(0).unwrap(),
+                left: VectorRegister::new(1).unwrap(),
+                right: VectorRegister::new(2).unwrap(),
+            },
+        )
+        .unwrap(),
+    )
+}
+
+#[test]
+fn known_vfpu_prefixes_select_source_components_and_destination_masks() {
+    let constant = source_constant(SourcePrefixConstant::One);
+    let prefixes = VfpuPrefixState {
+        source: SourcePrefixState::Known([constant; 4]),
+        target: SourcePrefixState::Inactive,
+        destination: DestinationPrefixState::Known([
+            destination_lane(true),
+            destination_lane(false),
+            destination_lane(false),
+            destination_lane(false),
+        ]),
+    };
+    let semantics =
+        Allegrex::semantics(&vadd_pair(), &AnalysisPoint::new(ADDRESS, prefixes)).unwrap();
+
+    assert!(!semantics.location_accesses.iter().any(|access| {
+        matches!(
+            access.location,
+            Location::VfpuVectorLane { register, .. }
+                if register == VectorRegister::new(1).unwrap()
+        )
+    }));
+    assert!(semantics.location_accesses.iter().any(|access| {
+        access.kind == AccessKind::Read
+            && access.location
+                == Location::VfpuVectorLane {
+                    register: VectorRegister::new(2).unwrap(),
+                    size: VectorSize::Pair,
+                    component: VectorComponent::X,
+                }
+    }));
+    assert!(!semantics.location_accesses.iter().any(|access| {
+        access.kind == AccessKind::Write
+            && access.location
+                == Location::VfpuVectorLane {
+                    register: VectorRegister::new(0).unwrap(),
+                    size: VectorSize::Pair,
+                    component: VectorComponent::X,
+                }
+    }));
+    assert!(semantics.location_accesses.iter().any(|access| {
+        access.kind == AccessKind::Write
+            && access.location
+                == Location::VfpuVectorLane {
+                    register: VectorRegister::new(0).unwrap(),
+                    size: VectorSize::Pair,
+                    component: VectorComponent::Y,
+                }
+    }));
+    assert_eq!(
+        semantics.control_flow.fallthrough.unwrap().prefixes,
+        VfpuPrefixState::inactive()
+    );
+}
+
+#[test]
+fn unknown_vfpu_prefixes_produce_conditional_lane_effects() {
+    let semantics = Allegrex::semantics(
+        &vadd_pair(),
+        &AnalysisPoint::new(ADDRESS, VfpuPrefixState::unknown()),
+    )
+    .unwrap();
+
+    assert!(semantics.location_accesses.iter().any(|access| {
+        access.location
+            == Location::VfpuVectorLane {
+                register: VectorRegister::new(1).unwrap(),
+                size: VectorSize::Pair,
+                component: VectorComponent::W,
+            }
+            && access.kind == AccessKind::Read
+            && access.occurrence == AccessOccurrence::Conditional
+    }));
+    assert!(semantics.location_accesses.iter().any(|access| {
+        access.location
+            == Location::VfpuVectorLane {
+                register: VectorRegister::new(0).unwrap(),
+                size: VectorSize::Pair,
+                component: VectorComponent::X,
+            }
+            && access.kind == AccessKind::Write
+            && access.occurrence == AccessOccurrence::Conditional
+    }));
+}
+
+#[test]
+fn source_prefix_instruction_carries_known_state_to_its_successor() {
+    let lane = SourcePrefixLane {
+        value: SourcePrefixValue::Component {
+            component: VectorComponent::Y,
+            absolute: false,
+        },
+        negate: false,
+    };
+    let instruction = allegrex::Instruction::Vfpu(
+        VfpuInstruction::new(
+            VfpuForm::new(VfpuOperation::SourcePrefix, None).unwrap(),
+            VfpuOperands::SourcePrefix { lanes: [lane; 4] },
+        )
+        .unwrap(),
+    );
+    let semantics = Allegrex::semantics(
+        &instruction,
+        &AnalysisPoint::new(ADDRESS, VfpuPrefixState::inactive()),
+    )
+    .unwrap();
+
+    assert_eq!(
+        semantics.control_flow.fallthrough.unwrap().prefixes.source,
+        SourcePrefixState::Known([lane; 4])
+    );
+}
+
+#[test]
+fn manual_prohibited_prefix_combinations_fail_closed() {
+    let constant = source_constant(SourcePrefixConstant::One);
+    let prefixes = VfpuPrefixState {
+        source: SourcePrefixState::Known([constant; 4]),
+        ..VfpuPrefixState::inactive()
+    };
+    let matrix_multiply = decode_word(0xf000_0080, ADDRESS).unwrap(); // vmmul.p
+    assert!(matches!(
+        Allegrex::semantics(&matrix_multiply, &AnalysisPoint::new(ADDRESS, prefixes)),
+        Err(SemanticError::ProhibitedPrefix {
+            control: VfpuControlRegister::SourcePrefix,
+            ..
+        })
+    ));
+
+    let absolute = decode_word(0xd001_0080, ADDRESS).unwrap(); // vabs.p
+    assert!(matches!(
+        Allegrex::semantics(&absolute, &AnalysisPoint::new(ADDRESS, prefixes)),
+        Err(SemanticError::ProhibitedPrefix {
+            control: VfpuControlRegister::SourcePrefix,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn no_effect_vfpu_instruction_does_not_consume_pending_prefixes() {
+    let lane = SourcePrefixLane {
+        value: SourcePrefixValue::Component {
+            component: VectorComponent::Y,
+            absolute: false,
+        },
+        negate: false,
+    };
+    let prefixes = VfpuPrefixState {
+        source: SourcePrefixState::Known([lane; 4]),
+        ..VfpuPrefixState::inactive()
+    };
+    let no_operation = decode_word(0xffff_0000, ADDRESS).unwrap(); // vnop
+    let semantics =
+        Allegrex::semantics(&no_operation, &AnalysisPoint::new(ADDRESS, prefixes)).unwrap();
+
+    assert_eq!(
+        semantics.control_flow.fallthrough.unwrap().prefixes,
+        prefixes
+    );
+    assert!(
+        !semantics
+            .location_accesses
+            .iter()
+            .any(|access| matches!(access.location, Location::VfpuControl(_)))
     );
 }

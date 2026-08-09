@@ -13,7 +13,7 @@ use typed_isa_core::StaticSemantics;
 // the FPSCR.PR and FPSCR.SZ restrictions in the FPU tables. They do not use the
 // production decoder or its form catalog to decide whether a word exists.
 //
-// https://www.st.com/resource/en/user_manual/um0341-sh4-32bit-cpu-core-architecture---stmicroelectronics.pdf
+// https://www.st.com/resource/en/user_manual/cd00147165-sh-4-32-bit-cpu-core-architecture-stmicroelectronics.pdf
 
 const STATES: [FpscrState; 4] = [
     FpscrState::new(FpuPrecision::Single, FpuTransferSize::Single),

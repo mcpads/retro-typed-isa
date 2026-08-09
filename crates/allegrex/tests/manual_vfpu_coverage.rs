@@ -294,8 +294,11 @@ fn every_manual_vfpu_encoding_decodes_and_reencodes_exactly() {
             word,
             "{mnemonic}"
         );
-        Allegrex::semantics(&instruction, &AnalysisPoint::new(ADDRESS))
-            .unwrap_or_else(|error| panic!("{mnemonic} semantic failure: {error}"));
+        Allegrex::semantics(
+            &instruction,
+            &AnalysisPoint::new(ADDRESS, allegrex::VfpuPrefixState::inactive()),
+        )
+        .unwrap_or_else(|error| panic!("{mnemonic} semantic failure: {error}"));
     }
 }
 

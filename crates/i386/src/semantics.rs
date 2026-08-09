@@ -7,11 +7,11 @@ use typed_isa_core::{
 
 use crate::{
     Address16Base, AddressSize, BinaryOperation, BitOperation, CodeLocation, CodeMode, Condition,
-    ControlRegister, CoprocessorOperation, CoprocessorRegister, DebugRegister, DescriptorOperation,
-    Displacement, EffectiveAddress, EncodeError, FarPointer, GeneralRegister, I386Profile,
-    Immediate, Instruction, MemoryOperand, MemoryWidth, Operand, OperandSize, Operation, Prefix,
-    Register8, Register16, Register32, RelativeDisplacement, SegmentRegister, ShiftOperation,
-    StringOperation, TestRegister, UnaryOperation,
+    ControlRegister, CoprocessorOperation, DebugRegister, DescriptorOperation, Displacement,
+    EffectiveAddress, EncodeError, FarPointer, GeneralRegister, I386Profile, Immediate,
+    Instruction, MemoryOperand, MemoryWidth, Operand, OperandSize, Operation, Prefix, Register8,
+    Register16, Register32, RelativeDisplacement, SegmentRegister, ShiftOperation, StringOperation,
+    TestRegister, UnaryOperation,
 };
 
 /// Interrupt-recognition state relevant to the successor of `sti` and SS loads.
@@ -203,8 +203,6 @@ pub enum Location {
     DebugRegister(DebugRegister),
     /// Test register.
     TestRegister(TestRegister),
-    /// x87 stack-register selector.
-    CoprocessorRegister(CoprocessorRegister),
     /// Whole EFLAGS storage.
     Flags,
     /// One EFLAGS bit.
@@ -333,7 +331,6 @@ fn control_flow(instruction: &Instruction, at: AnalysisPoint, next: AnalysisPoin
             action: ControlAction::LinkedTransfer {
                 target: control_target(
                     instruction.operands().first().unwrap(),
-                    at,
                     next,
                     instruction.code_mode(),
                 ),
@@ -346,7 +343,6 @@ fn control_flow(instruction: &Instruction, at: AnalysisPoint, next: AnalysisPoin
             action: ControlAction::Transfer {
                 target: control_target(
                     instruction.operands().first().unwrap(),
-                    at,
                     next,
                     instruction.code_mode(),
                 ),
@@ -359,7 +355,6 @@ fn control_flow(instruction: &Instruction, at: AnalysisPoint, next: AnalysisPoin
                 action: ControlAction::Transfer {
                     target: control_target(
                         instruction.operands().first().unwrap(),
-                        at,
                         next,
                         instruction.code_mode(),
                     ),
@@ -450,25 +445,24 @@ fn trap_flow(
 
 fn control_target(
     operand: &Operand,
-    at: AnalysisPoint,
     next: AnalysisPoint,
     code_mode: CodeMode,
 ) -> ControlTarget<AnalysisPoint, IndirectTarget> {
     match operand {
         Operand::Relative(displacement) => ControlTarget::Direct(AnalysisPoint {
-            location: relative_target(next.location, *displacement, at.location, code_mode),
-            ..at
+            location: relative_target(next.location, *displacement, code_mode),
+            ..next
         }),
         Operand::FarPointer(FarPointer::Word { offset, segment }) => {
             ControlTarget::Direct(AnalysisPoint {
                 location: CodeLocation::new(*segment, u32::from(*offset)),
-                ..at
+                ..next
             })
         }
         Operand::FarPointer(FarPointer::Doubleword { offset, segment }) => {
             ControlTarget::Direct(AnalysisPoint {
                 location: CodeLocation::new(*segment, *offset),
-                ..at
+                ..next
             })
         }
         Operand::Memory(memory)
@@ -486,7 +480,6 @@ fn control_target(
 fn relative_target(
     next: CodeLocation,
     displacement: RelativeDisplacement,
-    code_location: CodeLocation,
     code_mode: CodeMode,
 ) -> CodeLocation {
     let signed = match displacement {
@@ -502,7 +495,7 @@ fn relative_target(
     } else {
         offset
     };
-    CodeLocation::new(code_location.selector(), offset)
+    CodeLocation::new(next.selector(), offset)
 }
 
 fn derive_accesses(
@@ -1124,11 +1117,7 @@ fn read_operand(
         Operand::TestRegister(register) => {
             read(accesses, Location::TestRegister(*register), occurrence)
         }
-        Operand::CoprocessorRegister(register) => read(
-            accesses,
-            Location::CoprocessorRegister(*register),
-            occurrence,
-        ),
+        Operand::CoprocessorRegister(_) => {}
         Operand::Memory(memory) => memory_access(
             *memory,
             at,
@@ -1164,11 +1153,7 @@ fn write_operand(
         Operand::TestRegister(register) => {
             write(accesses, Location::TestRegister(*register), occurrence)
         }
-        Operand::CoprocessorRegister(register) => write(
-            accesses,
-            Location::CoprocessorRegister(*register),
-            occurrence,
-        ),
+        Operand::CoprocessorRegister(_) => {}
         Operand::Memory(memory) => memory_access(
             *memory,
             at,

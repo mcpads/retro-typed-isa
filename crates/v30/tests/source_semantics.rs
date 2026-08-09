@@ -3,7 +3,7 @@ use typed_isa_core::{
     StaticReference, StaticSemantics, StorageRelation,
 };
 use v30::{
-    AnalysisPoint, Boundary, CodeLocation, EffectiveAddress, EffectiveAddressBase,
+    AnalysisPoint, Boundary, CodeLocation, Condition, EffectiveAddress, EffectiveAddressBase,
     EffectiveAddressDisplacement, Instruction, InterruptState, Location, Operand, OperandSize,
     Reference, Register8, Register16, SegmentRegister, SegmentSelection, V30,
 };
@@ -187,4 +187,31 @@ fn brkem_is_an_explicit_native_profile_exit() {
         })
     ));
     assert_eq!(semantics.control_flow.fallthrough, None);
+}
+
+#[test]
+fn taken_branch_preserves_the_post_instruction_interrupt_state() {
+    let at = point(InterruptState::EnableAfterNextInstruction);
+    let semantics = V30::semantics(
+        &Instruction::Jcc {
+            cond: Condition::Ne,
+            target: 2,
+        },
+        &at,
+    )
+    .unwrap();
+
+    assert_eq!(
+        semantics.control_flow.fallthrough.unwrap().interrupt_state,
+        InterruptState::Enabled
+    );
+    assert!(matches!(
+        semantics.control_flow.action,
+        ControlAction::Transfer {
+            target: ControlTarget::Direct(AnalysisPoint {
+                interrupt_state: InterruptState::Enabled,
+                ..
+            })
+        }
+    ));
 }
