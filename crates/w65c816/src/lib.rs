@@ -1,8 +1,12 @@
-//! Complete W65C816 instruction encoding plus placement-aware assembly.
+//! Static W65C816 instruction-set profiles with checked encoding and semantics.
 //!
 //! The crate deliberately separates CPU facts from game-specific ROM layout.
 //! All 256 opcode values belong to the declared W65C816 profile. Immediate
 //! operand length always requires an explicit accumulator/index width state.
+//! Static semantics additionally require explicit emulation/native context and
+//! expose control flow, architectural storage accesses, and resolvable
+//! non-control references without executing the processor.
+//!
 //! Arbitrary data can be emitted by the assembler, but it is never accepted as
 //! a fallback for an unsupported instruction.
 

@@ -1,10 +1,11 @@
-//! Complete static instruction encoding model for the Ricoh RP2A03 used by the Famicom.
+//! Static Ricoh RP2A03 instruction-set profile for Famicom executable code.
 //!
 //! All 256 physical opcode selectors are classified so original code can be
 //! decoded and re-encoded without losing unofficial selector identity. New
 //! instructions use canonical selectors, typed operands, and checked
-//! placement. CPU execution, the APU, cycle timing, and simulation are outside
-//! this crate.
+//! placement. Static semantics cover control flow and architectural storage
+//! accesses for every selector. CPU execution, the APU, value propagation,
+//! cycle timing, and simulation are outside this crate.
 
 #![deny(missing_docs)]
 

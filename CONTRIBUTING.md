@@ -30,7 +30,9 @@ Read [Design principles](DESIGN.md), the [typed ISA protocol](ISA.md), the commo
 ## Static semantics gate
 
 - Derive a semantic denominator from the architecture sources independently of the production instruction enum and tables.
-- Cover every valid form, including explicit and implicit storage accesses, partial-storage overlap, control flow, boundaries, delay slots, state transitions, and static references.
+- Use that denominator to prove that every valid form and required context reaches an explicit semantic rule. A total-dispatch test does not by itself prove that the returned facts are correct.
+- Review the exhaustive rule mapping against the architecture source, including explicit and implicit storage accesses, partial-storage overlap, control flow, boundaries, delay slots, state transitions, and static references.
+- Add source-focused behavioral tests for distinctions that are easy to erase accidentally. Do not duplicate the production semantic table as a self-mirroring expected-output catalog.
 - Treat empty effects as explicit source-derived entries. Missing analysis must fail closed and must not masquerade as an empty result.
 - Keep ABI conventions, consumer memory maps, runtime register values, device behavior, and simulation out of ISA facts.
 - Migrate all applicable profiles to a new common concept as one workspace change. Profile-specific queries may remain only as derived views over the shared result.

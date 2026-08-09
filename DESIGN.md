@@ -82,6 +82,17 @@ Static-meaning completion additionally requires all of the following:
 
 Adding an instruction to production code and to a mirror test does not establish either kind of completeness.
 
+Completeness is a reviewed conclusion over independent evidence, not the
+result of one self-certifying test. The source-derived denominator proves that
+the declared profile boundary reaches every admitted form. The exhaustive
+production rule mapping is then reviewed against the architecture source, and
+source-focused behavioral tests preserve error-prone distinctions such as
+implicit storage, aliasing, delayed flow, state changes, and address
+calculation. A denominator test that merely obtains a semantic result proves
+total dispatch, not that the result is correct. Conversely, a collection of
+examples cannot replace the independent denominator or the whole-profile
+source review.
+
 ## Source lowering and patching
 
 Source lowering selects typed instructions, then uses static meaning to validate control flow, clobbers, references, instruction-set state, and placement before checked byte lowering.

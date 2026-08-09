@@ -1,8 +1,10 @@
-//! Typed Motorola MC68000 instruction model and checked byte lowering.
+//! Static Motorola MC68000 instruction-set profile.
 //!
-//! This crate models the MC68000 instruction set. It does not include the
-//! MC68010-only `BKPT`, `MOVEC`, `MOVES`, or `RTD` instructions, and it does
-//! not execute instructions or model cycle timing.
+//! Typed instructions support fail-closed decoding, checked byte lowering,
+//! placement-aware assembly, and architectural static semantics. The profile
+//! does not include the MC68010-only `BKPT`, `MOVEC`, `MOVES`, or `RTD`
+//! instructions. Execution, value propagation, and cycle timing are outside
+//! this crate.
 
 #![deny(missing_docs)]
 

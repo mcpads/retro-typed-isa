@@ -1,10 +1,10 @@
-//! Complete HuC6280 instruction encoding and placement-aware assembly.
+//! Static HuC6280 instruction-set profile with checked encoding and semantics.
 //!
 //! The profile models all 234 opcode selectors defined by Hudson's software
 //! manual. The remaining 22 selector slots are classified as undocumented and
-//! fail closed. This crate models instruction bytes and static placement only;
-//! it does not model CPU execution, MPR state transitions, cycle timing, or
-//! simulation.
+//! fail closed. Static semantics expose register, status, memory, port, and MPR
+//! accesses without executing those state transitions. CPU execution, value
+//! propagation, cycle timing, and simulation are outside this crate.
 
 #![deny(missing_docs)]
 

@@ -1,13 +1,15 @@
-//! Complete static instruction encoding model for the Sharp SM83 CPU used by Game Boy systems.
+//! Static Sharp SM83 instruction-set profile for Game Boy executable code.
 //!
 //! All base and CB-prefixed opcode selectors are classified. Valid instructions
-//! decode to typed operands and lower back to exact machine code. Illegal
-//! selectors fail closed. Execution state, cycle timing, peripherals, and
-//! simulation are outside this crate.
+//! decode to typed operands, lower back to exact machine code, and expose
+//! architectural static semantics. Illegal selectors fail closed. Execution,
+//! value propagation, cycle timing, peripherals, and simulation are outside
+//! this crate.
 //!
 //! The encoding profile follows the Pan Docs CPU Instruction Set and the RGBDS
-//! `gbz80(7)` opcode reference. The model is implemented locally rather than
-//! exposing an emulator or third-party decoder as its semantic API.
+//! `gbz80(7)` opcode reference. Those independent source tables define the
+//! coverage denominator; an emulator or third-party decoder is not exposed as
+//! the semantic API.
 
 #![deny(missing_docs)]
 

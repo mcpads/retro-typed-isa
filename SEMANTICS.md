@@ -237,7 +237,13 @@ declared source bytes
 
 A profile exposes this protocol only after an independent source-derived semantic denominator covers every instruction form in that exact profile.
 
-The gate must verify:
+The gate is a reviewed body of evidence with three distinct roles:
+
+1. an independent source-derived denominator establishes the exact profile boundary and reaches every admitted form and required context;
+2. the exhaustive production rule mapping is reviewed against the architecture source for the meaning of each denominator entry;
+3. source-focused behavioral tests preserve the architecture distinctions most likely to be lost by refactoring.
+
+The combined evidence must establish:
 
 1. every source-listed form has one auditable semantic rule covering every required profile and context combination;
 2. all explicit and implicit architectural location accesses are represented;
@@ -246,7 +252,7 @@ The gate must verify:
 5. forms inherited from a related profile are rechecked against the exact profile boundary;
 6. forms with no access, transfer, or reference are explicitly present in the denominator.
 
-An exhaustive Rust match ensures that implementation variants are handled; it is not the independent denominator. Tests derived from the same production table are mirror tests and do not establish semantic completeness.
+An exhaustive Rust match ensures that implementation variants are handled; it is not the independent denominator. A test that only calls `semantics` for every source entry proves total dispatch but not correctness. Tests derived from the same production table are mirror tests and do not establish semantic completeness. Repeating the complete production table as expected test output is not a substitute for reviewing the semantic rules against the architecture source.
 
 ## Workspace adoption rule
 
