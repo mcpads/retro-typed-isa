@@ -22,10 +22,10 @@ pub enum DecodeError {
         got: usize,
     },
     /// The supplied placement address violates the selected execution state's alignment.
-    #[error("ARM946E-S instruction address {address:#x} is not aligned to {alignment} bytes")]
+    #[error("ARM946E-S code location {location:#x} is not aligned to {alignment} bytes")]
     UnalignedAddress {
-        /// Rejected instruction address.
-        address: u64,
+        /// Rejected code location.
+        location: crate::CodeLocation,
         /// Required alignment in bytes.
         alignment: u8,
     },
@@ -76,10 +76,10 @@ pub enum EncodeError {
         alignment: u8,
     },
     /// The supplied placement address violates the selected execution state's alignment.
-    #[error("ARM946E-S instruction address {address:#x} is not aligned to {alignment} bytes")]
+    #[error("ARM946E-S code location {location:#x} is not aligned to {alignment} bytes")]
     UnalignedAddress {
-        /// Rejected instruction address.
-        address: u64,
+        /// Rejected code location.
+        location: crate::CodeLocation,
         /// Required alignment in bytes.
         alignment: u8,
     },
@@ -104,6 +104,7 @@ impl TypedIsa for Arm946EsArm {
 
     type Instruction = ArmInstruction;
     type Form = ArmInstructionForm;
+    type CodeLocation = crate::CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -113,9 +114,9 @@ impl TypedIsa for Arm946EsArm {
 
     fn decode_one(
         source: &[u8],
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<DecodedInstruction<Self::Instruction>, Self::DecodeError> {
-        require_decode_alignment(address, 4)?;
+        require_decode_alignment(*at, 4)?;
         let instruction = decode_arm_bytes(source)?;
         let bytes = InstructionBytes::new(source[..4].to_vec()).expect("four bytes are non-empty");
         Ok(DecodedInstruction::new(instruction, bytes))
@@ -123,9 +124,9 @@ impl TypedIsa for Arm946EsArm {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
-        require_encode_alignment(address, 4)?;
+        require_encode_alignment(*at, 4)?;
         Ok(
             InstructionBytes::new(encode_arm_bytes(instruction)?.to_vec())
                 .expect("four bytes are non-empty"),
@@ -138,6 +139,7 @@ impl TypedIsa for Arm946EsThumb {
 
     type Instruction = ThumbInstruction;
     type Form = ThumbInstructionForm;
+    type CodeLocation = crate::CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -147,9 +149,9 @@ impl TypedIsa for Arm946EsThumb {
 
     fn decode_one(
         source: &[u8],
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<DecodedInstruction<Self::Instruction>, Self::DecodeError> {
-        require_decode_alignment(address, 2)?;
+        require_decode_alignment(*at, 2)?;
         let instruction = decode_thumb_bytes(source)?;
         let len = instruction.encoded_len();
         let bytes =
@@ -159,9 +161,9 @@ impl TypedIsa for Arm946EsThumb {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
-        require_encode_alignment(address, 2)?;
+        require_encode_alignment(*at, 2)?;
         Ok(InstructionBytes::new(encode_thumb_bytes(instruction)?)
             .expect("instruction is non-empty"))
     }
@@ -967,19 +969,31 @@ fn read_thumb_halfword(source: &[u8], offset: usize) -> Result<u16, DecodeError>
     Ok(u16::from_le_bytes(bytes))
 }
 
-fn require_decode_alignment(address: u64, alignment: u8) -> Result<(), DecodeError> {
-    if address & (u64::from(alignment) - 1) == 0 {
+fn require_decode_alignment(
+    location: crate::CodeLocation,
+    alignment: u8,
+) -> Result<(), DecodeError> {
+    if location & (u32::from(alignment) - 1) == 0 {
         Ok(())
     } else {
-        Err(DecodeError::UnalignedAddress { address, alignment })
+        Err(DecodeError::UnalignedAddress {
+            location,
+            alignment,
+        })
     }
 }
 
-fn require_encode_alignment(address: u64, alignment: u8) -> Result<(), EncodeError> {
-    if address & (u64::from(alignment) - 1) == 0 {
+fn require_encode_alignment(
+    location: crate::CodeLocation,
+    alignment: u8,
+) -> Result<(), EncodeError> {
+    if location & (u32::from(alignment) - 1) == 0 {
         Ok(())
     } else {
-        Err(EncodeError::UnalignedAddress { address, alignment })
+        Err(EncodeError::UnalignedAddress {
+            location,
+            alignment,
+        })
     }
 }
 

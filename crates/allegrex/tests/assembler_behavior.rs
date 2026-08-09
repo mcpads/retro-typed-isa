@@ -7,7 +7,7 @@ use expected_write::{
     WriteIntent, WritePlan, WritePlanError,
 };
 
-const ORIGIN: u64 = 0x0880_0000;
+const ORIGIN: allegrex::CodeLocation = 0x0880_0000;
 
 #[test]
 fn labels_lower_to_checked_control_flow_and_data_stays_out_of_instruction_spans() {
@@ -42,7 +42,7 @@ fn labels_lower_to_checked_control_flow_and_data_stays_out_of_instruction_spans(
         program
             .instruction_spans()
             .iter()
-            .map(|span| (span.offset, span.address))
+            .map(|span| (span.offset, span.location))
             .collect::<Vec<_>>(),
         [(0, 0x0880_0000), (4, 0x0880_0004), (12, 0x0880_000c)]
     );
@@ -86,7 +86,7 @@ fn expected_write_accepts_only_the_named_typed_allegrex_program() {
     assembler
         .emit(Instruction::Nop)
         .emit(Instruction::Synchronize);
-    let source = assembler.assemble(0).unwrap();
+    let source = assembler.assemble(ORIGIN).unwrap();
     let verifier = ExpectedWriteVerifier::new(move |source_id: &str| {
         if source_id == "hook-body" {
             Ok(source.clone())
@@ -94,11 +94,11 @@ fn expected_write_accepts_only_the_named_typed_allegrex_program() {
             Err(MachineCodeVerifierError::new("unknown typed source"))
         }
     });
-    let baseline = [0xff_u8; 8];
+    let baseline = [0xff_u8; 9];
     let plan = WritePlan::new()
         .region(ImageRegion {
             id: "code".to_owned(),
-            range: 0..8,
+            range: 1..9,
             kind: RegionKind::MachineCode,
             reason: "hook site".to_owned(),
         })
@@ -106,8 +106,8 @@ fn expected_write_accepts_only_the_named_typed_allegrex_program() {
             id: "hook".to_owned(),
             owner: "renderer-hook".to_owned(),
             purpose: "install typed hook".to_owned(),
-            offset: 0,
-            expected_original: baseline.to_vec(),
+            offset: 1,
+            expected_original: baseline[1..].to_vec(),
             replacement: vec![0, 0, 0, 0, 0x0f, 0, 0, 0],
             intent: WriteIntent::MachineCode(MachineCodeProvenance {
                 assembly_source_id: "hook-body".to_owned(),
@@ -117,13 +117,13 @@ fn expected_write_accepts_only_the_named_typed_allegrex_program() {
 
     assert_eq!(
         plan.apply(&baseline, Some(&verifier)).unwrap(),
-        [0, 0, 0, 0, 0x0f, 0, 0, 0]
+        [0xff, 0, 0, 0, 0, 0x0f, 0, 0, 0]
     );
 
     let wrong_profile = WritePlan::new()
         .region(ImageRegion {
             id: "code".to_owned(),
-            range: 0..8,
+            range: 1..9,
             kind: RegionKind::MachineCode,
             reason: "hook site".to_owned(),
         })
@@ -131,8 +131,8 @@ fn expected_write_accepts_only_the_named_typed_allegrex_program() {
             id: "hook".to_owned(),
             owner: "renderer-hook".to_owned(),
             purpose: "install typed hook".to_owned(),
-            offset: 0,
-            expected_original: baseline.to_vec(),
+            offset: 1,
+            expected_original: baseline[1..].to_vec(),
             replacement: vec![0, 0, 0, 0, 0x0f, 0, 0, 0],
             intent: WriteIntent::MachineCode(MachineCodeProvenance {
                 assembly_source_id: "hook-body".to_owned(),

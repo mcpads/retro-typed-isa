@@ -1,6 +1,7 @@
-use r5900::{DecodeError, decode_word, encode_word};
+use r5900::{AnalysisPoint, DecodeError, R5900, decode_word, encode_word};
+use typed_isa_core::StaticSemantics;
 
-const ADDRESS: u64 = 0x0010_0000;
+const ADDRESS: r5900::CodeLocation = 0x0010_0000;
 
 // One word for every chapter-2 instruction section in Sony's EE Core
 // Instruction Set Manual 6.0. These values come from the manual's encoding
@@ -450,6 +451,8 @@ fn every_source_listed_form_decodes_and_reencodes_exactly() {
             word,
             "{mnemonic}"
         );
+        R5900::semantics(&instruction, &AnalysisPoint::new(ADDRESS))
+            .unwrap_or_else(|error| panic!("{mnemonic} semantic failure: {error}"));
     }
 }
 

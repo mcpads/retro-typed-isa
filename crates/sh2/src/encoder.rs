@@ -244,7 +244,10 @@ pub enum VerifyError {
 }
 
 /// Decode and re-encode an entire placed SH-2 code byte sequence.
-pub fn verify_placed_program(bytes: &[u8], origin: u32) -> Result<Vec<Instruction>, VerifyError> {
+pub fn verify_placed_program(
+    bytes: &[u8],
+    origin: crate::CodeLocation,
+) -> Result<Vec<Instruction>, VerifyError> {
     let instructions = decode_program(bytes, origin)?;
     for (index, (chunk, instruction)) in bytes.chunks_exact(2).zip(instructions.iter()).enumerate()
     {

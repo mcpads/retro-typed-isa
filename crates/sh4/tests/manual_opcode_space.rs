@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
 
 use sh4::{
-    DecodedWord, FpscrState, FpuPrecision, FpuTransferSize, InstructionForm, classify_word,
-    encode_word,
+    AnalysisPoint, DecodedWord, FloatBank, FpscrState, FpuPrecision, FpuTransferSize,
+    GeneralRegisterBank, Instruction, InstructionForm, Sh4Pr0Sz0, Sh4Pr0Sz1, Sh4Pr1Sz0, Sh4Pr1Sz1,
+    classify_word, encode_word,
 };
+use typed_isa_core::StaticSemantics;
 
 // Normative source: STMicroelectronics and Hitachi, SH-4 32-bit CPU Core
 // Architecture, ADCS 7182230F, section 7.2 "Instruction Set". The predicates
@@ -88,6 +90,29 @@ fn manual_word_is_documented(word: u16, state: FpscrState) -> bool {
     }
 }
 
+fn assert_semantics(instruction: &Instruction, state: FpscrState) {
+    let point = AnalysisPoint::new(
+        0x1000,
+        GeneralRegisterBank::Primary,
+        FloatBank::Primary,
+        Some(state),
+    );
+    match (state.precision(), state.transfer_size()) {
+        (FpuPrecision::Single, FpuTransferSize::Single) => {
+            Sh4Pr0Sz0::semantics(instruction, &point).unwrap();
+        }
+        (FpuPrecision::Single, FpuTransferSize::Pair) => {
+            Sh4Pr0Sz1::semantics(instruction, &point).unwrap();
+        }
+        (FpuPrecision::Double, FpuTransferSize::Single) => {
+            Sh4Pr1Sz0::semantics(instruction, &point).unwrap();
+        }
+        (FpuPrecision::Double, FpuTransferSize::Pair) => {
+            Sh4Pr1Sz1::semantics(instruction, &point).unwrap();
+        }
+    }
+}
+
 #[test]
 fn every_fpscr_profile_matches_the_manual_opcode_space() {
     let mut all_decoded_forms = BTreeSet::new();
@@ -105,6 +130,7 @@ fn every_fpscr_profile_matches_the_manual_opcode_space() {
                 (true, DecodedWord::Instruction(instruction)) => {
                     all_decoded_forms.insert(instruction.form());
                     assert_eq!(encode_word(&instruction), Ok(word), "state={state:?}");
+                    assert_semantics(&instruction, state);
                 }
                 (false, DecodedWord::Unknown { word: actual }) => assert_eq!(actual, word),
                 (true, DecodedWord::Unknown { .. }) => {

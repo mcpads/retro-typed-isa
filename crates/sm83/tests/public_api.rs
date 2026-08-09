@@ -33,7 +33,7 @@ fn consumer_can_generate_and_verify_sm83_code() {
 
 #[test]
 fn shared_protocol_decodes_only_the_leading_instruction() {
-    let decoded = Sm83::decode_one(&[0x21, 0x00, 0xc0, 0x00], 0x4000).unwrap();
+    let decoded = Sm83::decode_one(&[0x21, 0x00, 0xc0, 0x00], &0x4000).unwrap();
 
     assert_eq!(decoded.source().as_slice(), [0x21, 0x00, 0xc0]);
     assert_eq!(
@@ -41,7 +41,7 @@ fn shared_protocol_decodes_only_the_leading_instruction() {
         &Instruction::Load16Immediate(Register16::Hl, 0xc000)
     );
     assert_eq!(
-        Sm83::encode_one(decoded.instruction(), 0x4000)
+        Sm83::encode_one(decoded.instruction(), &0x4000)
             .unwrap()
             .as_slice(),
         decoded.source().as_slice()

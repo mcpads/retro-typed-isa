@@ -7,7 +7,14 @@
 //! This fixture is deliberately not generated from `OPCODE_TABLE`,
 //! `InstructionForm::all()`, or the production decoder.
 
-use w65c816::{AddressingMode, InstructionForm, Mnemonic, WidthState, decode_bytes, encode_bytes};
+use typed_isa_core::{
+    AccessKind, ControlAction, ControlBoundary, StaticSemantics, StorageRelation,
+};
+use w65c816::{
+    AccumulatorView, AddressingMode, AnalysisPoint, Boundary, CpuMode, InstructionForm, Location,
+    Mnemonic, RegisterLocation, StatusLocation, W65C816M8X8, W65C816M8X16, W65C816M16X8,
+    W65C816M16X16, W65C816Profile, Width, WidthState, decode_bytes, encode_bytes,
+};
 
 const fn form(mnemonic: Mnemonic, mode: AddressingMode) -> InstructionForm {
     InstructionForm::new(mnemonic, mode)
@@ -368,4 +375,193 @@ fn manual_immediate_width_classes_follow_m_and_x() {
             3
         );
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ManualFlowClass {
+    Continue,
+    ConditionalTransfer,
+    Transfer,
+    LinkedTransfer,
+    Return,
+    ExceptionReturn,
+    Trap,
+    Wait,
+    Stop,
+}
+
+fn manual_flow_class(opcode: u8) -> ManualFlowClass {
+    match opcode {
+        0x10 | 0x30 | 0x50 | 0x70 | 0x90 | 0xb0 | 0xd0 | 0xf0 => {
+            ManualFlowClass::ConditionalTransfer
+        }
+        0x4c | 0x5c | 0x6c | 0x7c | 0x80 | 0x82 | 0xdc => ManualFlowClass::Transfer,
+        0x20 | 0x22 | 0xfc => ManualFlowClass::LinkedTransfer,
+        0x60 | 0x6b => ManualFlowClass::Return,
+        0x40 => ManualFlowClass::ExceptionReturn,
+        0x00 | 0x02 => ManualFlowClass::Trap,
+        0xcb => ManualFlowClass::Wait,
+        0xdb => ManualFlowClass::Stop,
+        _ => ManualFlowClass::Continue,
+    }
+}
+
+fn verify_manual_semantic_denominator<P>(mode: CpuMode)
+where
+    P: W65C816Profile
+        + StaticSemantics<AnalysisPoint = AnalysisPoint, Location = Location, Boundary = Boundary>,
+{
+    for opcode in 0_u8..=u8::MAX {
+        let decoded = decode_bytes(&[opcode, 0x41, 0x42, 0x43], P::WIDTHS)
+            .unwrap_or_else(|error| panic!("manual opcode ${opcode:02X} did not decode: {error}"));
+        let at = AnalysisPoint::new(w65c816::CodeLocation::new(0x12, 0x8000), mode);
+        let semantics = P::semantics(&decoded.instruction, &at).unwrap_or_else(|error| {
+            panic!("manual opcode ${opcode:02X} has no semantics: {error}")
+        });
+
+        let actual_flow = match &semantics.control_flow.action {
+            ControlAction::Continue => ManualFlowClass::Continue,
+            ControlAction::Transfer { .. } if semantics.control_flow.fallthrough.is_some() => {
+                ManualFlowClass::ConditionalTransfer
+            }
+            ControlAction::Transfer { .. } => ManualFlowClass::Transfer,
+            ControlAction::LinkedTransfer { .. } => ManualFlowClass::LinkedTransfer,
+            ControlAction::Return { .. } => ManualFlowClass::Return,
+            ControlAction::ExceptionReturn { .. } => ManualFlowClass::ExceptionReturn,
+            ControlAction::Boundary(ControlBoundary::Trap { .. }) => ManualFlowClass::Trap,
+            ControlAction::Boundary(ControlBoundary::Wait { .. }) => ManualFlowClass::Wait,
+            ControlAction::Boundary(ControlBoundary::Stop { .. }) => ManualFlowClass::Stop,
+            ControlAction::Boundary(ControlBoundary::ProfileExit { .. }) => {
+                panic!("W65C816 opcode ${opcode:02X} unexpectedly exits its profile")
+            }
+        };
+        assert_eq!(
+            actual_flow,
+            manual_flow_class(opcode),
+            "WDC opcode ${opcode:02X} has the wrong control-flow class"
+        );
+
+        let form = WDC_OPCODE_MATRIX[usize::from(opcode)];
+        if manual_form_reads_or_writes_data_memory(form) {
+            assert!(
+                semantics
+                    .location_accesses
+                    .iter()
+                    .any(|access| matches!(access.location, Location::Memory(_))),
+                "WDC opcode ${opcode:02X} omits its manual data-memory access"
+            );
+        }
+        for status in manual_status_writes(form) {
+            assert!(
+                semantics.location_accesses.iter().any(|access| {
+                    access.kind == AccessKind::Write && access.location == Location::Status(*status)
+                }),
+                "WDC opcode ${opcode:02X} omits manual status write {status:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn every_manual_selector_has_total_static_semantics_in_every_exact_width_profile() {
+    verify_manual_semantic_denominator::<W65C816M8X8>(CpuMode::NATIVE_M8_X8);
+    verify_manual_semantic_denominator::<W65C816M8X16>(CpuMode::NATIVE_M8_X16);
+    verify_manual_semantic_denominator::<W65C816M16X8>(CpuMode::NATIVE_M16_X8);
+    verify_manual_semantic_denominator::<W65C816M16X16>(CpuMode::NATIVE_M16_X16);
+    verify_manual_semantic_denominator::<W65C816M8X8>(CpuMode::Emulation);
+}
+
+fn manual_form_reads_or_writes_data_memory(form: InstructionForm) -> bool {
+    use AddressingMode::*;
+    if matches!(
+        form.mnemonic,
+        Mnemonic::Jmp
+            | Mnemonic::Jml
+            | Mnemonic::Jsr
+            | Mnemonic::Jsl
+            | Mnemonic::Pea
+            | Mnemonic::Per
+    ) {
+        return matches!(
+            form.mode,
+            AbsoluteIndirect | AbsoluteIndexedIndirectX | AbsoluteIndirectLong
+        );
+    }
+    !matches!(
+        form.mode,
+        Implied | Accumulator | Immediate | ImmediateByte | Relative8 | Relative16 | BlockMove
+    )
+}
+
+fn manual_status_writes(form: InstructionForm) -> &'static [StatusLocation] {
+    use Mnemonic::*;
+    use StatusLocation::*;
+    match form.mnemonic {
+        Adc | Sbc => &[Negative, Overflow, Zero, Carry],
+        And | Asl | Dec | Eor | Inc | Lda | Ldx | Ldy | Lsr | Ora | Rol | Ror | Tax | Tay | Tcd
+        | Tdc | Tsc | Tsx | Txa | Txy | Tya | Tyx | Xba => &[Negative, Zero],
+        Bit if form.mode == AddressingMode::Immediate => &[Zero],
+        Bit => &[Negative, Overflow, Zero],
+        Cmp | Cpx | Cpy => &[Negative, Zero, Carry],
+        Trb | Tsb => &[Zero],
+        Clc | Sec => &[Carry],
+        Cld | Sed => &[Decimal],
+        Cli | Sei => &[InterruptDisable],
+        Clv => &[Overflow],
+        Brk | Cop => &[Decimal, InterruptDisable],
+        Pla | Plb | Pld | Plx | Ply => &[Negative, Zero],
+        _ => &[],
+    }
+}
+
+#[test]
+fn source_defined_aliases_and_mode_transitions_remain_sound() {
+    let full = Location::Register(RegisterLocation::Accumulator(AccumulatorView::Full));
+    let low = Location::Register(RegisterLocation::Accumulator(AccumulatorView::Low));
+    let high = Location::Register(RegisterLocation::Accumulator(AccumulatorView::High));
+    assert_eq!(
+        W65C816M16X16::storage_relation(&full, &low),
+        StorageRelation::Overlapping
+    );
+    assert_eq!(
+        W65C816M16X16::storage_relation(&full, &high),
+        StorageRelation::Overlapping
+    );
+    assert_eq!(
+        W65C816M16X16::storage_relation(&low, &high),
+        StorageRelation::Disjoint
+    );
+    assert_eq!(
+        W65C816M16X16::storage_relation(
+            &Location::Register(RegisterLocation::X(Width::Eight)),
+            &Location::Register(RegisterLocation::X(Width::Sixteen)),
+        ),
+        StorageRelation::Overlapping
+    );
+
+    let at = AnalysisPoint::new(
+        w65c816::CodeLocation::new(0x12, 0x8000),
+        CpuMode::NATIVE_M16_X16,
+    );
+    let sep = decode_bytes(&[0xe2, 0x30], WidthState::M16_X16).unwrap();
+    let semantics = W65C816M16X16::semantics(&sep.instruction, &at).unwrap();
+    assert_eq!(
+        semantics
+            .control_flow
+            .fallthrough
+            .expect("SEP continues")
+            .mode(),
+        Some(CpuMode::NATIVE_M8_X8)
+    );
+
+    let xce = decode_bytes(&[0xfb], WidthState::M16_X16).unwrap();
+    let semantics = W65C816M16X16::semantics(&xce.instruction, &at).unwrap();
+    assert_eq!(
+        semantics
+            .control_flow
+            .fallthrough
+            .expect("XCE reaches a sequence boundary")
+            .mode(),
+        None
+    );
 }

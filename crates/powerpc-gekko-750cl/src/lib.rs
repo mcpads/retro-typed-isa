@@ -37,12 +37,15 @@
 pub const GEKKO_PROFILE_ID: &str = "powerpc-gekko";
 /// Stable profile identifier for the IBM PowerPC 750CL instruction set.
 pub const POWERPC_750CL_PROFILE_ID: &str = "powerpc-750cl";
+/// Aligned 32-bit PowerPC executable address.
+pub type CodeLocation = u32;
 /// Number of executable instruction forms declared by both profiles.
 pub const DECLARED_FORM_COUNT: usize = 222;
 
 mod assembler;
 mod codec;
 mod instruction;
+mod semantics;
 
 pub use assembler::{
     AssembledProgram, Assembler, AssemblerError, GekkoAssembler, ProfileAssembler,
@@ -59,4 +62,39 @@ pub use instruction::{
     QuantizationRegister, SegmentRegister, SpecialPurposeRegister, StringByteCount,
     TimeBaseRegister, TrapCondition,
 };
+pub use semantics::{
+    AnalysisPoint, Boundary, ControlFlow, ImplicitState, IndirectTarget, InstructionSemantics,
+    IntegerExceptionField, Location, MemoryAddress, MemoryLocation, MemoryWidth, Reference,
+    SemanticError,
+};
 pub use typed_isa_core::InstructionSpan;
+
+macro_rules! implement_static_semantics {
+    ($profile:ty, $semantic_profile:expr) => {
+        impl typed_isa_core::StaticSemantics for $profile {
+            type AnalysisPoint = AnalysisPoint;
+            type IndirectTarget = IndirectTarget;
+            type Boundary = Boundary;
+            type Location = Location;
+            type Reference = Reference;
+            type SemanticError = SemanticError;
+
+            fn semantics(
+                instruction: &Self::Instruction,
+                at: &Self::AnalysisPoint,
+            ) -> Result<InstructionSemantics, Self::SemanticError> {
+                semantics::semantics(instruction, *at, $semantic_profile)
+            }
+
+            fn storage_relation(
+                left: &Self::Location,
+                right: &Self::Location,
+            ) -> typed_isa_core::StorageRelation {
+                semantics::storage_relation(left, right)
+            }
+        }
+    };
+}
+
+implement_static_semantics!(PowerPcGekko, semantics::Profile::Gekko);
+implement_static_semantics!(PowerPc750Cl, semantics::Profile::PowerPc750Cl);

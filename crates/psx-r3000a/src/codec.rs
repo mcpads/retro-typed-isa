@@ -3,9 +3,10 @@ use thiserror::Error;
 use crate::instruction::{GteCommand, GteOpcode, Instruction, Register};
 
 /// Decode one PlayStation instruction from its natural 32-bit word.
-pub fn decode_word(word: u32, pc: u32) -> Result<Instruction, DecodeError> {
+pub fn decode_word(word: u32, location: crate::CodeLocation) -> Result<Instruction, DecodeError> {
+    let pc = location;
     if pc & 3 != 0 {
-        return Err(DecodeError::UnalignedInstructionAddress { address: pc });
+        return Err(DecodeError::UnalignedCodeLocation { location: pc });
     }
     match opcode(word) {
         0x00 => decode_special(word),
@@ -114,9 +115,13 @@ pub fn decode_word(word: u32, pc: u32) -> Result<Instruction, DecodeError> {
 }
 
 /// Encode one PlayStation instruction as its natural 32-bit word.
-pub fn encode_word(instruction: &Instruction, pc: u32) -> Result<u32, EncodeError> {
+pub fn encode_word(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<u32, EncodeError> {
+    let pc = location;
     if pc & 3 != 0 {
-        return Err(EncodeError::UnalignedInstructionAddress { address: pc });
+        return Err(EncodeError::UnalignedCodeLocation { location: pc });
     }
     use Instruction::*;
 
@@ -211,35 +216,47 @@ pub fn encode_word(instruction: &Instruction, pc: u32) -> Result<u32, EncodeErro
 // Compatibility names from the source crate. New code uses names that state
 // whether it is operating on a word or on serialized bytes.
 #[doc(hidden)]
-pub fn decode(word: u32, pc: u32) -> Result<Instruction, DecodeError> {
-    decode_word(word, pc)
+pub fn decode(word: u32, location: crate::CodeLocation) -> Result<Instruction, DecodeError> {
+    decode_word(word, location)
 }
 
 #[doc(hidden)]
-pub fn encode(instruction: &Instruction, pc: u32) -> Result<u32, EncodeError> {
-    encode_word(instruction, pc)
+pub fn encode(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<u32, EncodeError> {
+    encode_word(instruction, location)
 }
 
 /// Decode one instruction from the first four bytes in PlayStation byte order.
-pub fn decode_bytes(bytes: &[u8], pc: u32) -> Result<Instruction, DecodeError> {
+pub fn decode_bytes(
+    bytes: &[u8],
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
     let Some(bytes) = bytes.get(..4) else {
         return Err(DecodeError::TruncatedInput { len: bytes.len() });
     };
     decode_word(
         u32::from_le_bytes(bytes.try_into().expect("four-byte instruction")),
-        pc,
+        location,
     )
 }
 
 /// Encode one instruction in PlayStation byte order.
-pub fn encode_bytes(instruction: &Instruction, pc: u32) -> Result<[u8; 4], EncodeError> {
-    Ok(encode_word(instruction, pc)?.to_le_bytes())
+pub fn encode_bytes(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<[u8; 4], EncodeError> {
+    Ok(encode_word(instruction, location)?.to_le_bytes())
 }
 
 /// Decodes a whole little-endian instruction stream placed at `origin`.
-pub fn decode_le_bytes(bytes: &[u8], origin: u32) -> Result<Vec<Instruction>, DecodeError> {
+pub fn decode_le_bytes(
+    bytes: &[u8],
+    origin: crate::CodeLocation,
+) -> Result<Vec<Instruction>, DecodeError> {
     if origin & 3 != 0 {
-        return Err(DecodeError::UnalignedInstructionAddress { address: origin });
+        return Err(DecodeError::UnalignedCodeLocation { location: origin });
     }
     if bytes.len() % 4 != 0 {
         return Err(DecodeError::TruncatedInput { len: bytes.len() });
@@ -259,9 +276,12 @@ pub fn decode_le_bytes(bytes: &[u8], origin: u32) -> Result<Vec<Instruction>, De
 }
 
 /// Encodes a whole semantic instruction stream in PlayStation byte order.
-pub fn encode_le_bytes(instructions: &[Instruction], origin: u32) -> Result<Vec<u8>, EncodeError> {
+pub fn encode_le_bytes(
+    instructions: &[Instruction],
+    origin: crate::CodeLocation,
+) -> Result<Vec<u8>, EncodeError> {
     if origin & 3 != 0 {
-        return Err(EncodeError::UnalignedInstructionAddress { address: origin });
+        return Err(EncodeError::UnalignedCodeLocation { location: origin });
     }
     let mut output = Vec::with_capacity(instructions.len() * 4);
     for (index, instruction) in instructions.iter().enumerate() {
@@ -279,7 +299,10 @@ pub fn encode_le_bytes(instructions: &[Instruction], origin: u32) -> Result<Vec<
 
 /// Disassemble placed code and require every instruction to re-encode to its
 /// exact original word at the same address.
-pub fn verify_placed_program(bytes: &[u8], origin: u32) -> Result<Vec<Instruction>, VerifyError> {
+pub fn verify_placed_program(
+    bytes: &[u8],
+    origin: crate::CodeLocation,
+) -> Result<Vec<Instruction>, VerifyError> {
     let instructions = decode_le_bytes(bytes, origin).map_err(VerifyError::Decode)?;
     for (index, (instruction, chunk)) in instructions.iter().zip(bytes.chunks_exact(4)).enumerate()
     {
@@ -778,17 +801,11 @@ const fn immediate_signed(word: u32) -> i16 {
 /// Failure to decode one instruction or a placed instruction stream.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum DecodeError {
-    /// A shared-protocol address exceeds the 32-bit PlayStation address space.
-    #[error("instruction address {address:#x} exceeds the 32-bit PlayStation address space")]
-    AddressOutOfRange {
-        /// Rejected address.
-        address: u64,
-    },
-    /// An instruction address is not four-byte aligned.
-    #[error("instruction address {address:#010x} is not word-aligned")]
-    UnalignedInstructionAddress {
-        /// Rejected address.
-        address: u32,
+    /// An executable code location is not four-byte aligned.
+    #[error("code location {location:#010x} is not word-aligned")]
+    UnalignedCodeLocation {
+        /// Rejected executable location.
+        location: crate::CodeLocation,
     },
     /// A byte stream does not contain a whole number of instructions.
     #[error("input length {len} is not a whole number of 32-bit instructions")]
@@ -859,17 +876,11 @@ pub enum DecodeError {
 /// Failure to encode one instruction or a placed instruction stream.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum EncodeError {
-    /// A shared-protocol address exceeds the 32-bit PlayStation address space.
-    #[error("instruction address {address:#x} exceeds the 32-bit PlayStation address space")]
-    AddressOutOfRange {
-        /// Rejected address.
-        address: u64,
-    },
-    /// An instruction address is not four-byte aligned.
-    #[error("instruction address {address:#010x} is not word-aligned")]
-    UnalignedInstructionAddress {
-        /// Rejected address.
-        address: u32,
+    /// An executable code location is not four-byte aligned.
+    #[error("code location {location:#010x} is not word-aligned")]
+    UnalignedCodeLocation {
+        /// Rejected executable location.
+        location: crate::CodeLocation,
     },
     /// A semantic numeric field exceeds its encoded width.
     #[error("{field} value {value:#x} exceeds {maximum:#x}")]
@@ -975,19 +986,19 @@ mod tests {
         let address = 0x8001_0002;
         assert!(matches!(
             decode_word(0, address),
-            Err(DecodeError::UnalignedInstructionAddress { .. })
+            Err(DecodeError::UnalignedCodeLocation { .. })
         ));
         assert!(matches!(
             encode_word(&Instruction::nop(), address),
-            Err(EncodeError::UnalignedInstructionAddress { .. })
+            Err(EncodeError::UnalignedCodeLocation { .. })
         ));
         assert!(matches!(
             decode_le_bytes(&[], address),
-            Err(DecodeError::UnalignedInstructionAddress { .. })
+            Err(DecodeError::UnalignedCodeLocation { .. })
         ));
         assert!(matches!(
             encode_le_bytes(&[], address),
-            Err(EncodeError::UnalignedInstructionAddress { .. })
+            Err(EncodeError::UnalignedCodeLocation { .. })
         ));
     }
 

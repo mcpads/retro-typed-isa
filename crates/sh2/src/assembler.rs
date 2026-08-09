@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use typed_isa_core::InstructionBytes;
 
 use crate::encoder::{EncodeError, VerifyError, encode_word, verify_placed_program};
 use crate::instruction::Instruction;
@@ -81,7 +82,10 @@ impl Assembler {
     ///
     /// Branch alignment and reach, delay-slot legality, and semantic byte
     /// round trips are checked after placement.
-    pub fn assemble(&self, origin: u32) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         if origin & 1 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });
         }
@@ -129,10 +133,19 @@ impl Assembler {
 
         let mut words = Vec::with_capacity(instructions.len());
         let mut bytes = Vec::with_capacity(instructions.len() * 2);
-        for instruction in &instructions {
+        let mut instruction_spans = Vec::with_capacity(instructions.len());
+        for (index, instruction) in instructions.iter().enumerate() {
             let word = encode_word(instruction).map_err(AssemblerError::Encode)?;
+            let encoded = word.to_be_bytes();
             words.push(word);
-            bytes.extend_from_slice(&word.to_be_bytes());
+            instruction_spans.push(InstructionSpan {
+                offset: bytes.len(),
+                location: address_for(origin, index)?,
+                bytes: InstructionBytes::new(encoded.to_vec())
+                    .expect("encoded SH-2 instructions are non-empty"),
+                instruction: *instruction,
+            });
+            bytes.extend_from_slice(&encoded);
         }
 
         let decoded = verify_placed_program(&bytes, origin).map_err(AssemblerError::Verify)?;
@@ -151,6 +164,7 @@ impl Assembler {
             bytes,
             words,
             instructions,
+            instruction_spans,
         })
     }
 
@@ -269,11 +283,15 @@ pub struct AssembledProgram {
     bytes: Vec<u8>,
     words: Vec<u16>,
     instructions: Vec<Instruction>,
+    instruction_spans: Vec<InstructionSpan>,
 }
+
+/// Workspace-wide instruction-placement evidence specialized for SH-2.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<crate::CodeLocation, Instruction>;
 
 impl AssembledProgram {
     /// Returns the requested program origin.
-    pub fn origin(&self) -> u32 {
+    pub fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -295,6 +313,11 @@ impl AssembledProgram {
     /// Returns semantic instructions in placement order.
     pub fn instructions(&self) -> &[Instruction] {
         &self.instructions
+    }
+
+    /// Returns the exact bytes, location, and typed identity of each instruction.
+    pub fn instruction_spans(&self) -> &[InstructionSpan] {
+        &self.instruction_spans
     }
 }
 

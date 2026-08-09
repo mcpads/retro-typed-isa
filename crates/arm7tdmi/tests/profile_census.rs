@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
 use arm7tdmi::{
-    ArmInstructionForm, DataOperation, DecodeError, HalfwordTransferKind, StatusRegister,
-    ThumbAluOperation, ThumbHighOperation, ThumbImmediateOperation, ThumbInstructionForm,
-    ThumbTransferOperation, ThumbTransferWidth, TransferWidth, decode_arm_bytes,
-    decode_thumb_bytes, encode_arm_bytes, encode_thumb_bytes,
+    AnalysisPoint, Arm7TdmiArm, Arm7TdmiThumb, ArmInstructionForm, DataOperation, DecodeError,
+    HalfwordTransferKind, ProcessorMode, StatusRegister, ThumbAluOperation, ThumbHighOperation,
+    ThumbImmediateOperation, ThumbInstructionForm, ThumbTransferOperation, ThumbTransferWidth,
+    TransferWidth, decode_arm_bytes, decode_thumb_bytes, encode_arm_bytes, encode_thumb_bytes,
 };
+use typed_isa_core::StaticSemantics;
 
 #[test]
 fn ddi_0210c_arm_summary_accounts_for_forty_nine_semantic_forms() {
@@ -225,7 +226,14 @@ fn every_thumb_selector_is_fail_closed_or_round_trips_exactly() {
             source.extend_from_slice(&0xf800_u16.to_le_bytes());
         }
         match decode_thumb_bytes(&source) {
-            Ok(instruction) => assert_eq!(encode_thumb_bytes(&instruction).unwrap(), source),
+            Ok(instruction) => {
+                assert_eq!(encode_thumb_bytes(&instruction).unwrap(), source);
+                Arm7TdmiThumb::semantics(
+                    &instruction,
+                    &AnalysisPoint::thumb(0x1000, ProcessorMode::System),
+                )
+                .unwrap();
+            }
             Err(
                 DecodeError::ReservedEncoding { .. } | DecodeError::UnpredictableEncoding { .. },
             ) => {}
@@ -241,6 +249,11 @@ fn all_documented_arm_condition_selectors_round_trip_and_nv_is_reserved() {
         let bytes = word.to_le_bytes();
         let instruction = decode_arm_bytes(&bytes).unwrap();
         assert_eq!(encode_arm_bytes(&instruction).unwrap(), bytes);
+        Arm7TdmiArm::semantics(
+            &instruction,
+            &AnalysisPoint::arm(0x1000, ProcessorMode::System),
+        )
+        .unwrap();
     }
     assert!(matches!(
         decode_arm_bytes(&0xf3a0_0001_u32.to_le_bytes()),
@@ -255,7 +268,12 @@ fn arm_structural_selector_lattice_is_fail_closed_or_round_trips_exactly() {
             let word = 0xe001_2304 | (upper_selector << 20) | (lower_selector << 4);
             match decode_arm_bytes(&word.to_le_bytes()) {
                 Ok(instruction) => {
-                    assert_eq!(encode_arm_bytes(&instruction).unwrap(), word.to_le_bytes())
+                    assert_eq!(encode_arm_bytes(&instruction).unwrap(), word.to_le_bytes());
+                    Arm7TdmiArm::semantics(
+                        &instruction,
+                        &AnalysisPoint::arm(0x1000, ProcessorMode::System),
+                    )
+                    .unwrap();
                 }
                 Err(
                     DecodeError::ReservedEncoding { .. }
@@ -462,6 +480,11 @@ fn source_format_representatives_decode_to_each_arm_family() {
         let instruction = decode_arm_bytes(&word.to_le_bytes()).unwrap();
         assert_eq!(instruction.form(), expected_form, "word {word:#010x}");
         assert_eq!(encode_arm_bytes(&instruction).unwrap(), word.to_le_bytes());
+        Arm7TdmiArm::semantics(
+            &instruction,
+            &AnalysisPoint::arm(0x1000, ProcessorMode::System),
+        )
+        .unwrap();
         decoded_forms.insert(instruction.form());
     }
     assert_eq!(decoded_forms.len(), 49);
@@ -607,6 +630,11 @@ fn source_format_representatives_decode_to_each_thumb_form() {
         let instruction = decode_thumb_bytes(&bytes).unwrap();
         assert_eq!(instruction.form(), expected_form, "halfword {word:#06x}");
         assert_eq!(encode_thumb_bytes(&instruction).unwrap(), bytes);
+        Arm7TdmiThumb::semantics(
+            &instruction,
+            &AnalysisPoint::thumb(0x1000, ProcessorMode::System),
+        )
+        .unwrap();
         decoded_forms.insert(instruction.form());
     }
     let branch_link = decode_thumb_bytes(&[0x00, 0xf0, 0x00, 0xf8]).unwrap();
@@ -615,6 +643,11 @@ fn source_format_representatives_decode_to_each_thumb_form() {
         encode_thumb_bytes(&branch_link).unwrap(),
         [0x00, 0xf0, 0x00, 0xf8]
     );
+    Arm7TdmiThumb::semantics(
+        &branch_link,
+        &AnalysisPoint::thumb(0x1000, ProcessorMode::System),
+    )
+    .unwrap();
     decoded_forms.insert(branch_link.form());
     assert_eq!(decoded_forms.len(), 62);
 }

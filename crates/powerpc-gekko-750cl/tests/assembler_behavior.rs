@@ -26,8 +26,8 @@ fn labels_lower_to_checked_relative_branches() {
 
     let program = assembler.assemble(0x8000_0000).unwrap();
 
-    assert_eq!(program.label_address("entry"), Some(0x8000_0000));
-    assert_eq!(program.label_address("exit"), Some(0x8000_0008));
+    assert_eq!(program.label_location("entry"), Some(0x8000_0000));
+    assert_eq!(program.label_location("exit"), Some(0x8000_0008));
     assert_eq!(
         program.bytes(),
         [

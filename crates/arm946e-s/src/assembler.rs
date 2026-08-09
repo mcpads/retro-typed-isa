@@ -82,7 +82,7 @@ impl ArmAssembler {
     ///
     /// `origin` and every instruction position must be word-aligned. ARM branch
     /// displacements use the architectural address plus eight as their PC base.
-    pub fn assemble(&self, origin: u32) -> Result<ArmProgram, ArmAssemblerError> {
+    pub fn assemble(&self, origin: crate::CodeLocation) -> Result<ArmProgram, ArmAssemblerError> {
         if origin & 3 != 0 {
             return Err(ArmAssemblerError::UnalignedOrigin { origin });
         }
@@ -129,7 +129,7 @@ impl ArmAssembler {
             let encoded = encode_arm_bytes(&instruction)?;
             spans.push(InstructionSpan {
                 offset: bytes.len(),
-                address: u64::from(address),
+                location: address,
                 bytes: InstructionBytes::new(encoded.to_vec())
                     .expect("ARM instruction is non-empty"),
                 instruction,
@@ -178,7 +178,7 @@ fn collect_arm_labels(
 
 fn verify_arm(
     bytes: &[u8],
-    spans: &[InstructionSpan<ArmInstruction>],
+    spans: &[InstructionSpan<crate::CodeLocation, ArmInstruction>],
 ) -> Result<(), ArmAssemblerError> {
     for span in spans {
         let source = bytes.get(span.offset..span.offset + 4).ok_or(
@@ -202,12 +202,12 @@ pub struct ArmProgram {
     origin: u32,
     bytes: Vec<u8>,
     labels: BTreeMap<String, u32>,
-    spans: Vec<InstructionSpan<ArmInstruction>>,
+    spans: Vec<InstructionSpan<crate::CodeLocation, ArmInstruction>>,
 }
 
 impl ArmProgram {
     /// Return the address assigned to the first output byte.
-    pub const fn origin(&self) -> u32 {
+    pub const fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -217,12 +217,12 @@ impl ArmProgram {
     }
 
     /// Return the resolved address of a defined label, if present.
-    pub fn label_address(&self, label: &str) -> Option<u32> {
+    pub fn label_location(&self, label: &str) -> Option<crate::CodeLocation> {
         self.labels.get(label).copied()
     }
 
     /// Borrow the locations, bytes, and identities of ARM instructions only.
-    pub fn instruction_spans(&self) -> &[InstructionSpan<ArmInstruction>] {
+    pub fn instruction_spans(&self) -> &[InstructionSpan<crate::CodeLocation, ArmInstruction>] {
         &self.spans
     }
 }
@@ -355,7 +355,10 @@ impl ThumbAssembler {
     /// `origin` and every instruction position must be halfword-aligned. Thumb
     /// branches use the architectural address plus four; immediate `BLX` also
     /// word-aligns that PC base.
-    pub fn assemble(&self, origin: u32) -> Result<ThumbProgram, ThumbAssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<ThumbProgram, ThumbAssemblerError> {
         if origin & 1 != 0 {
             return Err(ThumbAssemblerError::UnalignedOrigin { origin });
         }
@@ -427,7 +430,7 @@ impl ThumbAssembler {
             let encoded = encode_thumb_bytes(&instruction)?;
             spans.push(InstructionSpan {
                 offset: bytes.len(),
-                address: u64::from(address),
+                location: address,
                 bytes: InstructionBytes::new(encoded.clone())
                     .expect("Thumb instruction is non-empty"),
                 instruction,
@@ -476,7 +479,7 @@ fn collect_thumb_labels(
 
 fn verify_thumb(
     bytes: &[u8],
-    spans: &[InstructionSpan<ThumbInstruction>],
+    spans: &[InstructionSpan<crate::CodeLocation, ThumbInstruction>],
 ) -> Result<(), ThumbAssemblerError> {
     for span in spans {
         let len = span.bytes.len().get();
@@ -501,12 +504,12 @@ pub struct ThumbProgram {
     origin: u32,
     bytes: Vec<u8>,
     labels: BTreeMap<String, u32>,
-    spans: Vec<InstructionSpan<ThumbInstruction>>,
+    spans: Vec<InstructionSpan<crate::CodeLocation, ThumbInstruction>>,
 }
 
 impl ThumbProgram {
     /// Return the address assigned to the first output byte.
-    pub const fn origin(&self) -> u32 {
+    pub const fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -516,12 +519,12 @@ impl ThumbProgram {
     }
 
     /// Return the resolved address of a defined label, if present.
-    pub fn label_address(&self, label: &str) -> Option<u32> {
+    pub fn label_location(&self, label: &str) -> Option<crate::CodeLocation> {
         self.labels.get(label).copied()
     }
 
     /// Borrow the locations, bytes, and identities of Thumb instructions only.
-    pub fn instruction_spans(&self) -> &[InstructionSpan<ThumbInstruction>] {
+    pub fn instruction_spans(&self) -> &[InstructionSpan<crate::CodeLocation, ThumbInstruction>] {
         &self.spans
     }
 }

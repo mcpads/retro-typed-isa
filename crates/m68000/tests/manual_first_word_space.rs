@@ -1,4 +1,5 @@
-use m68000::{DecodedWord, classify_word};
+use m68000::{AnalysisPoint, DecodedWord, Mc68000, PrivilegeMode, classify_word, decode_bytes};
+use typed_isa_core::StaticSemantics;
 
 // Normative source: Motorola, M68000 8-/16-/32-Bit Microprocessors User's
 // Manual, Ninth Edition, sections 2.2 and 8. The functions below transcribe
@@ -282,6 +283,16 @@ fn every_first_word_matches_the_mc68000_manual_space() {
             source_defined,
             "word 0x{word:04X}"
         );
+        if source_defined {
+            let mut fixture = [0_u8; 24];
+            fixture[..2].copy_from_slice(&word.to_be_bytes());
+            let decoded = decode_bytes(&fixture).unwrap();
+            Mc68000::semantics(
+                &decoded.instruction,
+                &AnalysisPoint::new(m68000::CodeLocation::new(0x1000), PrivilegeMode::Supervisor),
+            )
+            .unwrap();
+        }
     }
 
     assert_eq!(manual_documented, 45_816);

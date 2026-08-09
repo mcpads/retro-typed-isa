@@ -1,8 +1,7 @@
 use v30::{
-    BitFieldLength, BitIndex, ControlFlow, DecodeError, EffectiveAddress, EffectiveAddressBase,
-    EffectiveAddressDisplacement, EffectiveAddressError, Instruction, InstructionAddress, Operand,
-    OperandSize, Prefix, Register8, Register16, SignedImmediate, decode_bytes, encode_bytes,
-    verify_placed_program,
+    BitFieldLength, BitIndex, CodeLocation, DecodeError, EffectiveAddress, EffectiveAddressBase,
+    EffectiveAddressDisplacement, EffectiveAddressError, Instruction, Operand, OperandSize, Prefix,
+    Register8, Register16, SignedImmediate, decode_bytes, encode_bytes, verify_placed_program,
 };
 
 fn assert_canonical(bytes: &[u8], expected: Instruction) {
@@ -212,19 +211,19 @@ fn bus_lock_applies_to_the_following_native_instruction() {
 
     let placed = verify_placed_program(
         &[0xf0, 0xeb, 0xfe],
-        InstructionAddress {
+        CodeLocation {
             seg: 0x1000,
             off: 0,
         },
     )
     .unwrap();
-    assert_eq!(
-        placed[0].control_flow,
-        ControlFlow::Jump {
-            target: Some(InstructionAddress {
-                seg: 0x1000,
-                off: 1,
-            }),
+    assert!(matches!(
+        &placed[0].control_flow.action,
+        typed_isa_core::ControlAction::Transfer {
+            target: typed_isa_core::ControlTarget::Direct(target)
+        } if target.location == CodeLocation {
+            seg: 0x1000,
+            off: 1,
         }
-    );
+    ));
 }

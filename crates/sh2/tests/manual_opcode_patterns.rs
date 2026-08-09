@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
-use sh2::{DecodedWord, InstructionForm, classify_word, encode_word};
+use sh2::{DecodedWord, InstructionForm, Sh2, classify_word, encode_word};
+use typed_isa_core::StaticSemantics;
 
 // Normative source: Hitachi, SuperH RISC Engine SH-1/SH-2 Programming
 // Manual, 3 September 1996, Appendix A "Instruction List". Each row below
@@ -188,6 +189,8 @@ fn every_word_matches_exactly_one_manual_pattern_or_is_reserved() {
                 manual_forms.insert(expected.form);
                 assert_eq!(instruction.form(), expected.form, "word 0x{word:04X}");
                 assert_eq!(encode_word(&instruction), Ok(word), "word 0x{word:04X}");
+                Sh2::semantics(&instruction, &0x1000)
+                    .unwrap_or_else(|error| panic!("manual word 0x{word:04X}: {error}"));
             }
             ([], DecodedWord::Unknown { word: actual }) => assert_eq!(actual, word),
             ([], DecodedWord::Instruction(instruction)) => {

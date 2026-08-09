@@ -2,13 +2,14 @@ use expected_write::{
     ExpectedWrite, ImageRegion, MachineCodeProvenance, MachineCodeVerifierError, RegionKind,
     WriteIntent, WritePlan,
 };
+use typed_isa_core::{ControlAction, ControlTarget};
 use v30::{
-    Assembler, AssemblerError, Condition, ControlFlow, ExpectedWriteVerifier, Instruction,
-    InstructionAddress, LoopCondition, ProgramVerificationError,
+    Assembler, AssemblerError, CodeLocation, Condition, ExpectedWriteVerifier, Instruction,
+    LoopCondition, ProgramVerificationError,
 };
 
-fn origin() -> InstructionAddress {
-    InstructionAddress {
+fn origin() -> CodeLocation {
+    CodeLocation {
         seg: 0x1234,
         off: 0x0100,
     }
@@ -34,17 +35,27 @@ fn labels_lower_to_checked_relative_control_flow() {
             0x90, 0x75, 0xfd, 0xe2, 0xfb, 0xe8, 0x02, 0x00, 0xeb, 0x00, 0xc3
         ]
     );
-    assert_eq!(program.label_address("start"), Some(origin()));
+    assert_eq!(program.label_location("start"), Some(origin()));
     assert_eq!(program.instruction_spans().len(), 6);
+    assert_eq!(program.instruction_spans()[1].offset, 1);
+    assert_eq!(program.instruction_spans()[1].location.off, 0x0101);
     assert_eq!(
-        program.instruction_spans()[1].control_flow,
-        ControlFlow::Branch {
-            target: origin(),
-            fallthrough: InstructionAddress {
-                seg: 0x1234,
-                off: 0x0103,
-            },
-        }
+        program.instruction_spans()[1].bytes.as_slice(),
+        [0x75, 0xfd]
+    );
+    let flow = &program.placed_instructions()[1].control_flow;
+    assert!(matches!(
+        &flow.action,
+        ControlAction::Transfer {
+            target: ControlTarget::Direct(target)
+        } if target.location == origin()
+    ));
+    assert_eq!(
+        flow.fallthrough.unwrap().location,
+        CodeLocation {
+            seg: 0x1234,
+            off: 0x0103,
+        },
     );
 }
 
@@ -73,7 +84,7 @@ fn undefined_far_and_segment_crossing_programs_fail() {
     let mut crossing = Assembler::new();
     crossing.emit(Instruction::Nop).emit(Instruction::Nop);
     assert!(matches!(
-        crossing.assemble(InstructionAddress {
+        crossing.assemble(CodeLocation {
             seg: 0,
             off: 0xffff,
         }),
@@ -89,9 +100,7 @@ fn expected_write_accepts_only_the_resolved_typed_v30_program() {
     assembler
         .emit(Instruction::Nop)
         .emit(Instruction::Ret { pop: 0 });
-    let source = assembler
-        .assemble(InstructionAddress { seg: 0, off: 0 })
-        .unwrap();
+    let source = assembler.assemble(origin()).unwrap();
     let verifier = ExpectedWriteVerifier::new(move |source_id: &str| {
         if source_id == "hook-body" {
             Ok(source.clone())

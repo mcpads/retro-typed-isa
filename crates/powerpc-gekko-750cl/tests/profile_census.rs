@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use powerpc_gekko_750cl::{
-    DECLARED_FORM_COUNT, InstructionForm, PowerPc750Cl, PowerPcGekko, decode_750cl_word,
-    encode_750cl_word,
+    AnalysisPoint, DECLARED_FORM_COUNT, InstructionForm, PowerPc750Cl, PowerPcGekko,
+    decode_750cl_word, encode_750cl_word,
 };
-use typed_isa_core::TypedIsa;
+use typed_isa_core::{StaticSemantics, TypedIsa};
 
 // IBM Gekko User's Manual Appendix A and IBM 750CL User's Manual Appendix A
 // Table A-1 plus Appendix B Table B-1. Both manuals define this same selector
@@ -64,17 +64,19 @@ fn ibm_source_tables_cover_every_declared_form_for_both_profiles() {
             assert_eq!(encode_750cl_word(&instruction, 0), Ok(word));
             let bytes = word.to_be_bytes();
             assert_eq!(
-                PowerPcGekko::decode_one(&bytes, 0)
+                PowerPcGekko::decode_one(&bytes, &0)
                     .unwrap()
                     .into_instruction(),
                 instruction
             );
             assert_eq!(
-                PowerPc750Cl::decode_one(&bytes, 0)
+                PowerPc750Cl::decode_one(&bytes, &0)
                     .unwrap()
                     .into_instruction(),
                 instruction
             );
+            PowerPcGekko::semantics(&instruction, &AnalysisPoint::new(0)).unwrap();
+            PowerPc750Cl::semantics(&instruction, &AnalysisPoint::new(0)).unwrap();
             instruction.form()
         })
         .collect::<BTreeSet<_>>();

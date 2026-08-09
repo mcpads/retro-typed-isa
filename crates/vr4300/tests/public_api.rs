@@ -1,9 +1,31 @@
 use typed_isa_core::TypedIsa;
 use vr4300::{
     DecodeError, EncodeError, FloatingBinaryOperation, FloatingFormat, FloatingRegister,
-    GeneralRegister, ImmediateArithmeticOperation, Instruction, ShiftOperation, Vr4300,
-    decode_bytes, decode_word, encode_bytes, encode_word,
+    GeneralRegister, ImmediateArithmeticOperation, Instruction, ShiftOperation, StatusFr,
+    Vr4300Fr0, Vr4300Fr1,
 };
+
+fn decode_word(word: u32, location: vr4300::CodeLocation) -> Result<Instruction, DecodeError> {
+    vr4300::decode_word(word, location, StatusFr::One)
+}
+
+fn encode_word(
+    instruction: &Instruction,
+    location: vr4300::CodeLocation,
+) -> Result<u32, EncodeError> {
+    vr4300::encode_word(instruction, location, StatusFr::One)
+}
+
+fn decode_bytes(source: &[u8], location: vr4300::CodeLocation) -> Result<Instruction, DecodeError> {
+    vr4300::decode_bytes(source, location, StatusFr::One)
+}
+
+fn encode_bytes(
+    instruction: &Instruction,
+    location: vr4300::CodeLocation,
+) -> Result<[u8; 4], EncodeError> {
+    vr4300::encode_bytes(instruction, location, StatusFr::One)
+}
 
 #[test]
 fn typed_integer_instruction_lowers_to_big_endian_bytes() {
@@ -95,13 +117,37 @@ fn reserved_fields_and_undefined_cp2_operations_fail_closed() {
 
 #[test]
 fn protocol_decodes_only_the_leading_instruction() {
-    let decoded = Vr4300::decode_one(&[0x27, 0xbd, 0xf8, 0xc0, 0xaa], 0x8000_0000).unwrap();
+    let decoded = Vr4300Fr1::decode_one(&[0x27, 0xbd, 0xf8, 0xc0, 0xaa], &0x8000_0000).unwrap();
     assert_eq!(decoded.source().as_slice(), [0x27, 0xbd, 0xf8, 0xc0]);
     assert_eq!(
-        Vr4300::encode_one(decoded.instruction(), 0x8000_0000)
+        Vr4300Fr1::encode_one(decoded.instruction(), &0x8000_0000)
             .unwrap()
             .as_slice(),
         decoded.source().as_slice()
+    );
+}
+
+#[test]
+fn status_fr_profiles_reject_or_accept_odd_logical_fprs() {
+    let instruction = Instruction::FloatingBinary {
+        operation: FloatingBinaryOperation::Add,
+        format: FloatingFormat::Single,
+        destination: FloatingRegister::new(1).unwrap(),
+        left: FloatingRegister::new(2).unwrap(),
+        right: FloatingRegister::new(4).unwrap(),
+    };
+
+    assert!(matches!(
+        Vr4300Fr0::encode_one(&instruction, &0x8000_0000),
+        Err(EncodeError::Fr0OddFloatingRegister { .. })
+    ));
+    let encoded = Vr4300Fr1::encode_one(&instruction, &0x8000_0000).unwrap();
+    assert!(Vr4300Fr0::decode_one(encoded.as_slice(), &0x8000_0000).is_err());
+    assert_eq!(
+        Vr4300Fr1::decode_one(encoded.as_slice(), &0x8000_0000)
+            .unwrap()
+            .into_instruction(),
+        instruction
     );
 }
 

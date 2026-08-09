@@ -12,7 +12,8 @@
 //! The fixture is not generated from `OPCODE_TABLE`, `InstructionForm::all()`,
 //! `opcode_is_documented`, or the production decoder.
 
-use rp2a03::{decode_bytes, encode_bytes};
+use rp2a03::{Location, Rp2A03, StatusLocation, decode_bytes, encode_bytes};
+use typed_isa_core::{AccessKind, ControlAction, ControlBoundary, StaticSemantics};
 
 // D/U records whether MOS documents the selector. Each row is one hexadecimal
 // row of the architecture matrix, in low-nibble order.
@@ -87,5 +88,117 @@ fn source_form_len(form: &str) -> usize {
         | "ZeroPageIndirectIndexedY" => 2,
         "Absolute" | "AbsoluteX" | "AbsoluteY" | "AbsoluteIndirect" => 3,
         _ => panic!("unknown source addressing mode {mode}"),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceFlowClass {
+    Continue,
+    ConditionalTransfer,
+    Transfer,
+    LinkedTransfer,
+    Return,
+    ExceptionReturn,
+    Trap,
+    Stop,
+}
+
+fn source_flow_class(opcode: u8) -> SourceFlowClass {
+    match opcode {
+        0x10 | 0x30 | 0x50 | 0x70 | 0x90 | 0xb0 | 0xd0 | 0xf0 => {
+            SourceFlowClass::ConditionalTransfer
+        }
+        0x4c | 0x6c => SourceFlowClass::Transfer,
+        0x20 => SourceFlowClass::LinkedTransfer,
+        0x60 => SourceFlowClass::Return,
+        0x40 => SourceFlowClass::ExceptionReturn,
+        0x00 => SourceFlowClass::Trap,
+        0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xb2 | 0xd2 | 0xf2 => {
+            SourceFlowClass::Stop
+        }
+        _ => SourceFlowClass::Continue,
+    }
+}
+
+#[test]
+fn every_source_selector_has_source_derived_static_semantics() {
+    for (high_nibble, row) in SOURCE_ROWS.iter().enumerate() {
+        for (low_nibble, entry) in row.split_ascii_whitespace().enumerate() {
+            let opcode = ((high_nibble << 4) | low_nibble) as u8;
+            let expected_form = entry.split_once(':').unwrap().1;
+            let source = [opcode, 0x41, 0x42];
+            let instruction = decode_bytes(&source).unwrap();
+            let semantics = Rp2A03::semantics(&instruction, &0x8000).unwrap();
+
+            let actual_flow = match &semantics.control_flow.action {
+                ControlAction::Continue => SourceFlowClass::Continue,
+                ControlAction::Transfer { .. } if semantics.control_flow.fallthrough.is_some() => {
+                    SourceFlowClass::ConditionalTransfer
+                }
+                ControlAction::Transfer { .. } => SourceFlowClass::Transfer,
+                ControlAction::LinkedTransfer { .. } => SourceFlowClass::LinkedTransfer,
+                ControlAction::Return { .. } => SourceFlowClass::Return,
+                ControlAction::ExceptionReturn { .. } => SourceFlowClass::ExceptionReturn,
+                ControlAction::Boundary(ControlBoundary::Trap { .. }) => SourceFlowClass::Trap,
+                ControlAction::Boundary(ControlBoundary::Stop { .. }) => SourceFlowClass::Stop,
+                ControlAction::Boundary(
+                    ControlBoundary::Wait { .. } | ControlBoundary::ProfileExit { .. },
+                ) => panic!("source opcode ${opcode:02X} has an impossible RP2A03 boundary"),
+            };
+            assert_eq!(
+                actual_flow,
+                source_flow_class(opcode),
+                "source opcode ${opcode:02X} has the wrong flow class"
+            );
+
+            if source_form_accesses_data_memory(expected_form) {
+                assert!(
+                    semantics
+                        .location_accesses
+                        .iter()
+                        .any(|access| matches!(access.location, Location::Memory(_))),
+                    "source opcode ${opcode:02X} omits its data-memory access"
+                );
+            }
+            let (mnemonic, mode) = expected_form.split_once(':').unwrap();
+            for status in source_status_writes(mnemonic, mode) {
+                assert!(
+                    semantics.location_accesses.iter().any(|access| {
+                        access.kind == AccessKind::Write
+                            && access.location == Location::Status(*status)
+                    }),
+                    "source opcode ${opcode:02X} omits status write {status:?}"
+                );
+            }
+        }
+    }
+}
+
+fn source_form_accesses_data_memory(form: &str) -> bool {
+    let (mnemonic, mode) = form.split_once(':').unwrap();
+    if matches!(mnemonic, "Jmp" | "Jsr") {
+        return mode == "AbsoluteIndirect";
+    }
+    !matches!(mode, "Implied" | "Accumulator" | "Immediate" | "Relative")
+}
+
+fn source_status_writes(mnemonic: &str, _mode: &str) -> &'static [StatusLocation] {
+    use StatusLocation::*;
+    match mnemonic {
+        "Adc" | "Arr" | "Isc" | "Rra" | "Sbc" => &[Negative, Overflow, Zero, Carry],
+        "Alr" | "Anc" | "Asl" | "Dcp" | "Lsr" | "Rla" | "Rol" | "Ror" | "Slo" | "Sre" | "Axs" => {
+            &[Negative, Zero, Carry]
+        }
+        "And" | "Dec" | "Dex" | "Dey" | "Eor" | "Inc" | "Inx" | "Iny" | "Las" | "Lax" | "Lda"
+        | "Ldx" | "Ldy" | "Ora" | "Pla" | "Tax" | "Tay" | "Tsx" | "Txa" | "Tya" => {
+            &[Negative, Zero]
+        }
+        "Bit" => &[Negative, Overflow, Zero],
+        "Cmp" | "Cpx" | "Cpy" => &[Negative, Zero, Carry],
+        "Clc" | "Sec" => &[Carry],
+        "Cld" | "Sed" => &[Decimal],
+        "Cli" | "Sei" | "Brk" => &[InterruptDisable],
+        "Clv" => &[Overflow],
+        _ => &[],
     }
 }

@@ -1,7 +1,8 @@
 use huc6280::{
-    AddressingMode, Assembler, AssemblerError, ControlFlow, EncodeError, Instruction, Mnemonic,
-    Operand, decode_bytes,
+    AddressingMode, AnalysisPoint, Assembler, AssemblerError, EncodeError, HuC6280, Instruction,
+    Mnemonic, Operand, TState, decode_bytes,
 };
+use typed_isa_core::{ControlAction, ControlTarget, StaticSemantics};
 
 fn instruction(mnemonic: Mnemonic, mode: AddressingMode, operand: Operand) -> Instruction {
     Instruction::new(mnemonic, mode, operand).unwrap()
@@ -34,8 +35,8 @@ fn resolves_forward_and_backward_typed_code_references() {
 
     let program = assembler.assemble(0x5000).unwrap();
     assert_eq!(program.origin(), 0x5000);
-    assert_eq!(program.label_address("done"), Some(0x500A));
-    assert_eq!(program.label_address("variable"), Some(0x500B));
+    assert_eq!(program.label_location("done"), Some(0x500A));
+    assert_eq!(program.label_location("variable"), Some(0x500B));
     assert_eq!(
         program.bytes(),
         [
@@ -45,12 +46,18 @@ fn resolves_forward_and_backward_typed_code_references() {
     assert_eq!(program.instruction_spans().len(), 6);
 
     let branch = decode_bytes(&program.bytes()[5..]).unwrap();
+    let flow = HuC6280::semantics(&branch, &AnalysisPoint::new(0x5005, TState::Unknown))
+        .unwrap()
+        .control_flow;
     assert_eq!(
-        branch.control_flow(0x5005),
-        ControlFlow::Branch {
-            target: 0x500A,
-            fallthrough: Some(0x5007),
+        flow.action,
+        ControlAction::Transfer {
+            target: ControlTarget::Direct(AnalysisPoint::new(0x500A, TState::Clear)),
         }
+    );
+    assert_eq!(
+        flow.fallthrough,
+        Some(AnalysisPoint::new(0x5007, TState::Clear))
     );
 
     let mut backward = Assembler::new();
@@ -111,6 +118,8 @@ fn declared_data_is_separate_from_verified_instruction_spans() {
     assert_eq!(program.bytes(), [0xDE, 0xAD, 0x34, 0x12, 0x06, 0x40, 0xEA]);
     assert_eq!(program.instruction_spans().len(), 1);
     assert_eq!(program.instruction_spans()[0].offset, 6);
+    assert_eq!(program.instruction_spans()[0].location, 0x4006);
+    assert_eq!(program.instruction_spans()[0].bytes.as_slice(), [0xEA]);
     assert_eq!(program.instruction_spans()[0].instruction.opcode(), 0xEA);
 }
 

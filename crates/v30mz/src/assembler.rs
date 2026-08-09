@@ -1,7 +1,8 @@
 use crate::{
-    Condition, Instruction, InstructionAddress, LoopCondition, PlacedInstruction,
-    ProgramVerificationError, verify_placed_program,
+    Condition, Instruction, LoopCondition, PlacedInstruction, ProgramVerificationError,
+    verify_placed_program,
 };
+use typed_isa_core::InstructionBytes;
 
 /// Builder for typed V30MZ code, labels, and checked relative control flow.
 #[derive(Debug, Clone, Default)]
@@ -61,16 +62,32 @@ impl Assembler {
     ///
     /// `origin` supplies the code segment and offset used for relative target
     /// calculations and the final 64 KiB segment-boundary check.
-    pub fn assemble(&self, origin: InstructionAddress) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         let inner = self
             .inner
             .assemble(origin)
             .map_err(AssemblerError::BaseAssembler)?;
         let instructions =
             verify_placed_program(inner.bytes(), origin).map_err(AssemblerError::Verify)?;
+        let instruction_spans = instructions
+            .iter()
+            .map(|placed| InstructionSpan {
+                offset: placed.offset,
+                location: placed.location,
+                bytes: InstructionBytes::new(
+                    inner.bytes()[placed.offset..placed.offset + placed.byte_len].to_vec(),
+                )
+                .expect("encoded V30MZ instructions are non-empty"),
+                instruction: placed.instruction.clone(),
+            })
+            .collect();
         Ok(AssembledProgram {
             inner,
-            instructions,
+            instruction_spans,
+            placed_instructions: instructions,
         })
     }
 }
@@ -79,12 +96,16 @@ impl Assembler {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
     inner: v30::AssembledProgram,
-    instructions: Vec<PlacedInstruction>,
+    instruction_spans: Vec<InstructionSpan>,
+    placed_instructions: Vec<PlacedInstruction>,
 }
 
+/// Workspace-wide instruction-placement evidence specialized for V30MZ.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<crate::CodeLocation, Instruction>;
+
 impl AssembledProgram {
-    /// Return the segmented address assigned to the first program byte.
-    pub fn origin(&self) -> InstructionAddress {
+    /// Return the segmented code location assigned to the first program byte.
+    pub fn origin(&self) -> crate::CodeLocation {
         self.inner.origin()
     }
 
@@ -99,13 +120,18 @@ impl AssembledProgram {
     }
 
     /// Borrow the sequential instructions verified in the assembled output.
-    pub fn instruction_spans(&self) -> &[PlacedInstruction] {
-        &self.instructions
+    pub fn instruction_spans(&self) -> &[InstructionSpan] {
+        &self.instruction_spans
     }
 
-    /// Return the resolved address of a defined label, if present.
-    pub fn label_address(&self, label: &str) -> Option<InstructionAddress> {
-        self.inner.label_address(label)
+    /// Borrow V30MZ-specific placement and static control-flow analysis.
+    pub fn placed_instructions(&self) -> &[PlacedInstruction] {
+        &self.placed_instructions
+    }
+
+    /// Return the resolved code location of a defined label, if present.
+    pub fn label_location(&self, label: &str) -> Option<crate::CodeLocation> {
+        self.inner.label_location(label)
     }
 }
 

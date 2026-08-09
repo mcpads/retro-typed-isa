@@ -19,16 +19,10 @@ pub struct R5900;
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
     /// The supplied instruction address is not four-byte aligned.
-    #[error("R5900 instruction address {address:#x} is not four-byte aligned")]
+    #[error("R5900 code location {location:#x} is not four-byte aligned")]
     UnalignedAddress {
         /// Supplied instruction address.
-        address: u64,
-    },
-    /// The supplied instruction address exceeds the 32-bit EE address space.
-    #[error("R5900 instruction address {address:#x} exceeds the 32-bit address space")]
-    AddressOutOfRange {
-        /// Supplied instruction address.
-        address: u64,
+        location: crate::CodeLocation,
     },
     /// Fewer than four source bytes were available.
     #[error("truncated R5900 instruction: needed 4 bytes, got {got}")]
@@ -48,16 +42,10 @@ pub enum DecodeError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
     /// The supplied instruction address is not four-byte aligned.
-    #[error("R5900 instruction address {address:#x} is not four-byte aligned")]
+    #[error("R5900 code location {location:#x} is not four-byte aligned")]
     UnalignedAddress {
         /// Supplied instruction address.
-        address: u64,
-    },
-    /// The supplied instruction address exceeds the 32-bit EE address space.
-    #[error("R5900 instruction address {address:#x} exceeds the 32-bit address space")]
-    AddressOutOfRange {
-        /// Supplied instruction address.
-        address: u64,
+        location: crate::CodeLocation,
     },
     /// A control-flow target is not four-byte aligned.
     #[error("control-flow target {target:#010x} is not four-byte aligned")]
@@ -187,9 +175,9 @@ macro_rules! define_descriptors {
 
 r5900_forms!(define_descriptors);
 
-/// Decodes one little-endian-independent R5900 instruction word at `address`.
-pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
-    let address = checked_decode_address(address)?;
+/// Decodes one little-endian-independent R5900 instruction word at `location`.
+pub fn decode_word(word: u32, location: crate::CodeLocation) -> Result<Instruction, DecodeError> {
+    let address = checked_decode_location(location)?;
     for specificity in (0..=32).rev() {
         for descriptor in DESCRIPTORS.iter().filter(|descriptor| {
             descriptor.mask.count_ones() == specificity
@@ -204,8 +192,11 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
 }
 
 /// Encodes one typed instruction into an R5900 instruction word.
-pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
-    let address = checked_encode_address(address)?;
+pub fn encode_word(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<u32, EncodeError> {
+    let address = checked_encode_location(location)?;
     validate_operands(instruction.form(), instruction.operands())?;
     let descriptor = descriptor_for_form(instruction.form());
     let mut word = descriptor.value;
@@ -587,19 +578,25 @@ pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, Encod
 }
 
 /// Decodes the first four source bytes as a little-endian R5900 instruction.
-pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
+pub fn decode_bytes(
+    source: &[u8],
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
         .ok_or(DecodeError::UnexpectedEnd { got: source.len() })?;
     decode_word(
         u32::from_le_bytes(bytes.try_into().expect("four-byte instruction")),
-        address,
+        location,
     )
 }
 
 /// Encodes one typed instruction as four little-endian bytes.
-pub fn encode_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
-    Ok(encode_word(instruction, address)?.to_le_bytes())
+pub fn encode_bytes(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<[u8; 4], EncodeError> {
+    Ok(encode_word(instruction, location)?.to_le_bytes())
 }
 
 impl TypedIsa for R5900 {
@@ -607,6 +604,7 @@ impl TypedIsa for R5900 {
 
     type Instruction = Instruction;
     type Form = InstructionForm;
+    type CodeLocation = crate::CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -616,9 +614,9 @@ impl TypedIsa for R5900 {
 
     fn decode_one(
         source: &[u8],
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
-        let instruction = decode_bytes(source, address)?;
+        let instruction = decode_bytes(source, *at)?;
         let bytes = InstructionBytes::new(source[..4].to_vec())
             .expect("R5900 instruction bytes are non-empty");
         Ok(ProtocolDecodedInstruction::new(instruction, bytes))
@@ -626,10 +624,10 @@ impl TypedIsa for R5900 {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
         Ok(
-            InstructionBytes::new(encode_bytes(instruction, address)?.to_vec())
+            InstructionBytes::new(encode_bytes(instruction, *at)?.to_vec())
                 .expect("R5900 instruction bytes are non-empty"),
         )
     }
@@ -1182,18 +1180,18 @@ fn three_floating(
         | u32::from(destination.index()) << 6
 }
 
-fn checked_decode_address(address: u64) -> Result<u32, DecodeError> {
-    if address & 3 != 0 {
-        return Err(DecodeError::UnalignedAddress { address });
+fn checked_decode_location(location: crate::CodeLocation) -> Result<u32, DecodeError> {
+    if location & 3 != 0 {
+        return Err(DecodeError::UnalignedAddress { location });
     }
-    u32::try_from(address).map_err(|_| DecodeError::AddressOutOfRange { address })
+    Ok(location)
 }
 
-fn checked_encode_address(address: u64) -> Result<u32, EncodeError> {
-    if address & 3 != 0 {
-        return Err(EncodeError::UnalignedAddress { address });
+fn checked_encode_location(location: crate::CodeLocation) -> Result<u32, EncodeError> {
+    if location & 3 != 0 {
+        return Err(EncodeError::UnalignedAddress { location });
     }
-    u32::try_from(address).map_err(|_| EncodeError::AddressOutOfRange { address })
+    Ok(location)
 }
 
 fn branch_immediate(address: u32, target: u32) -> Result<u16, EncodeError> {

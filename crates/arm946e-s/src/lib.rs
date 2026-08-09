@@ -7,10 +7,19 @@
 
 #![deny(missing_docs)]
 
+/// Aligned 32-bit ARM946E-S executable address.
+pub type CodeLocation = u32;
+
 mod assembler;
 mod codec;
 mod instruction;
+mod semantics;
 
+pub use arm7tdmi::{
+    AddressOffsetLocation, AnalysisPoint, Boundary, ControlBit, ExecutionState, Flag,
+    HalfwordOffsetLocation, IndirectTarget, Location, MemoryAddress, MemoryLocation, MemoryWidth,
+    ProcessorMode, Reference, RegisterBank, RegisterLocation, StatusField, StatusLocation,
+};
 pub use assembler::{
     ArmAssembler, ArmAssemblerError, ArmProgram, ThumbAssembler, ThumbAssemblerError, ThumbProgram,
 };
@@ -19,3 +28,50 @@ pub use codec::{
     encode_arm_bytes, encode_thumb_bytes,
 };
 pub use instruction::*;
+pub use semantics::{ControlFlow, InstructionSemantics, SemanticError};
+
+impl typed_isa_core::StaticSemantics for Arm946EsArm {
+    type AnalysisPoint = AnalysisPoint;
+    type IndirectTarget = IndirectTarget;
+    type Boundary = Boundary;
+    type Location = Location;
+    type Reference = Reference;
+    type SemanticError = SemanticError;
+
+    fn semantics(
+        instruction: &Self::Instruction,
+        at: &Self::AnalysisPoint,
+    ) -> Result<InstructionSemantics, Self::SemanticError> {
+        semantics::arm_semantics(instruction, *at)
+    }
+
+    fn storage_relation(
+        left: &Self::Location,
+        right: &Self::Location,
+    ) -> typed_isa_core::StorageRelation {
+        <arm7tdmi::Arm7TdmiArm as typed_isa_core::StaticSemantics>::storage_relation(left, right)
+    }
+}
+
+impl typed_isa_core::StaticSemantics for Arm946EsThumb {
+    type AnalysisPoint = AnalysisPoint;
+    type IndirectTarget = IndirectTarget;
+    type Boundary = Boundary;
+    type Location = Location;
+    type Reference = Reference;
+    type SemanticError = SemanticError;
+
+    fn semantics(
+        instruction: &Self::Instruction,
+        at: &Self::AnalysisPoint,
+    ) -> Result<InstructionSemantics, Self::SemanticError> {
+        semantics::thumb_semantics(instruction, *at)
+    }
+
+    fn storage_relation(
+        left: &Self::Location,
+        right: &Self::Location,
+    ) -> typed_isa_core::StorageRelation {
+        <arm7tdmi::Arm7TdmiThumb as typed_isa_core::StaticSemantics>::storage_relation(left, right)
+    }
+}

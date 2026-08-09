@@ -1,28 +1,24 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use typed_isa_core::InstructionBytes;
 
 use crate::{
-    BranchDisplacement, BranchKind, Condition, DataRegister, DecodeError, EncodeError, Instruction,
-    decode_bytes, encode_bytes,
+    BranchDisplacement, BranchKind, CodeLocation, Condition, DataRegister, DecodeError,
+    EncodeError, Instruction, decode_bytes, encode_bytes,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// A canonically encoded instruction and its absolute placement address.
-pub struct PlacedInstruction {
-    /// The absolute instruction address.
-    pub address: u32,
-    /// The typed instruction.
-    pub instruction: Instruction,
-    /// The exact canonical big-endian instruction bytes.
-    pub bytes: Vec<u8>,
-}
+/// Workspace-wide instruction-placement evidence specialized for MC68000.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<CodeLocation, Instruction>;
+
+/// Compatibility name for an MC68000 instruction span.
+pub type PlacedInstruction = InstructionSpan;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A verified MC68000 program and its per-instruction placements.
 pub struct AssembledProgram {
-    /// The first output address.
-    pub origin: u32,
+    /// The first output code location.
+    pub origin: CodeLocation,
     /// The exact canonical big-endian instruction bytes.
     pub bytes: Vec<u8>,
     /// The verified instruction placements.
@@ -30,8 +26,8 @@ pub struct AssembledProgram {
 }
 
 impl AssembledProgram {
-    /// Returns the first output address.
-    pub const fn origin(&self) -> u32 {
+    /// Returns the first output code location.
+    pub const fn origin(&self) -> CodeLocation {
         self.origin
     }
 
@@ -47,6 +43,11 @@ impl AssembledProgram {
 
     /// Returns the verified instruction placements.
     pub fn instructions(&self) -> &[PlacedInstruction] {
+        &self.instructions
+    }
+
+    /// Returns the exact bytes, location, and typed identity of each instruction.
+    pub fn instruction_spans(&self) -> &[InstructionSpan] {
         &self.instructions
     }
 }
@@ -196,14 +197,17 @@ impl Assembler {
     }
 
     /// Resolves labels, encodes every instruction, and verifies the complete placed byte stream.
-    pub fn assemble(&self, origin: u32) -> Result<AssembledProgram, AssemblerError> {
-        if origin & 1 != 0 {
-            return Err(AssemblerError::UnalignedOrigin { origin });
+    pub fn assemble(&self, origin: CodeLocation) -> Result<AssembledProgram, AssemblerError> {
+        let origin_address = origin.logical_address();
+        if origin_address & 1 != 0 {
+            return Err(AssemblerError::UnalignedOrigin {
+                origin: origin_address,
+            });
         }
-        let labels = self.collect_labels(origin)?;
+        let labels = self.collect_labels(origin_address)?;
         let mut bytes = Vec::new();
         let mut expected = Vec::new();
-        let mut address = origin;
+        let mut address = origin_address;
         for (node_index, node) in self.nodes.iter().enumerate() {
             let instruction = match node {
                 Node::Label(_) => continue,
@@ -226,19 +230,21 @@ impl Assembler {
             };
             let encoded = encode_bytes(&instruction)?;
             expected.push(PlacedInstruction {
-                address,
+                offset: bytes.len(),
+                location: CodeLocation::new(address),
                 instruction,
-                bytes: encoded.clone(),
+                bytes: InstructionBytes::new(encoded.clone())
+                    .expect("encoded MC68000 instructions are non-empty"),
             });
             bytes.extend_from_slice(&encoded);
-            address = add_length(origin, address, encoded.len(), node_index)?;
+            address = add_length(origin_address, address, encoded.len(), node_index)?;
         }
 
         let actual = verify_placed_program(&bytes, origin)?;
         for (expected, actual) in expected.iter().zip(&actual) {
             if expected.instruction != actual.instruction {
                 return Err(AssemblerError::SemanticRoundTripMismatch {
-                    address: expected.address,
+                    address: expected.location.logical_address(),
                     expected: expected.instruction,
                     actual: actual.instruction,
                 });
@@ -327,24 +333,28 @@ fn add_length(
 /// Decode and canonically re-encode an entire placed instruction stream.
 pub fn verify_placed_program(
     bytes: &[u8],
-    origin: u32,
+    origin: CodeLocation,
 ) -> Result<Vec<PlacedInstruction>, AssemblerError> {
-    if origin & 1 != 0 {
-        return Err(AssemblerError::UnalignedOrigin { origin });
+    let origin_address = origin.logical_address();
+    if origin_address & 1 != 0 {
+        return Err(AssemblerError::UnalignedOrigin {
+            origin: origin_address,
+        });
     }
     let mut placed = Vec::new();
     let mut offset = 0usize;
     while offset < bytes.len() {
         let offset_u32 = u32::try_from(offset).map_err(|_| AssemblerError::AddressOverflow {
-            origin,
+            origin: origin_address,
             node_index: placed.len(),
         })?;
-        let address = origin
-            .checked_add(offset_u32)
-            .ok_or(AssemblerError::AddressOverflow {
-                origin,
-                node_index: placed.len(),
-            })?;
+        let address =
+            origin_address
+                .checked_add(offset_u32)
+                .ok_or(AssemblerError::AddressOverflow {
+                    origin: origin_address,
+                    node_index: placed.len(),
+                })?;
         let decoded = decode_bytes(&bytes[offset..])
             .map_err(|source| AssemblerError::Decode { address, source })?;
         let encoded = encode_bytes(&decoded.instruction)?;
@@ -357,9 +367,11 @@ pub fn verify_placed_program(
             });
         }
         placed.push(PlacedInstruction {
-            address,
+            offset,
+            location: CodeLocation::new(address),
             instruction: decoded.instruction,
-            bytes: encoded,
+            bytes: InstructionBytes::new(encoded)
+                .expect("encoded MC68000 instructions are non-empty"),
         });
         offset += decoded.byte_len;
     }

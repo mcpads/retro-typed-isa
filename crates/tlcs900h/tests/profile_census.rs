@@ -1,4 +1,5 @@
-use tlcs900h::{GeneralRegister, OperandSize, decode_bytes, encode_bytes};
+use tlcs900h::{AnalysisPoint, GeneralRegister, OperandSize, Tlcs900H, decode_bytes, encode_bytes};
+use typed_isa_core::StaticSemantics;
 
 fn assert_round_trip(bytes: &[u8]) -> bool {
     let Ok(decoded) = decode_bytes(bytes) else {
@@ -10,6 +11,7 @@ fn assert_round_trip(bytes: &[u8]) -> bool {
         consumed,
         "decoded bytes changed: {consumed:02x?}"
     );
+    Tlcs900H::semantics(decoded.instruction(), &AnalysisPoint::new(0x1000)).unwrap();
     true
 }
 

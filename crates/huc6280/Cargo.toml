@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Complete HuC6280 opcode model and placement-aware assembler"
+description = "Typed HuC6280 instruction model, static analysis, and placement-aware assembler"
 
 [dependencies]
 thiserror.workspace = true

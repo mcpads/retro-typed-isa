@@ -52,7 +52,12 @@ impl<P> Default for ProfileAssembler<P> {
 
 impl<P> ProfileAssembler<P>
 where
-    P: TypedIsa<Instruction = Instruction, Form = InstructionForm, EncodeError = EncodeError>,
+    P: TypedIsa<
+            Instruction = Instruction,
+            Form = InstructionForm,
+            CodeLocation = crate::CodeLocation,
+            EncodeError = EncodeError,
+        >,
 {
     /// Creates an empty assembler program.
     pub fn new() -> Self {
@@ -112,7 +117,10 @@ where
     ///
     /// The origin and every instruction placement must be four-byte aligned,
     /// and every resolved address must remain within the 32-bit address space.
-    pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         if origin & 3 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });
         }
@@ -159,13 +167,13 @@ where
                     offset: bytes.len(),
                 });
             }
-            let address = placed_address(origin, bytes.len())?;
-            let encoded = P::encode_one(&instruction, address)?;
+            let location = placed_location(origin, bytes.len())?;
+            let encoded = P::encode_one(&instruction, &location)?;
             let offset = bytes.len();
             bytes.extend_from_slice(encoded.as_slice());
             instruction_spans.push(InstructionSpan {
                 offset,
-                address,
+                location,
                 bytes: encoded,
                 instruction,
             });
@@ -181,14 +189,14 @@ where
 
     fn collect_labels(
         &self,
-        origin: u64,
-    ) -> Result<(BTreeMap<String, u64>, usize), AssemblerError> {
+        origin: crate::CodeLocation,
+    ) -> Result<(BTreeMap<String, crate::CodeLocation>, usize), AssemblerError> {
         let mut labels = BTreeMap::new();
         let mut offset = 0usize;
         for node in &self.nodes {
             if let Node::Label(label) = node {
-                let address = placed_address(origin, offset)?;
-                if labels.insert(label.clone(), address).is_some() {
+                let location = placed_location(origin, offset)?;
+                if labels.insert(label.clone(), location).is_some() {
                     return Err(AssemblerError::DuplicateLabel {
                         label: label.clone(),
                     });
@@ -201,41 +209,46 @@ where
                 offset = offset
                     .checked_add(length)
                     .ok_or(AssemblerError::AddressOverflow { origin })?;
-                placed_address(origin, offset)?;
+                placed_location(origin, offset)?;
             }
         }
         Ok((labels, offset))
     }
 }
 
-fn label_target(labels: &BTreeMap<String, u64>, label: &str) -> Result<u32, AssemblerError> {
-    let address = labels
+fn label_target(
+    labels: &BTreeMap<String, crate::CodeLocation>,
+    label: &str,
+) -> Result<crate::CodeLocation, AssemblerError> {
+    labels
         .get(label)
         .copied()
         .ok_or_else(|| AssemblerError::UndefinedLabel {
             label: label.to_owned(),
-        })?;
-    u32::try_from(address).map_err(|_| AssemblerError::AddressOutOfRange { address })
+        })
 }
 
-fn placed_address(origin: u64, offset: usize) -> Result<u64, AssemblerError> {
+fn placed_location(
+    origin: crate::CodeLocation,
+    offset: usize,
+) -> Result<crate::CodeLocation, AssemblerError> {
     origin
-        .checked_add(u64::try_from(offset).map_err(|_| AssemblerError::AddressOverflow { origin })?)
+        .checked_add(u32::try_from(offset).map_err(|_| AssemblerError::AddressOverflow { origin })?)
         .ok_or(AssemblerError::AddressOverflow { origin })
 }
 
 /// Immutable bytes, labels, and typed instruction spans from assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
-    origin: u64,
+    origin: crate::CodeLocation,
     bytes: Vec<u8>,
-    labels: BTreeMap<String, u64>,
-    instruction_spans: Vec<InstructionSpan<Instruction>>,
+    labels: BTreeMap<String, crate::CodeLocation>,
+    instruction_spans: Vec<InstructionSpan<crate::CodeLocation, Instruction>>,
 }
 
 impl AssembledProgram {
     /// Returns the requested program origin.
-    pub const fn origin(&self) -> u64 {
+    pub const fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -250,14 +263,14 @@ impl AssembledProgram {
     }
 
     /// Returns the resolved absolute address of `name`, if declared.
-    pub fn label_address(&self, name: &str) -> Option<u64> {
+    pub fn label_location(&self, name: &str) -> Option<crate::CodeLocation> {
         self.labels.get(name).copied()
     }
 
     /// Returns spans for executable instructions only.
     ///
     /// Declared data is present in [`Self::bytes`] but has no instruction span.
-    pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
+    pub fn instruction_spans(&self) -> &[InstructionSpan<crate::CodeLocation, Instruction>] {
         &self.instruction_spans
     }
 }
@@ -269,7 +282,7 @@ pub enum AssemblerError {
     #[error("PowerPC assembly origin {origin:#018x} is not four-byte aligned")]
     UnalignedOrigin {
         /// Rejected origin address.
-        origin: u64,
+        origin: crate::CodeLocation,
     },
     /// Declared data leaves a following instruction unaligned.
     #[error("PowerPC instruction at output offset {offset:#x} is not four-byte aligned")]
@@ -293,13 +306,7 @@ pub enum AssemblerError {
     #[error("PowerPC assembly from {origin:#018x} exceeds the address space")]
     AddressOverflow {
         /// Program origin involved in the overflow.
-        origin: u64,
-    },
-    /// A resolved label address exceeds the 32-bit target address space.
-    #[error("PowerPC label address {address:#018x} exceeds the 32-bit address space")]
-    AddressOutOfRange {
-        /// Resolved address that cannot be represented.
-        address: u64,
+        origin: crate::CodeLocation,
     },
     /// An instruction failed profile validation or encoding.
     #[error(transparent)]

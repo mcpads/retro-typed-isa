@@ -151,7 +151,10 @@ impl Assembler {
     }
 
     /// Resolves labels, lowers instructions, and records executable instruction spans.
-    pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         validate_origin(origin)?;
         let (labels, byte_len) = self.collect_labels(origin)?;
         let mut bytes = Vec::with_capacity(byte_len);
@@ -176,7 +179,7 @@ impl Assembler {
                     likely: *likely,
                     left: *left,
                     right: *right,
-                    target: label_address(&labels, label)?,
+                    target: label_location(&labels, label)?,
                 },
                 Node::SignBranch {
                     condition,
@@ -189,7 +192,7 @@ impl Assembler {
                     likely: *likely,
                     link: *link,
                     source: *source,
-                    target: label_address(&labels, label)?,
+                    target: label_location(&labels, label)?,
                 },
                 Node::FloatingBranch {
                     condition,
@@ -198,7 +201,7 @@ impl Assembler {
                 } => Instruction::FloatingBranch {
                     condition: *condition,
                     likely: *likely,
-                    target: label_address(&labels, label)?,
+                    target: label_location(&labels, label)?,
                 },
                 Node::VfpuBranch {
                     form,
@@ -208,12 +211,12 @@ impl Assembler {
                     *form,
                     VfpuOperands::Branch {
                         condition: *condition,
-                        target: label_address(&labels, label)?,
+                        target: label_location(&labels, label)?,
                     },
                 )?),
                 Node::Jump { link, label } => Instruction::Jump {
                     link: *link,
-                    target: label_address(&labels, label)?,
+                    target: label_location(&labels, label)?,
                 },
             };
 
@@ -222,13 +225,13 @@ impl Assembler {
                     offset: bytes.len(),
                 });
             }
-            let address = placed_address(origin, bytes.len())?;
-            let encoded = encode_bytes(&instruction, address)?;
+            let location = placed_location(origin, bytes.len())?;
+            let encoded = encode_bytes(&instruction, location)?;
             let offset = bytes.len();
             bytes.extend_from_slice(&encoded);
             instruction_spans.push(InstructionSpan {
                 offset,
-                address,
+                location,
                 bytes: InstructionBytes::new(encoded.to_vec())
                     .expect("Allegrex instruction bytes are non-empty"),
                 instruction,
@@ -245,15 +248,14 @@ impl Assembler {
 
     fn collect_labels(
         &self,
-        origin: u64,
+        origin: crate::CodeLocation,
     ) -> Result<(BTreeMap<String, u32>, usize), AssemblerError> {
         let mut labels = BTreeMap::new();
         let mut offset = 0usize;
         for node in &self.nodes {
             if let Node::Label(label) = node {
-                let address = u32::try_from(placed_address(origin, offset)?)
-                    .map_err(|_| AssemblerError::AddressOverflow { origin, offset })?;
-                if labels.insert(label.clone(), address).is_some() {
+                let location = placed_location(origin, offset)?;
+                if labels.insert(label.clone(), location).is_some() {
                     return Err(AssemblerError::DuplicateLabel {
                         label: label.clone(),
                     });
@@ -266,7 +268,7 @@ impl Assembler {
                 offset = offset
                     .checked_add(length)
                     .ok_or(AssemblerError::AddressOverflow { origin, offset })?;
-                placed_address(origin, offset)?;
+                placed_location(origin, offset)?;
             }
         }
         Ok((labels, offset))
@@ -276,15 +278,15 @@ impl Assembler {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Assembled bytes with labels and executable instruction spans.
 pub struct AssembledProgram {
-    origin: u64,
+    origin: crate::CodeLocation,
     bytes: Vec<u8>,
     labels: BTreeMap<String, u32>,
-    instruction_spans: Vec<InstructionSpan<Instruction>>,
+    instruction_spans: Vec<InstructionSpan<crate::CodeLocation, Instruction>>,
 }
 
 impl AssembledProgram {
-    /// Performs the origin operation.
-    pub const fn origin(&self) -> u64 {
+    /// Returns the first architectural code location.
+    pub const fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -304,7 +306,7 @@ impl AssembledProgram {
     }
 
     /// Returns executable instruction placements.
-    pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
+    pub fn instruction_spans(&self) -> &[InstructionSpan<crate::CodeLocation, Instruction>] {
         &self.instruction_spans
     }
 }
@@ -316,13 +318,7 @@ pub enum AssemblerError {
     /// The unaligned origin form.
     UnalignedOrigin {
         /// The first output address.
-        origin: u64,
-    },
-    #[error("Allegrex origin {origin:#x} exceeds the 32-bit address space")]
-    /// The origin out of range form.
-    OriginOutOfRange {
-        /// The first output address.
-        origin: u64,
+        origin: crate::CodeLocation,
     },
     #[error("duplicate label {label}")]
     /// The duplicate label form.
@@ -346,7 +342,7 @@ pub enum AssemblerError {
     /// The address overflow form.
     AddressOverflow {
         /// The first output address.
-        origin: u64,
+        origin: crate::CodeLocation,
         /// The output byte offset.
         offset: usize,
     },
@@ -358,35 +354,25 @@ pub enum AssemblerError {
     Vfpu(#[from] crate::VfpuConstructionError),
 }
 
-fn validate_origin(origin: u64) -> Result<(), AssemblerError> {
+fn validate_origin(origin: crate::CodeLocation) -> Result<(), AssemblerError> {
     if origin & 3 != 0 {
         return Err(AssemblerError::UnalignedOrigin { origin });
-    }
-    if origin > u64::from(u32::MAX) {
-        return Err(AssemblerError::OriginOutOfRange { origin });
     }
     Ok(())
 }
 
-fn placed_address(origin: u64, offset: usize) -> Result<u64, AssemblerError> {
-    let offset =
-        u64::try_from(offset).map_err(|_| AssemblerError::AddressOverflow { origin, offset })?;
-    let address = origin
-        .checked_add(offset)
-        .ok_or(AssemblerError::AddressOverflow {
-            origin,
-            offset: usize::MAX,
-        })?;
-    if address > u64::from(u32::MAX) {
-        return Err(AssemblerError::AddressOverflow {
-            origin,
-            offset: usize::try_from(offset).unwrap_or(usize::MAX),
-        });
-    }
-    Ok(address)
+fn placed_location(
+    origin: crate::CodeLocation,
+    offset: usize,
+) -> Result<crate::CodeLocation, AssemblerError> {
+    let placed_offset =
+        u32::try_from(offset).map_err(|_| AssemblerError::AddressOverflow { origin, offset })?;
+    origin
+        .checked_add(placed_offset)
+        .ok_or(AssemblerError::AddressOverflow { origin, offset })
 }
 
-fn label_address(labels: &BTreeMap<String, u32>, label: &str) -> Result<u32, AssemblerError> {
+fn label_location(labels: &BTreeMap<String, u32>, label: &str) -> Result<u32, AssemblerError> {
     labels
         .get(label)
         .copied()

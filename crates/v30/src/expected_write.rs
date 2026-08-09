@@ -3,7 +3,7 @@ use expected_write::{
     MachineCodeVerifierError,
 };
 
-use crate::{AssembledProgram, InstructionAddress, PROFILE_ID, encode_bytes, format_instruction};
+use crate::{AssembledProgram, PROFILE_ID, V30, format_instruction};
 
 /// Adapter connecting typed V30 assembly sources to Expected Write verification.
 pub struct ExpectedWriteVerifier<ResolveSource> {
@@ -35,11 +35,8 @@ where
         check: &MachineCodeCheck<'_>,
     ) -> Result<Vec<WritePlanInstruction>, MachineCodeVerifierError> {
         require_profile(check)?;
-        let instructions = crate::verify_placed_program(
-            &check.write.replacement,
-            InstructionAddress { seg: 0, off: 0 },
-        )
-        .map_err(|error| MachineCodeVerifierError::new(error.to_string()))?;
+        let program = self.resolve_matching_source(check)?;
+        let instructions = decode_source_program(&check.write.replacement, &program)?;
         Ok(instructions
             .into_iter()
             .map(|placed| WritePlanInstruction {
@@ -56,11 +53,8 @@ where
         instructions: &[WritePlanInstruction],
     ) -> Result<Vec<u8>, MachineCodeVerifierError> {
         require_profile(check)?;
-        let decoded = crate::verify_placed_program(
-            &check.write.replacement,
-            InstructionAddress { seg: 0, off: 0 },
-        )
-        .map_err(|error| MachineCodeVerifierError::new(error.to_string()))?;
+        let program = self.resolve_matching_source(check)?;
+        let decoded = decode_source_program(&check.write.replacement, &program)?;
         if decoded.len() != instructions.len()
             || decoded.iter().zip(instructions).any(|(placed, declared)| {
                 placed.offset != declared.offset
@@ -74,12 +68,58 @@ where
         }
 
         decoded.iter().try_fold(Vec::new(), |mut bytes, placed| {
-            bytes.extend(
-                encode_bytes(&placed.instruction)
-                    .map_err(|error| MachineCodeVerifierError::new(error.to_string()))?,
-            );
+            let encoded = <V30 as typed_isa_core::TypedIsa>::encode_one(
+                &placed.instruction,
+                &placed.location,
+            )
+            .map_err(|error| MachineCodeVerifierError::new(error.to_string()))?;
+            bytes.extend_from_slice(encoded.as_slice());
             Ok(bytes)
         })
+    }
+}
+
+fn decode_source_program(
+    bytes: &[u8],
+    program: &AssembledProgram,
+) -> Result<Vec<crate::PlacedInstruction>, MachineCodeVerifierError> {
+    let decoded = crate::verify_placed_program(bytes, program.origin())
+        .map_err(|error| MachineCodeVerifierError::new(error.to_string()))?;
+    if decoded.len() != program.instruction_spans().len()
+        || decoded
+            .iter()
+            .zip(program.instruction_spans())
+            .any(|(actual, source)| {
+                actual.offset != source.offset
+                    || actual.byte_len != source.bytes.len().get()
+                    || actual.location != source.location
+                    || actual.instruction != source.instruction
+                    || &bytes[actual.offset..actual.offset + actual.byte_len]
+                        != source.bytes.as_slice()
+            })
+    {
+        return Err(MachineCodeVerifierError::new(
+            "resolved V30 source placement or instruction identity changed",
+        ));
+    }
+    Ok(decoded)
+}
+
+impl<ResolveSource> ExpectedWriteVerifier<ResolveSource>
+where
+    ResolveSource: Fn(&str) -> Result<AssembledProgram, MachineCodeVerifierError>,
+{
+    fn resolve_matching_source(
+        &self,
+        check: &MachineCodeCheck<'_>,
+    ) -> Result<AssembledProgram, MachineCodeVerifierError> {
+        let program = (self.resolve_source)(&check.provenance.assembly_source_id)?;
+        if program.bytes() != check.write.replacement {
+            return Err(MachineCodeVerifierError::new(
+                "resolved V30 source changed before placed verification",
+            ));
+        }
+        Ok(program)
     }
 }
 

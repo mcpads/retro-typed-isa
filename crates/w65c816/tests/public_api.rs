@@ -32,10 +32,25 @@ fn consumer_can_verify_width_sensitive_program() {
             Operand::Byte(0x56),
         ));
 
-    let origin = 0x80_8000;
+    let origin = w65c816::CodeLocation::new(0x80, 0x8000);
     let assembled = program
         .assemble(origin, CpuMode::NATIVE_M8_X8)
         .expect("typed program should assemble and verify");
+    assert_eq!(assembled.origin(), origin);
+    assert_eq!(assembled.instruction_spans()[0].location, origin);
+    assert_eq!(
+        assembled.instruction_spans()[1].location,
+        w65c816::CodeLocation::new(0x80, 0x8002)
+    );
+    assert_eq!(assembled.instruction_spans()[1].offset, 2);
+    assert_eq!(
+        assembled.instruction_spans()[1].bytes.as_slice(),
+        [0xA9, 0x34, 0x12]
+    );
+    assert_eq!(
+        assembled.instruction_width_states()[1].widths,
+        WidthState::M16_X8
+    );
     assert_eq!(
         assembled.instruction_spans()[1].instruction.form(),
         w65c816::InstructionForm::new(Mnemonic::Lda, AddressingMode::Immediate)
@@ -74,11 +89,12 @@ fn shared_protocol_keeps_width_state_in_the_profile() {
         Operand::Word(0x1234),
     );
 
-    let encoded = w65c816::W65C816M16X8::encode_one(&instruction, 0).unwrap();
+    let at = w65c816::CodeLocation::new(0, 0);
+    let encoded = w65c816::W65C816M16X8::encode_one(&instruction, &at).unwrap();
     assert_eq!(encoded.as_slice(), [0xa9, 0x34, 0x12]);
-    assert!(w65c816::W65C816M8X8::encode_one(&instruction, 0).is_err());
+    assert!(w65c816::W65C816M8X8::encode_one(&instruction, &at).is_err());
 
-    let decoded = w65c816::W65C816M16X8::decode_one(encoded.as_slice(), 0).unwrap();
+    let decoded = w65c816::W65C816M16X8::decode_one(encoded.as_slice(), &at).unwrap();
     assert_eq!(decoded.instruction(), &instruction);
     assert_eq!(decoded.source().as_slice(), encoded.as_slice());
 }

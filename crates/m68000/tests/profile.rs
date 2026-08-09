@@ -159,14 +159,19 @@ fn assembler_resolves_variable_length_instruction_addresses() {
         .label("target")
         .emit(Instruction::ReturnFromSubroutine);
 
-    let program = assembler.assemble(0x0010_0000).unwrap();
+    let program = assembler
+        .assemble(m68000::CodeLocation::new(0x0010_0000))
+        .unwrap();
     assert_eq!(
         program.bytes,
         [
             0x65, 0x00, 0x00, 0x08, 0x20, 0x3c, 0x12, 0x34, 0x56, 0x78, 0x4e, 0x75,
         ]
     );
-    assert_eq!(program.instructions[2].address, 0x0010_000a);
+    assert_eq!(
+        program.instructions[2].location,
+        m68000::CodeLocation::new(0x0010_000a)
+    );
 }
 
 #[test]
@@ -230,11 +235,11 @@ fn source_repository_hook_fixture_decodes_and_round_trips() {
         0x2f, 0x00, 0x30, 0x01, 0x57, 0x00, 0x90, 0x68, 0x00, 0x38, 0xe2, 0x48, 0x30, 0x31, 0x00,
         0x00, 0x20, 0x1f, 0x3a, 0x28, 0x00, 0x4c, 0x00, 0x7c, 0x07, 0x00, 0x02, 0x7c, 0xf8, 0xff,
     ];
-    let placed = verify_placed_program(&bytes, 0x0008_0000).unwrap();
+    let placed = verify_placed_program(&bytes, m68000::CodeLocation::new(0x0008_0000)).unwrap();
     assert_eq!(placed.len(), 10);
     let rebuilt: Vec<_> = placed
         .iter()
-        .flat_map(|instruction| instruction.bytes.iter().copied())
+        .flat_map(|instruction| instruction.bytes.as_slice().iter().copied())
         .collect();
     assert_eq!(rebuilt, bytes);
 }

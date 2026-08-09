@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use typed_isa_core::InstructionBytes;
 
 use crate::encoder::{EncodeError, VerifyError, encode_bytes, verify_placed_program};
 use crate::instruction::{Condition, Instruction};
@@ -90,9 +91,13 @@ impl Assembler {
     /// Resolve labels, lower typed instructions, and verify the complete program.
     ///
     /// The output must fit between `origin` and the end of the 16-bit address space.
-    pub fn assemble(&self, origin: u16) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         let (labels, length) = self.collect_labels(origin)?;
         let mut instructions = Vec::new();
+        let mut instruction_spans = Vec::new();
         let mut bytes = Vec::with_capacity(length);
         let mut offset = 0usize;
 
@@ -101,12 +106,20 @@ impl Assembler {
                 Node::Label(_) => continue,
                 Node::Instruction(instruction) => *instruction,
                 Node::Relative { branch, label } => {
-                    let target = label_address(&labels, label)?;
+                    let target = label_location(&labels, label)?;
                     branch.resolve(origin, offset, target)?
                 }
-                Node::Absolute { branch, label } => branch.resolve(label_address(&labels, label)?),
+                Node::Absolute { branch, label } => branch.resolve(label_location(&labels, label)?),
             };
             let encoded = encode_bytes(&instruction).map_err(AssemblerError::Encode)?;
+            let location = placed_address(origin, offset)?;
+            instruction_spans.push(InstructionSpan {
+                offset,
+                location,
+                bytes: InstructionBytes::new(encoded.clone())
+                    .expect("encoded Z80 instructions are non-empty"),
+                instruction,
+            });
             offset = offset
                 .checked_add(encoded.len())
                 .ok_or(AssemblerError::AddressOverflow { origin, length })?;
@@ -122,6 +135,7 @@ impl Assembler {
             origin,
             bytes,
             instructions,
+            instruction_spans,
         })
     }
 
@@ -174,7 +188,7 @@ fn placed_address(origin: u16, offset: usize) -> Result<u16, AssemblerError> {
     })
 }
 
-fn label_address(labels: &BTreeMap<String, u16>, label: &str) -> Result<u16, AssemblerError> {
+fn label_location(labels: &BTreeMap<String, u16>, label: &str) -> Result<u16, AssemblerError> {
     labels
         .get(label)
         .copied()
@@ -249,11 +263,15 @@ pub struct AssembledProgram {
     origin: u16,
     bytes: Vec<u8>,
     instructions: Vec<Instruction>,
+    instruction_spans: Vec<InstructionSpan>,
 }
+
+/// Workspace-wide instruction-placement evidence specialized for Z80.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<crate::CodeLocation, Instruction>;
 
 impl AssembledProgram {
     /// Return the address assigned to the first output byte.
-    pub fn origin(&self) -> u16 {
+    pub fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -270,6 +288,11 @@ impl AssembledProgram {
     /// Borrow the sequential typed instructions used to produce the bytes.
     pub fn instructions(&self) -> &[Instruction] {
         &self.instructions
+    }
+
+    /// Borrow exact bytes, locations, and typed identities for each instruction.
+    pub fn instruction_spans(&self) -> &[InstructionSpan] {
+        &self.instruction_spans
     }
 }
 

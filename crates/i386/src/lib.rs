@@ -21,6 +21,7 @@ mod codec;
 mod expected_write;
 mod instruction;
 mod selector;
+mod semantics;
 
 pub use assembler::{AssembledProgram, Assembler, AssemblerError};
 pub use codec::{
@@ -30,6 +31,11 @@ pub use codec::{
 pub use expected_write::ExpectedWriteVerifier;
 pub use instruction::*;
 pub use selector::*;
+pub use semantics::{
+    AnalysisPoint, Boundary, ControlFlow, Flag, ImplicitState, IndirectTarget,
+    InstructionSemantics, InterruptState, Location, MemoryExtent, MemoryLocation, OffsetAddress,
+    PortLocation, Reference, SegmentSelection, SemanticError,
+};
 
 /// Legacy package-level profile identifier.
 ///
@@ -41,6 +47,33 @@ pub const CODE16_PROFILE_ID: &str = "i386-code16";
 /// Stable profile identifier for code segments whose D bit is set.
 pub const CODE32_PROFILE_ID: &str = "i386-code32";
 
+/// Segmented Intel 80386 executable location.
+///
+/// The selector is retained as architectural identity. Descriptor lookup and
+/// conversion to a linear or host-file address belong to the consumer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CodeLocation {
+    selector: u16,
+    offset: u32,
+}
+
+impl CodeLocation {
+    /// Construct a code-segment selector and offset pair.
+    pub const fn new(selector: u16, offset: u32) -> Self {
+        Self { selector, offset }
+    }
+
+    /// Return the code-segment selector.
+    pub const fn selector(self) -> u16 {
+        self.selector
+    }
+
+    /// Return the offset within the selected code segment.
+    pub const fn offset(self) -> u32 {
+        self.offset
+    }
+}
+
 /// Intel 80386 code segments whose D bit is clear.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct I386Code16;
@@ -51,7 +84,11 @@ pub struct I386Code32;
 
 /// Shared trait for the two code-segment default-size profiles.
 pub trait I386Profile:
-    typed_isa_core::TypedIsa<Instruction = Instruction, Form = InstructionForm>
+    typed_isa_core::TypedIsa<
+        Instruction = Instruction,
+        Form = InstructionForm,
+        CodeLocation = CodeLocation,
+    >
 {
     /// Operand- and address-size defaults selected by the code-segment D bit.
     const CODE_MODE: CodeMode;
@@ -75,6 +112,7 @@ macro_rules! implement_profile {
 
             type Instruction = Instruction;
             type Form = InstructionForm;
+            type CodeLocation = CodeLocation;
             type DecodeError = DecodeError;
             type EncodeError = EncodeError;
 
@@ -84,7 +122,7 @@ macro_rules! implement_profile {
 
             fn decode_one(
                 source: &[u8],
-                _address: u64,
+                _at: &Self::CodeLocation,
             ) -> Result<typed_isa_core::DecodedInstruction<Self::Instruction>, Self::DecodeError>
             {
                 let decoded = decode_bytes(source, $mode)?;
@@ -98,7 +136,7 @@ macro_rules! implement_profile {
 
             fn encode_one(
                 instruction: &Self::Instruction,
-                _address: u64,
+                _at: &Self::CodeLocation,
             ) -> Result<typed_isa_core::InstructionBytes, Self::EncodeError> {
                 if instruction.code_mode() != $mode {
                     return Err(EncodeError::CodeModeMismatch {
@@ -114,6 +152,29 @@ macro_rules! implement_profile {
 
         impl I386Profile for $profile {
             const CODE_MODE: CodeMode = $mode;
+        }
+
+        impl typed_isa_core::StaticSemantics for $profile {
+            type AnalysisPoint = AnalysisPoint;
+            type IndirectTarget = IndirectTarget;
+            type Boundary = Boundary;
+            type Location = Location;
+            type Reference = Reference;
+            type SemanticError = SemanticError;
+
+            fn semantics(
+                instruction: &Self::Instruction,
+                at: &Self::AnalysisPoint,
+            ) -> Result<InstructionSemantics, Self::SemanticError> {
+                semantics::semantics::<Self>(instruction, *at)
+            }
+
+            fn storage_relation(
+                left: &Self::Location,
+                right: &Self::Location,
+            ) -> typed_isa_core::StorageRelation {
+                semantics::storage_relation(left, right)
+            }
         }
     };
 }

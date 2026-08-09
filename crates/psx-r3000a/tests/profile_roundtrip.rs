@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
 
 use psx_r3000a::{
-    GteCommand, GteOpcode, Instruction, InstructionForm, Register, decode_word, encode_word,
+    GteCommand, GteOpcode, Instruction, InstructionForm, PsxR3000A, Register, decode_word,
+    encode_word,
 };
+use typed_isa_core::StaticSemantics;
 
 #[test]
-fn every_declared_instruction_form_has_a_semantic_roundtrip_vector() {
+fn every_manual_instruction_form_has_a_roundtrip_and_static_semantics() {
     let pc = 0x8001_0000;
     let a = Register::T0;
     let b = Register::T1;
@@ -296,5 +298,8 @@ fn every_declared_instruction_form_has_a_semantic_roundtrip_vector() {
             instruction,
             "word {word:#010x}"
         );
+        PsxR3000A::semantics(&instruction, &pc).unwrap_or_else(|error| {
+            panic!("no static semantics for {:?}: {error}", instruction.form())
+        });
     }
 }

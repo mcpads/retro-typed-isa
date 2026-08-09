@@ -3,9 +3,9 @@ use expected_write::{
     WriteIntent, WritePlan,
 };
 use i386::{
-    Assembler, CODE16_PROFILE_ID, CODE32_PROFILE_ID, CodeMode, EncodeError, ExpectedWriteVerifier,
-    GeneralRegister, I386Code16, I386Code32, Immediate, Operand, Operation, PrefixSequence,
-    Register16, decode_bytes, encode_bytes,
+    Assembler, CODE16_PROFILE_ID, CODE32_PROFILE_ID, CodeLocation, CodeMode, EncodeError,
+    ExpectedWriteVerifier, GeneralRegister, I386Code16, I386Code32, Immediate, Operand, Operation,
+    PrefixSequence, Register16, decode_bytes, encode_bytes,
 };
 use typed_isa_core::TypedIsa;
 
@@ -38,13 +38,14 @@ fn code_segment_profiles_preserve_the_external_decode_context() {
     assert_eq!(I386Code32::PROFILE_ID, CODE32_PROFILE_ID);
 
     let source = [0xb8, 0x78, 0x56, 0x34, 0x12];
-    let code16 = I386Code16::decode_one(&source, 0).unwrap();
+    let at = CodeLocation::new(0x08, 0);
+    let code16 = I386Code16::decode_one(&source, &at).unwrap();
     assert_eq!(code16.source().as_slice(), &source[..3]);
-    let code32 = I386Code32::decode_one(&source, 0).unwrap();
+    let code32 = I386Code32::decode_one(&source, &at).unwrap();
     assert_eq!(code32.source().as_slice(), source);
 
     assert!(matches!(
-        I386Code16::encode_one(code32.instruction(), 0),
+        I386Code16::encode_one(code32.instruction(), &at),
         Err(EncodeError::CodeModeMismatch {
             expected: CodeMode::Code16,
             actual: CodeMode::Code32,
@@ -59,15 +60,19 @@ fn checked_assembler_rejects_mixed_code_modes_and_preserves_instruction_spans() 
         .label("entry")
         .emit(instruction(&[0x90], CodeMode::Code16))
         .emit(instruction(&[0x89, 0xd8], CodeMode::Code16));
-    let program = assembler.assemble(0x1000).unwrap();
+    let origin = CodeLocation::new(0x08, 0x1000);
+    let program = assembler.assemble(origin).unwrap();
     assert_eq!(program.bytes(), [0x90, 0x89, 0xd8]);
-    assert_eq!(program.label_address("entry"), Some(0x1000));
-    assert_eq!(program.instruction_spans()[1].address, 0x1001);
+    assert_eq!(program.label_location("entry"), Some(origin));
+    assert_eq!(
+        program.instruction_spans()[1].location,
+        CodeLocation::new(0x08, 0x1001)
+    );
 
     let mut mixed = Assembler::new(CodeMode::Code16);
     mixed.emit(instruction(&[0x90], CodeMode::Code32));
     assert!(matches!(
-        mixed.assemble(0),
+        mixed.assemble(CodeLocation::new(0x08, 0)),
         Err(i386::AssemblerError::CodeModeMismatch { .. })
     ));
 }
@@ -79,7 +84,7 @@ fn expected_write_accepts_only_the_resolved_code16_program() {
         .emit(instruction(&[0x90], CodeMode::Code16))
         .emit(instruction(&[0x89, 0xd8], CodeMode::Code16))
         .emit(instruction(&[0xc3], CodeMode::Code16));
-    let source = assembler.assemble(0).unwrap();
+    let source = assembler.assemble(CodeLocation::new(0x08, 0)).unwrap();
     let verifier = ExpectedWriteVerifier::<I386Code16, _>::new(move |source_id: &str| {
         if source_id == "hook-body" {
             Ok(source.clone())

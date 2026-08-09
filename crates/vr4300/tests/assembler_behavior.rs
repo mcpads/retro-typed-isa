@@ -1,6 +1,6 @@
 use vr4300::{
     Assembler, AssemblerError, EqualityCondition, GeneralRegister, ImmediateArithmeticOperation,
-    Instruction,
+    Instruction, StatusFr,
 };
 
 fn addiu() -> Instruction {
@@ -28,10 +28,11 @@ fn labels_lower_to_checked_branch_and_jump_targets() {
         .label("exit")
         .jump_to_label(false, "entry");
 
-    let program = assembler.assemble(0x8000_0000).unwrap();
+    let program = assembler.assemble(0x8000_0000, StatusFr::One).unwrap();
 
-    assert_eq!(program.label_address("entry"), Some(0x8000_0000));
-    assert_eq!(program.label_address("exit"), Some(0x8000_0008));
+    assert_eq!(program.label_location("entry"), Some(0x8000_0000));
+    assert_eq!(program.status_fr(), StatusFr::One);
+    assert_eq!(program.label_location("exit"), Some(0x8000_0008));
     assert_eq!(
         program.bytes(),
         [
@@ -51,7 +52,7 @@ fn explicit_data_cannot_silently_misalign_code() {
     assembler.data([0xde, 0xad]).emit(addiu());
 
     assert_eq!(
-        assembler.assemble(0x8000_0000),
+        assembler.assemble(0x8000_0000, StatusFr::One),
         Err(AssemblerError::UnalignedInstruction { offset: 2 })
     );
 }
@@ -61,7 +62,7 @@ fn undefined_and_duplicate_labels_are_rejected() {
     let mut missing = Assembler::new();
     missing.jump_to_label(false, "missing");
     assert_eq!(
-        missing.assemble(0x8000_0000),
+        missing.assemble(0x8000_0000, StatusFr::One),
         Err(AssemblerError::UndefinedLabel {
             label: "missing".to_owned()
         })
@@ -70,7 +71,7 @@ fn undefined_and_duplicate_labels_are_rejected() {
     let mut duplicate = Assembler::new();
     duplicate.label("same").emit(addiu()).label("same");
     assert_eq!(
-        duplicate.assemble(0x8000_0000),
+        duplicate.assemble(0x8000_0000, StatusFr::One),
         Err(AssemblerError::DuplicateLabel {
             label: "same".to_owned()
         })

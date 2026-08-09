@@ -14,9 +14,22 @@ use crate::instruction::{
     TrapCondition,
 };
 
-#[derive(Debug, Clone, Copy)]
-/// The fixed-width, big-endian VR4300 protocol profile.
-pub struct Vr4300;
+/// The externally established value of CP0 Status.FR for FPU register selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusFr {
+    /// Sixteen logical 64-bit FPRs backed by even/odd 32-bit FGR pairs.
+    Zero,
+    /// Thirty-two logical 64-bit FPRs backed by individual 64-bit FGRs.
+    One,
+}
+
+/// Fixed-width, big-endian VR4300 profile with CP0 Status.FR clear.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Vr4300Fr0;
+
+/// Fixed-width, big-endian VR4300 profile with CP0 Status.FR set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Vr4300Fr1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 /// Failure returned while decoding a VR4300 instruction.
@@ -118,10 +131,19 @@ pub enum EncodeError {
         /// The destination numeric format.
         to_format: NumericFormat,
     },
+    /// Status.FR=0 cannot name an odd FPR for an operation on a logical FPR.
+    #[error("VR4300 Status.FR=0 cannot use odd floating register {register:?} for this form")]
+    Fr0OddFloatingRegister {
+        /// Odd register rejected by the Status.FR=0 profile.
+        register: FloatingRegister,
+    },
 }
 
-/// Decodes one host-order instruction word at its placement address.
-pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
+fn decode_word_unprofiled(
+    word: u32,
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
+    let address = location;
     require_aligned_decode(address)?;
     match opcode(word) {
         0x00 => decode_special(word),
@@ -210,8 +232,25 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
     }
 }
 
-/// Encodes one typed instruction as a host-order word at its placement address.
-pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
+/// Decodes one host-order instruction word under an explicit Status.FR profile.
+pub fn decode_word(
+    word: u32,
+    location: crate::CodeLocation,
+    status_fr: StatusFr,
+) -> Result<Instruction, DecodeError> {
+    let instruction = decode_word_unprofiled(word, location)?;
+    if instruction_valid_for_status_fr(&instruction, status_fr) {
+        Ok(instruction)
+    } else {
+        Err(DecodeError::ReservedWord { word })
+    }
+}
+
+fn encode_word_unprofiled(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<u32, EncodeError> {
+    let address = location;
     require_aligned_encode(address)?;
     use Instruction::*;
 
@@ -680,20 +719,39 @@ pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, Encod
     }
 }
 
-/// Decodes one four-byte big-endian instruction at its placement address.
-pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
+/// Encodes one typed instruction under an explicit Status.FR profile.
+pub fn encode_word(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+    status_fr: StatusFr,
+) -> Result<u32, EncodeError> {
+    validate_status_fr(instruction, status_fr)?;
+    encode_word_unprofiled(instruction, location)
+}
+
+/// Decodes one four-byte big-endian instruction at its code location.
+pub fn decode_bytes(
+    source: &[u8],
+    location: crate::CodeLocation,
+    status_fr: StatusFr,
+) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
         .ok_or(DecodeError::UnexpectedEnd { got: source.len() })?;
     decode_word(
         u32::from_be_bytes(bytes.try_into().expect("four-byte slice")),
-        address,
+        location,
+        status_fr,
     )
 }
 
-/// Encodes one typed instruction as four big-endian bytes at its placement address.
-pub fn encode_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
-    Ok(encode_word(instruction, address)?.to_be_bytes())
+/// Encodes one typed instruction as four big-endian bytes at its code location.
+pub fn encode_bytes(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+    status_fr: StatusFr,
+) -> Result<[u8; 4], EncodeError> {
+    Ok(encode_word(instruction, location, status_fr)?.to_be_bytes())
 }
 
 fn decode_special(word: u32) -> Result<Instruction, DecodeError> {
@@ -1516,35 +1574,136 @@ fn require_aligned_encode(address: u64) -> Result<(), EncodeError> {
     }
 }
 
-impl TypedIsa for Vr4300 {
-    const PROFILE_ID: &'static str = crate::PROFILE_ID;
-
-    type Instruction = Instruction;
-    type Form = crate::InstructionForm;
-    type DecodeError = DecodeError;
-    type EncodeError = EncodeError;
-
-    fn form(instruction: &Self::Instruction) -> Result<Self::Form, Self::EncodeError> {
-        Ok(instruction.form())
+fn instruction_valid_for_status_fr(instruction: &Instruction, status_fr: StatusFr) -> bool {
+    if status_fr == StatusFr::One {
+        return true;
     }
 
-    fn decode_one(
-        source: &[u8],
-        address: u64,
-    ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
-        let instruction = decode_bytes(source, address)?;
-        let exact =
-            InstructionBytes::new(source[..4].to_vec()).expect("VR4300 instructions are non-empty");
-        Ok(ProtocolDecodedInstruction::new(instruction, exact))
-    }
-
-    fn encode_one(
-        instruction: &Self::Instruction,
-        address: u64,
-    ) -> Result<InstructionBytes, Self::EncodeError> {
-        Ok(
-            InstructionBytes::new(encode_bytes(instruction, address)?.to_vec())
-                .expect("VR4300 instructions are non-empty"),
-        )
+    let even = |register: FloatingRegister| register.index() & 1 == 0;
+    match *instruction {
+        Instruction::MoveFromFpu {
+            doubleword: true,
+            source,
+            ..
+        } => even(source),
+        Instruction::MoveToFpu {
+            doubleword: true,
+            destination,
+            ..
+        } => even(destination),
+        Instruction::CoprocessorMemory {
+            operation:
+                CoprocessorMemoryOperation::LoadDoubleword | CoprocessorMemoryOperation::StoreDoubleword,
+            register: CoprocessorMemoryRegister::FloatingPoint(register),
+            ..
+        } => even(register),
+        Instruction::FloatingBinary {
+            destination,
+            left,
+            right,
+            ..
+        } => even(destination) && even(left) && even(right),
+        Instruction::FloatingUnary {
+            destination,
+            source,
+            ..
+        }
+        | Instruction::FloatingRoundToInteger {
+            destination,
+            source,
+            ..
+        }
+        | Instruction::FloatingConvert {
+            destination,
+            source,
+            ..
+        } => even(destination) && even(source),
+        Instruction::FloatingCompare { left, right, .. } => even(left) && even(right),
+        _ => true,
     }
 }
+
+fn validate_status_fr(instruction: &Instruction, status_fr: StatusFr) -> Result<(), EncodeError> {
+    if instruction_valid_for_status_fr(instruction, status_fr) {
+        return Ok(());
+    }
+
+    let odd = |register: FloatingRegister| (register.index() & 1 != 0).then_some(register);
+    let register = match *instruction {
+        Instruction::MoveFromFpu { source, .. } => odd(source),
+        Instruction::MoveToFpu { destination, .. } => odd(destination),
+        Instruction::CoprocessorMemory {
+            register: CoprocessorMemoryRegister::FloatingPoint(register),
+            ..
+        } => odd(register),
+        Instruction::FloatingBinary {
+            destination,
+            left,
+            right,
+            ..
+        } => odd(destination)
+            .or_else(|| odd(left))
+            .or_else(|| odd(right)),
+        Instruction::FloatingUnary {
+            destination,
+            source,
+            ..
+        }
+        | Instruction::FloatingRoundToInteger {
+            destination,
+            source,
+            ..
+        }
+        | Instruction::FloatingConvert {
+            destination,
+            source,
+            ..
+        } => odd(destination).or_else(|| odd(source)),
+        Instruction::FloatingCompare { left, right, .. } => odd(left).or_else(|| odd(right)),
+        _ => None,
+    }
+    .expect("a Status.FR=0-invalid instruction contains an odd floating register");
+    Err(EncodeError::Fr0OddFloatingRegister { register })
+}
+
+macro_rules! implement_profile {
+    ($profile:ty, $id:expr, $status_fr:expr) => {
+        impl TypedIsa for $profile {
+            const PROFILE_ID: &'static str = $id;
+
+            type Instruction = Instruction;
+            type Form = crate::InstructionForm;
+            type CodeLocation = crate::CodeLocation;
+            type DecodeError = DecodeError;
+            type EncodeError = EncodeError;
+
+            fn form(instruction: &Self::Instruction) -> Result<Self::Form, Self::EncodeError> {
+                validate_status_fr(instruction, $status_fr)?;
+                Ok(instruction.form())
+            }
+
+            fn decode_one(
+                source: &[u8],
+                at: &Self::CodeLocation,
+            ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
+                let instruction = decode_bytes(source, *at, $status_fr)?;
+                let exact = InstructionBytes::new(source[..4].to_vec())
+                    .expect("VR4300 instructions are non-empty");
+                Ok(ProtocolDecodedInstruction::new(instruction, exact))
+            }
+
+            fn encode_one(
+                instruction: &Self::Instruction,
+                at: &Self::CodeLocation,
+            ) -> Result<InstructionBytes, Self::EncodeError> {
+                Ok(
+                    InstructionBytes::new(encode_bytes(instruction, *at, $status_fr)?.to_vec())
+                        .expect("VR4300 instructions are non-empty"),
+                )
+            }
+        }
+    };
+}
+
+implement_profile!(Vr4300Fr0, crate::FR0_PROFILE_ID, StatusFr::Zero);
+implement_profile!(Vr4300Fr1, crate::FR1_PROFILE_ID, StatusFr::One);

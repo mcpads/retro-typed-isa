@@ -69,7 +69,7 @@ fn gekko_rejects_the_registers_added_by_750cl() {
             [destination, Operand::SpecialPurposeRegister(register)],
         )
         .unwrap();
-        let word = PowerPc750Cl::encode_one(&instruction, 0)
+        let word = PowerPc750Cl::encode_one(&instruction, &0)
             .unwrap()
             .as_slice()
             .try_into()
@@ -77,7 +77,7 @@ fn gekko_rejects_the_registers_added_by_750cl() {
             .unwrap();
 
         assert_eq!(
-            PowerPcGekko::encode_one(&instruction, 0),
+            PowerPcGekko::encode_one(&instruction, &0),
             Err(EncodeError::GekkoUnavailableSpecialPurposeRegister { register })
         );
         assert_eq!(

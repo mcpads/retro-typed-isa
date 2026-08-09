@@ -5,7 +5,7 @@ use typed_isa_core::{InstructionBytes, InstructionSpan};
 
 use crate::{
     Coprocessor, CoprocessorBranchCondition, EncodeError, EqualityCondition, GeneralRegister,
-    Instruction, SignCondition, encode_bytes,
+    Instruction, SignCondition, StatusFr, encode_bytes,
 };
 
 #[derive(Debug, Clone)]
@@ -133,11 +133,16 @@ impl Assembler {
         self
     }
 
-    /// Resolves labels and lowers instructions at a four-byte-aligned origin.
+    /// Resolves labels and lowers instructions at a four-byte-aligned origin
+    /// under the externally established CP0 Status.FR profile.
     ///
     /// Control-flow instructions retain absolute targets in the typed model;
     /// lowering checks branch reach and the MIPS jump-region rule at placement time.
-    pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+        status_fr: StatusFr,
+    ) -> Result<AssembledProgram, AssemblerError> {
         if origin & 3 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });
         }
@@ -164,7 +169,7 @@ impl Assembler {
                     likely: *likely,
                     left: *left,
                     right: *right,
-                    target: label_address(&labels, label)?,
+                    target: label_location(&labels, label)?,
                 },
                 Node::SignBranch {
                     condition,
@@ -177,7 +182,7 @@ impl Assembler {
                     likely: *likely,
                     link: *link,
                     source: *source,
-                    target: label_address(&labels, label)?,
+                    target: label_location(&labels, label)?,
                 },
                 Node::CoprocessorBranch {
                     coprocessor,
@@ -188,11 +193,11 @@ impl Assembler {
                     coprocessor: *coprocessor,
                     condition: *condition,
                     likely: *likely,
-                    target: label_address(&labels, label)?,
+                    target: label_location(&labels, label)?,
                 },
                 Node::Jump { link, label } => Instruction::Jump {
                     link: *link,
-                    target: label_address(&labels, label)?,
+                    target: label_location(&labels, label)?,
                 },
             };
             if bytes.len() & 3 != 0 {
@@ -201,12 +206,12 @@ impl Assembler {
                 });
             }
             let address = placed_address(origin, bytes.len())?;
-            let encoded = encode_bytes(&instruction, address)?;
+            let encoded = encode_bytes(&instruction, address, status_fr)?;
             let offset = bytes.len();
             bytes.extend_from_slice(&encoded);
             instruction_spans.push(InstructionSpan {
                 offset,
-                address,
+                location: address,
                 bytes: InstructionBytes::new(encoded.to_vec())
                     .expect("VR4300 instruction bytes are non-empty"),
                 instruction,
@@ -215,6 +220,7 @@ impl Assembler {
 
         Ok(AssembledProgram {
             origin,
+            status_fr,
             bytes,
             labels,
             instruction_spans,
@@ -250,7 +256,7 @@ impl Assembler {
     }
 }
 
-fn label_address(labels: &BTreeMap<String, u64>, label: &str) -> Result<u64, AssemblerError> {
+fn label_location(labels: &BTreeMap<String, u64>, label: &str) -> Result<u64, AssemblerError> {
     labels
         .get(label)
         .copied()
@@ -269,15 +275,21 @@ fn placed_address(origin: u64, offset: usize) -> Result<u64, AssemblerError> {
 /// Assembled big-endian bytes and their label and instruction placement metadata.
 pub struct AssembledProgram {
     origin: u64,
+    status_fr: StatusFr,
     bytes: Vec<u8>,
     labels: BTreeMap<String, u64>,
-    instruction_spans: Vec<InstructionSpan<Instruction>>,
+    instruction_spans: Vec<InstructionSpan<crate::CodeLocation, Instruction>>,
 }
 
 impl AssembledProgram {
     /// Returns the address assigned to the first output byte.
-    pub const fn origin(&self) -> u64 {
+    pub const fn origin(&self) -> crate::CodeLocation {
         self.origin
+    }
+
+    /// Returns the explicit CP0 Status.FR profile used for lowering.
+    pub const fn status_fr(&self) -> StatusFr {
+        self.status_fr
     }
 
     /// Borrows the complete output, including explicitly declared data.
@@ -291,12 +303,12 @@ impl AssembledProgram {
     }
 
     /// Returns the resolved address of a declared label.
-    pub fn label_address(&self, name: &str) -> Option<u64> {
+    pub fn label_location(&self, name: &str) -> Option<crate::CodeLocation> {
         self.labels.get(name).copied()
     }
 
     /// Returns placements for executable instructions only.
-    pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
+    pub fn instruction_spans(&self) -> &[InstructionSpan<crate::CodeLocation, Instruction>] {
         &self.instruction_spans
     }
 }

@@ -71,7 +71,7 @@ fn shared_protocol_rejects_raw_values_before_form_or_byte_lowering() {
         Err(v30::EncodeError::RawBytesNotExecutable)
     );
     assert_eq!(
-        v30::V30::encode_one(&instruction, 0),
+        v30::V30::encode_one(&instruction, &v30::CodeLocation { seg: 0, off: 0 }),
         Err(v30::EncodeError::RawBytesNotExecutable)
     );
 }

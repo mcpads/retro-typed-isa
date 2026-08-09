@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use typed_isa_core::InstructionBytes;
 
 use crate::codec::{DecodeError, decode_word};
 use crate::encoder::{EncodeError, encode_word};
@@ -104,7 +105,7 @@ impl Assembler {
     /// Resolves labels and managed literal pools, then verifies the placed program.
     pub fn assemble(
         &self,
-        origin: u32,
+        origin: crate::CodeLocation,
         initial_fpscr: FpscrState,
     ) -> Result<AssembledProgram, AssemblerError> {
         if origin & 1 != 0 {
@@ -218,13 +219,27 @@ impl Assembler {
         )?;
         debug_assert_eq!(bytes.len(), layout.total_len);
 
+        let instruction_spans = placed_instructions
+            .iter()
+            .map(|placed| {
+                let offset = (placed.location - origin) as usize;
+                InstructionSpan {
+                    offset,
+                    location: placed.location,
+                    bytes: InstructionBytes::new(bytes[offset..offset + 2].to_vec())
+                        .expect("encoded SH-4 instructions are non-empty"),
+                    instruction: placed.instruction,
+                }
+            })
+            .collect();
+
         for placed in &placed_instructions {
             if !placed.instruction.has_delay_slot() {
                 continue;
             }
             let slot_address =
                 placed
-                    .address
+                    .location
                     .checked_add(2)
                     .ok_or(AssemblerError::AddressOverflow {
                         origin,
@@ -232,15 +247,15 @@ impl Assembler {
                     })?;
             let Some(delay_slot) = placed_instructions
                 .iter()
-                .find(|candidate| candidate.address == slot_address)
+                .find(|candidate| candidate.location == slot_address)
             else {
                 return Err(AssemblerError::MissingDelaySlot {
-                    branch_address: placed.address,
+                    branch_address: placed.location,
                 });
             };
             if delay_slot.instruction.is_illegal_delay_slot() {
                 return Err(AssemblerError::IllegalDelaySlot {
-                    branch_address: placed.address,
+                    branch_address: placed.location,
                     slot_address,
                     instruction: delay_slot.instruction,
                 });
@@ -252,6 +267,7 @@ impl Assembler {
             bytes,
             words,
             instructions,
+            instruction_spans,
             placed_instructions,
             literals,
         })
@@ -445,7 +461,7 @@ fn append_instruction(
     bytes.extend_from_slice(&word.to_le_bytes());
     instructions.push(instruction);
     placed_instructions.push(PlacedInstruction {
-        address,
+        location: address,
         fpscr,
         instruction,
     });
@@ -553,17 +569,20 @@ impl LabelBranch {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// A typed instruction with its placement address and active FPSCR state.
+/// A typed instruction with its code location and active FPSCR state.
 pub struct PlacedInstruction {
-    address: u32,
+    location: crate::CodeLocation,
     fpscr: FpscrState,
     instruction: Instruction,
 }
 
+/// Workspace-wide instruction-placement evidence specialized for SH-4.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<crate::CodeLocation, Instruction>;
+
 impl PlacedInstruction {
-    /// Returns the absolute placement address.
-    pub fn address(&self) -> u32 {
-        self.address
+    /// Returns the architectural code location.
+    pub fn location(&self) -> crate::CodeLocation {
+        self.location
     }
 
     /// Returns the FPSCR state used to decode this instruction.
@@ -612,13 +631,14 @@ pub struct AssembledProgram {
     bytes: Vec<u8>,
     words: Vec<u16>,
     instructions: Vec<Instruction>,
+    instruction_spans: Vec<InstructionSpan>,
     placed_instructions: Vec<PlacedInstruction>,
     literals: Vec<PlacedLiteral>,
 }
 
 impl AssembledProgram {
     /// Returns the first output address.
-    pub fn origin(&self) -> u32 {
+    pub fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -640,6 +660,11 @@ impl AssembledProgram {
     /// Returns typed instructions in source order.
     pub fn instructions(&self) -> &[Instruction] {
         &self.instructions
+    }
+
+    /// Returns exact bytes, locations, and typed identities for instructions only.
+    pub fn instruction_spans(&self) -> &[InstructionSpan] {
+        &self.instruction_spans
     }
 
     /// Returns instruction placements and FPSCR states.

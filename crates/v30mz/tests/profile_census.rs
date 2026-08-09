@@ -1,8 +1,22 @@
-use typed_isa_core::TypedIsa;
+use typed_isa_core::{StaticSemantics, TypedIsa};
 use v30mz::{
-    DecodeError, Instruction, InstructionAddress, Operand, Register16, V30Mz, VSeriesInstruction,
-    decode_bytes, encode_bytes,
+    AnalysisPoint, CodeLocation, DecodeError, Instruction, InterruptState, Operand, Register16,
+    V30Mz, VSeriesInstruction, decode_bytes, encode_bytes,
 };
+
+fn assert_semantics(instruction: &Instruction) {
+    V30Mz::semantics(
+        instruction,
+        &AnalysisPoint::new(
+            CodeLocation {
+                seg: 0x1000,
+                off: 0x0100,
+            },
+            InterruptState::Unknown,
+        ),
+    )
+    .unwrap();
+}
 
 // NEC A13761EJ1V0UM00 Appendix A assigns every other primary byte to an
 // instruction. These eight bytes are the entire undefined primary set for
@@ -32,15 +46,16 @@ fn every_primary_opcode_matches_the_manual_partition() {
                 0xf3 => &[0xf3, 0xa4],
                 _ => &[opcode, 0xa4],
             };
-            assert!(decode_bytes(bytes).is_ok(), "prefix {opcode:#04x}");
+            let decoded = decode_bytes(bytes).unwrap();
+            assert_semantics(decoded.instruction());
         } else {
             instruction_count += 1;
             let mut bytes = [0_u8; 15];
             bytes[0] = opcode;
-            assert!(
-                decode_bytes(&bytes).is_ok(),
-                "manual instruction primary {opcode:#04x} did not decode"
-            );
+            let decoded = decode_bytes(&bytes).unwrap_or_else(|_| {
+                panic!("manual instruction primary {opcode:#04x} did not decode")
+            });
+            assert_semantics(decoded.instruction());
         }
     }
 
@@ -84,10 +99,11 @@ fn standard_v30mz_forms_round_trip_through_the_profile() {
 #[test]
 fn profile_implements_the_shared_static_protocol() {
     assert_eq!(V30Mz::PROFILE_ID, "v30mz");
-    let decoded = V30Mz::decode_one(&[0x90], 0).unwrap();
+    let at = v30mz::CodeLocation { seg: 0, off: 0 };
+    let decoded = V30Mz::decode_one(&[0x90], &at).unwrap();
     assert_eq!(decoded.source().as_slice(), [0x90]);
     assert_eq!(
-        V30Mz::encode_one(decoded.instruction(), 0)
+        V30Mz::encode_one(decoded.instruction(), &at)
             .unwrap()
             .as_slice(),
         [0x90]
@@ -102,11 +118,17 @@ fn checked_assembler_keeps_relative_targets_inside_the_exact_profile() {
         .emit(Instruction::new(VSeriesInstruction::Nop).unwrap())
         .emit_jump_short("again");
     let program = assembler
-        .assemble(InstructionAddress {
+        .assemble(CodeLocation {
             seg: 0x2000,
             off: 0x100,
         })
         .unwrap();
     assert_eq!(program.bytes(), [0x90, 0xeb, 0xfd]);
     assert_eq!(program.instruction_spans().len(), 2);
+    assert_eq!(program.instruction_spans()[1].offset, 1);
+    assert_eq!(program.instruction_spans()[1].location.off, 0x101);
+    assert_eq!(
+        program.instruction_spans()[1].bytes.as_slice(),
+        [0xeb, 0xfd]
+    );
 }

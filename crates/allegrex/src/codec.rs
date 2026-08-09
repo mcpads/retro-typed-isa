@@ -19,17 +19,11 @@ pub struct Allegrex;
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 /// Failure returned while decoding one Allegrex instruction.
 pub enum DecodeError {
-    #[error("Allegrex instruction address {address:#x} is not four-byte aligned")]
+    #[error("Allegrex code location {location:#x} is not four-byte aligned")]
     /// The unaligned address form.
     UnalignedAddress {
         /// The instruction or target address.
-        address: u64,
-    },
-    #[error("Allegrex instruction address {address:#x} exceeds the 32-bit address space")]
-    /// The address out of range form.
-    AddressOutOfRange {
-        /// The instruction or target address.
-        address: u64,
+        location: crate::CodeLocation,
     },
     #[error("truncated Allegrex instruction: needed 4 bytes, got {got}")]
     /// The unexpected end form.
@@ -48,17 +42,11 @@ pub enum DecodeError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 /// Failure returned when a typed Allegrex instruction cannot be placed and encoded.
 pub enum EncodeError {
-    #[error("Allegrex instruction address {address:#x} is not four-byte aligned")]
+    #[error("Allegrex code location {location:#x} is not four-byte aligned")]
     /// The unaligned address form.
     UnalignedAddress {
         /// The instruction or target address.
-        address: u64,
-    },
-    #[error("Allegrex instruction address {address:#x} exceeds the 32-bit address space")]
-    /// The address out of range form.
-    AddressOutOfRange {
-        /// The instruction or target address.
-        address: u64,
+        location: crate::CodeLocation,
     },
     #[error("control-flow target {target:#010x} is not four-byte aligned")]
     /// The unaligned target form.
@@ -103,19 +91,19 @@ pub enum EncodeError {
     InvalidVfpu(#[from] VfpuConstructionError),
 }
 
-/// Decodes one host-order instruction word at its placement address.
-pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
-    let address = checked_decode_address(address)?;
-    if let Some(instruction) = decode_vfpu(word, address)? {
+/// Decodes one host-order instruction word at its code location.
+pub fn decode_word(word: u32, location: crate::CodeLocation) -> Result<Instruction, DecodeError> {
+    let location = checked_decode_location(location)?;
+    if let Some(instruction) = decode_vfpu(word, location)? {
         return Ok(Instruction::Vfpu(instruction));
     }
 
     match opcode(word) {
         0x00 => decode_special(word),
-        0x01 => decode_regimm(word, address),
+        0x01 => decode_regimm(word, location),
         0x02 | 0x03 => Ok(Instruction::Jump {
             link: opcode(word) == 0x03,
-            target: jump_target(word, address),
+            target: jump_target(word, location),
         }),
         0x04 | 0x05 | 0x14 | 0x15 => Ok(Instruction::EqualityBranch {
             condition: if opcode(word) & 1 == 0 {
@@ -126,7 +114,7 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
             likely: opcode(word) & 0x10 != 0,
             left: rs(word),
             right: rt(word),
-            target: branch_target(word, address),
+            target: branch_target(word, location),
         }),
         0x06 | 0x07 | 0x16 | 0x17 => {
             require(word, rt_index(word) == 0)?;
@@ -139,7 +127,7 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
                 likely: opcode(word) & 0x10 != 0,
                 link: false,
                 source: rs(word),
-                target: branch_target(word, address),
+                target: branch_target(word, location),
             })
         }
         0x08..=0x0b => Ok(Instruction::ImmediateArithmetic {
@@ -173,7 +161,7 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
             })
         }
         0x10 => decode_cp0(word),
-        0x11 => decode_fpu(word, address),
+        0x11 => decode_fpu(word, location),
         0x1f => decode_special3(word),
         0x20..=0x26 | 0x28..=0x2b | 0x2e | 0x30 | 0x38 => decode_memory(word),
         0x2f => {
@@ -195,9 +183,12 @@ pub fn decode_word(word: u32, address: u64) -> Result<Instruction, DecodeError> 
     }
 }
 
-/// Encodes one typed instruction as a host-order word at its placement address.
-pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
-    let address = checked_encode_address(address)?;
+/// Encodes one typed instruction as a host-order word at its code location.
+pub fn encode_word(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<u32, EncodeError> {
+    let address = checked_encode_location(location)?;
     use Instruction::*;
 
     match instruction {
@@ -585,20 +576,26 @@ pub fn encode_word(instruction: &Instruction, address: u64) -> Result<u32, Encod
     }
 }
 
-/// Decodes one four-byte little-endian instruction at its placement address.
-pub fn decode_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
+/// Decodes one four-byte little-endian instruction at its code location.
+pub fn decode_bytes(
+    source: &[u8],
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
         .ok_or(DecodeError::UnexpectedEnd { got: source.len() })?;
     decode_word(
         u32::from_le_bytes(bytes.try_into().expect("four-byte instruction")),
-        address,
+        location,
     )
 }
 
-/// Encodes one typed instruction as four little-endian bytes at its placement address.
-pub fn encode_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
-    Ok(encode_word(instruction, address)?.to_le_bytes())
+/// Encodes one typed instruction as four little-endian bytes at its code location.
+pub fn encode_bytes(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<[u8; 4], EncodeError> {
+    Ok(encode_word(instruction, location)?.to_le_bytes())
 }
 
 impl TypedIsa for Allegrex {
@@ -606,6 +603,7 @@ impl TypedIsa for Allegrex {
 
     type Instruction = Instruction;
     type Form = InstructionForm;
+    type CodeLocation = crate::CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -615,9 +613,9 @@ impl TypedIsa for Allegrex {
 
     fn decode_one(
         source: &[u8],
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
-        let instruction = decode_bytes(source, address)?;
+        let instruction = decode_bytes(source, *at)?;
         let bytes = InstructionBytes::new(source[..4].to_vec())
             .expect("Allegrex instruction bytes are non-empty");
         Ok(ProtocolDecodedInstruction::new(instruction, bytes))
@@ -625,9 +623,9 @@ impl TypedIsa for Allegrex {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
-        let bytes = encode_bytes(instruction, address)?;
+        let bytes = encode_bytes(instruction, *at)?;
         Ok(
             InstructionBytes::new(bytes.to_vec())
                 .expect("Allegrex instruction bytes are non-empty"),
@@ -1668,18 +1666,18 @@ fn transpose_matrix_bits(mut index: u8, size: VectorSize) -> u8 {
     index
 }
 
-fn checked_decode_address(address: u64) -> Result<u32, DecodeError> {
-    if address & 3 != 0 {
-        return Err(DecodeError::UnalignedAddress { address });
+fn checked_decode_location(location: crate::CodeLocation) -> Result<u32, DecodeError> {
+    if location & 3 != 0 {
+        return Err(DecodeError::UnalignedAddress { location });
     }
-    u32::try_from(address).map_err(|_| DecodeError::AddressOutOfRange { address })
+    Ok(location)
 }
 
-fn checked_encode_address(address: u64) -> Result<u32, EncodeError> {
-    if address & 3 != 0 {
-        return Err(EncodeError::UnalignedAddress { address });
+fn checked_encode_location(location: crate::CodeLocation) -> Result<u32, EncodeError> {
+    if location & 3 != 0 {
+        return Err(EncodeError::UnalignedAddress { location });
     }
-    u32::try_from(address).map_err(|_| EncodeError::AddressOutOfRange { address })
+    Ok(location)
 }
 
 fn check_field(field: &'static str, value: u32, maximum: u32) -> Result<(), EncodeError> {

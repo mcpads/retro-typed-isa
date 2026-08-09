@@ -2,18 +2,19 @@
 
 Rust libraries for safely analyzing and generating executable code in retro-game patch tools.
 
-Each CPU profile is an independent crate with typed instructions and operands, byte decoding and encoding, and a placement-aware checked assembler. Instruction execution, CPU state transitions, pipelines, cycle timing, and simulation are outside this project's scope.
+Each CPU profile is an independent crate with typed instructions and operands, byte decoding and encoding, placement-aware checked assembly, and the common `StaticSemantics` interface. The workspace also contains the CPU-independent `expected-write` final-byte verifier. Instruction execution and simulation are outside the project scope.
 
-`typed-isa-core` defines the shared `TypedIsa` protocol and vocabulary, and every CPU crate exposes
-one or more exact profiles through it. Decode state that changes instruction identity is named in
-the profile, such as ARM/Thumb state, Intel code-segment size, W65C816 register widths, or SH-4
-FPSCR.PR/SZ. The protocol does not certify instruction coverage.
+Every listed exact profile has source-derived encoding and semantic coverage gates. “Complete” in this repository is always capability- and profile-qualified: it covers the declared instruction profile, not timing, device behavior, undocumented extensions, or every processor in a wider architecture family.
 
-The public semantic model is owned by this workspace. Public architecture manuals define each profile and its coverage denominator. Independent decoders or assemblers may be consulted separately, but they are not Cargo dependencies, executable test oracles, or sources of public instruction types.
+## Documentation
 
-See [Design principles](DESIGN.md) for the stable project boundaries and [Contributing](CONTRIBUTING.md) for profile implementation rules.
+Read the documents that own the relevant decision:
 
-The CPU-independent `expected-write` crate verifies immutable-source preconditions, write ownership, protected regions, and final typed machine code.
+- [Design principles](DESIGN.md): project purpose, authority, layer ownership, completeness, and congruence.
+- [Typed ISA protocol](ISA.md): common byte, code-location, classification, placement, and final-write boundaries.
+- [Static semantics protocol](SEMANTICS.md): the implemented common vocabulary for static instruction meaning and its admission gate.
+- [CPU profile semantics](PROFILE_SEMANTICS.md): application of that vocabulary to every supported profile.
+- [Contributing](CONTRIBUTING.md): implementation and review requirements.
 
 ## Crates
 
@@ -21,7 +22,7 @@ The CPU-independent `expected-write` crate verifies immutable-source preconditio
 - Shared protocol: `typed-isa-core`
 - Final-byte verification: `expected-write`
 
-A CPU profile is described as complete only after its typed model has passed a source-derived coverage gate that is independent of the implementation's own catalog. Publishing to Cargo registries is currently disabled.
+Cargo registry publishing is currently disabled.
 
 ## License
 

@@ -1,7 +1,8 @@
 use psx_r3000a::{
-    Assembler, ControlFlow, Instruction, InstructionForm, PROFILE_ID, Register, encode_bytes,
+    Assembler, Instruction, InstructionForm, PROFILE_ID, PsxR3000A, Register, encode_bytes,
     verify_placed_program,
 };
+use typed_isa_core::{ControlAction, ControlTarget, StaticSemantics};
 
 #[test]
 fn consumer_can_assemble_and_verify_placed_control_flow() {
@@ -22,13 +23,23 @@ fn consumer_can_assemble_and_verify_placed_control_flow() {
     let program = assembler.assemble(origin).unwrap();
     let decoded = verify_placed_program(program.bytes(), origin).unwrap();
     assert_eq!(decoded, program.instructions());
+    assert_eq!(program.instruction_spans()[1].offset, 4);
+    assert_eq!(program.instruction_spans()[1].location, origin + 4);
+    assert_eq!(
+        program.instruction_spans()[1].bytes.as_slice(),
+        &program.bytes()[4..8]
+    );
     assert_eq!(
         encode_bytes(&decoded[0], origin).unwrap(),
         program.bytes()[..4]
     );
     assert_eq!(decoded[1].form(), InstructionForm::Bne);
+    let semantics = PsxR3000A::semantics(&decoded[1], &(origin + 4)).unwrap();
     assert_eq!(
-        decoded[1].control_flow(),
-        ControlFlow::ConditionalBranch { target: origin }
+        semantics.control_flow.action,
+        ControlAction::Transfer {
+            target: ControlTarget::Direct(origin)
+        }
     );
+    assert_eq!(semantics.control_flow.fallthrough, Some(origin + 12));
 }

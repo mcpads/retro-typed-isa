@@ -4,7 +4,7 @@ use r5900::{
     VectorInterlock, VectorLane, VectorMicroAddress, decode_word, encode_bytes, encode_word,
 };
 
-const ADDRESS: u64 = 0x0010_0000;
+const ADDRESS: r5900::CodeLocation = 0x0010_0000;
 
 #[test]
 fn public_vector_fields_enforce_the_vu_manual_ranges() {

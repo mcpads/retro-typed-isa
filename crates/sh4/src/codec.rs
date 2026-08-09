@@ -20,12 +20,6 @@ pub enum DecodedWord {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 /// Failure returned while decoding an SH-4 opcode.
 pub enum DecodeError {
-    #[error("SH-4 instruction address {address:#x} exceeds the 32-bit address space")]
-    /// The address out of range form.
-    AddressOutOfRange {
-        /// The instruction or literal address.
-        address: u64,
-    },
     #[error("SH-4 instruction requires two bytes, got {len}")]
     /// The truncated input form.
     TruncatedInput {
@@ -38,11 +32,11 @@ pub enum DecodeError {
         /// The rejected opcode word.
         word: u16,
     },
-    #[error("SH-4 instruction address 0x{address:08X} is not two-byte aligned")]
-    /// The unaligned instruction address form.
-    UnalignedInstructionAddress {
-        /// The instruction or literal address.
-        address: u32,
+    #[error("SH-4 code location 0x{location:08X} is not two-byte aligned")]
+    /// The unaligned executable location form.
+    UnalignedCodeLocation {
+        /// The rejected executable location.
+        location: crate::CodeLocation,
     },
     #[error("SH-4 address overflow from 0x{origin:08X} at instruction {index}")]
     /// The address overflow form.
@@ -1053,7 +1047,7 @@ pub(crate) fn decode_program(
     fpscr: FpscrState,
 ) -> Result<Vec<Instruction>, DecodeError> {
     if origin & 1 != 0 {
-        return Err(DecodeError::UnalignedInstructionAddress { address: origin });
+        return Err(DecodeError::UnalignedCodeLocation { location: origin });
     }
     if bytes.len() % 2 != 0 {
         return Err(DecodeError::TruncatedInput { len: bytes.len() });

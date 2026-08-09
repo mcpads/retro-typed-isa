@@ -3,6 +3,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use typed_isa_core::InstructionBytes;
+
+use crate::CodeLocation;
 use crate::codec::{DecodeError, EncodeError, Instruction, Operand, decode_bytes, encode_bytes};
 use crate::isa::{AddressingMode, Mnemonic, OPCODE_TABLE, WidthState, opcode_for};
 
@@ -121,17 +124,16 @@ impl Assembler {
     /// widths follow `initial_mode`, REP/SEP transitions, and explicit assumptions.
     pub fn assemble(
         &self,
-        origin: u32,
+        origin: CodeLocation,
         initial_mode: CpuMode,
     ) -> Result<AssembledProgram, AssemblerError> {
-        if origin > 0xFF_FFFF {
-            return Err(AssemblerError::OriginOutOfRange(origin));
-        }
-        let (labels, total_len) = self.first_pass(origin, initial_mode)?;
-        ensure_bank_local(origin, total_len)?;
+        let origin_address = origin.to_u32();
+        let (labels, total_len) = self.first_pass(origin_address, initial_mode)?;
+        ensure_bank_local(origin_address, total_len)?;
 
         let mut bytes = Vec::with_capacity(total_len);
         let mut instructions = Vec::new();
+        let mut instruction_width_states = Vec::new();
         let mut mode = Some(initial_mode);
 
         for statement in &self.statements {
@@ -143,12 +145,19 @@ impl Assembler {
                     let current_mode = require_mode(mode, bytes.len())?;
                     let encoded = encode_bytes(instruction, current_mode.widths())?;
                     let offset = bytes.len();
+                    let location = location_at(origin, offset)?;
                     bytes.extend_from_slice(&encoded);
                     instructions.push(InstructionSpan {
                         offset,
-                        len: encoded.len(),
-                        widths: current_mode.widths(),
+                        location,
+                        bytes: InstructionBytes::new(encoded)
+                            .expect("encoded W65C816 instructions are non-empty"),
                         instruction: instruction.clone(),
+                    });
+                    instruction_width_states.push(InstructionWidthState {
+                        offset,
+                        location,
+                        widths: current_mode.widths(),
                     });
                     mode = transition_mode(current_mode, instruction);
                 }
@@ -160,7 +169,7 @@ impl Assembler {
                     let current_mode = require_mode(mode, bytes.len())?;
                     let offset = bytes.len();
                     let instruction = resolve_label_reference(
-                        origin,
+                        origin_address,
                         offset,
                         *mnemonic,
                         *addressing_mode,
@@ -169,12 +178,19 @@ impl Assembler {
                         current_mode.widths(),
                     )?;
                     let encoded = encode_bytes(&instruction, current_mode.widths())?;
+                    let location = location_at(origin, offset)?;
                     bytes.extend_from_slice(&encoded);
                     instructions.push(InstructionSpan {
                         offset,
-                        len: encoded.len(),
-                        widths: current_mode.widths(),
+                        location,
+                        bytes: InstructionBytes::new(encoded)
+                            .expect("encoded W65C816 instructions are non-empty"),
                         instruction,
+                    });
+                    instruction_width_states.push(InstructionWidthState {
+                        offset,
+                        location,
+                        widths: current_mode.widths(),
                     });
                     mode = transition_mode(current_mode, &instructions.last().unwrap().instruction);
                 }
@@ -182,12 +198,16 @@ impl Assembler {
         }
 
         debug_assert_eq!(bytes.len(), total_len);
-        verify_instruction_spans(&bytes, &instructions)?;
+        verify_instruction_spans(&bytes, &instructions, &instruction_width_states)?;
         Ok(AssembledProgram {
             origin,
             bytes,
-            labels,
+            labels: labels
+                .into_iter()
+                .map(|(name, address)| (name, unpack_location(address)))
+                .collect(),
             instructions,
+            instruction_width_states,
         })
     }
 
@@ -258,31 +278,33 @@ impl Assembler {
     }
 }
 
-/// Location, width state, and identity of one instruction in assembled output.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstructionSpan {
+/// Workspace-wide instruction-placement evidence specialized for W65C816.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<CodeLocation, Instruction>;
+
+/// W65C816 width state attached to one assembled instruction location.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InstructionWidthState {
     /// Byte offset relative to the beginning of the assembled program.
     pub offset: usize,
-    /// Number of bytes occupied by the instruction.
-    pub len: usize,
-    /// M/X widths used to lower and verify the instruction.
+    /// Banked architectural code location governed by `widths`.
+    pub location: CodeLocation,
+    /// Accumulator and index widths used to lower the instruction.
     pub widths: WidthState,
-    /// Typed instruction that produced the bytes in this span.
-    pub instruction: Instruction,
 }
 
 /// Checked single-bank output with resolved labels and verified instruction spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
-    origin: u32,
+    origin: CodeLocation,
     bytes: Vec<u8>,
-    labels: BTreeMap<String, u32>,
+    labels: BTreeMap<String, CodeLocation>,
     instructions: Vec<InstructionSpan>,
+    instruction_width_states: Vec<InstructionWidthState>,
 }
 
 impl AssembledProgram {
-    /// Return the 24-bit address assigned to the first output byte.
-    pub fn origin(&self) -> u32 {
+    /// Return the banked code location assigned to the first output byte.
+    pub fn origin(&self) -> CodeLocation {
         self.origin
     }
 
@@ -296,14 +318,19 @@ impl AssembledProgram {
         self.bytes
     }
 
-    /// Return the resolved 24-bit address of a defined label, if present.
-    pub fn label_address(&self, name: &str) -> Option<u32> {
+    /// Return the resolved code location of a defined label, if present.
+    pub fn label_location(&self, name: &str) -> Option<CodeLocation> {
         self.labels.get(name).copied()
     }
 
     /// Borrow the locations and identities of executable instructions only.
     pub fn instruction_spans(&self) -> &[InstructionSpan] {
         &self.instructions
+    }
+
+    /// Borrow the W65C816-specific M/X state paired with each instruction span.
+    pub fn instruction_width_states(&self) -> &[InstructionWidthState] {
+        &self.instruction_width_states
     }
 }
 
@@ -314,8 +341,6 @@ pub enum AssemblerError {
     Decode(DecodeError),
     /// Typed instruction construction or lowering failed.
     Encode(EncodeError),
-    /// The requested origin exceeds the 24-bit address space.
-    OriginOutOfRange(u32),
     /// Address calculation overflowed the host or 24-bit address range.
     AddressOverflow,
     /// The complete output crosses a 64 KiB program-bank boundary.
@@ -366,12 +391,6 @@ impl fmt::Display for AssemblerError {
         match self {
             Self::Decode(error) => error.fmt(f),
             Self::Encode(error) => error.fmt(f),
-            Self::OriginOutOfRange(origin) => {
-                write!(
-                    f,
-                    "assembly origin exceeds 24-bit address space: 0x{origin:X}"
-                )
-            }
             Self::AddressOverflow => write!(f, "assembled address overflow"),
             Self::CrossesBankBoundary { origin, len } => write!(
                 f,
@@ -441,6 +460,24 @@ fn ensure_bank_local(origin: u32, len: usize) -> Result<(), AssemblerError> {
         return Err(AssemblerError::AddressOverflow);
     }
     Ok(())
+}
+
+fn unpack_location(address: u32) -> CodeLocation {
+    CodeLocation::new((address >> 16) as u8, address as u16)
+}
+
+fn location_at(origin: CodeLocation, offset: usize) -> Result<CodeLocation, AssemblerError> {
+    let address = origin
+        .to_u32()
+        .checked_add(u32::try_from(offset).map_err(|_| AssemblerError::AddressOverflow)?)
+        .ok_or(AssemblerError::AddressOverflow)?;
+    if address >> 16 != u32::from(origin.bank()) {
+        return Err(AssemblerError::CrossesBankBoundary {
+            origin: origin.to_u32(),
+            len: offset,
+        });
+    }
+    Ok(unpack_location(address))
 }
 
 fn require_mode(mode: Option<CpuMode>, offset: usize) -> Result<CpuMode, AssemblerError> {
@@ -547,10 +584,19 @@ fn resolve_label_reference(
 fn verify_instruction_spans(
     bytes: &[u8],
     instructions: &[InstructionSpan],
+    width_states: &[InstructionWidthState],
 ) -> Result<(), AssemblerError> {
-    for span in instructions {
-        let decoded = decode_bytes(&bytes[span.offset..], span.widths)?;
-        if decoded.len != span.len || decoded.instruction != span.instruction {
+    if instructions.len() != width_states.len() {
+        return Err(AssemblerError::VerificationFailed { offset: 0 });
+    }
+    for (span, width_state) in instructions.iter().zip(width_states) {
+        let decoded = decode_bytes(&bytes[span.offset..], width_state.widths)?;
+        if span.offset != width_state.offset
+            || span.location != width_state.location
+            || decoded.len != span.bytes.len().get()
+            || decoded.instruction != span.instruction
+            || &bytes[span.offset..span.offset + decoded.len] != span.bytes.as_slice()
+        {
             return Err(AssemblerError::VerificationFailed {
                 offset: span.offset,
             });
@@ -562,6 +608,10 @@ fn verify_instruction_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn location(address: u32) -> CodeLocation {
+        unpack_location(address)
+    }
 
     fn implied(mnemonic: Mnemonic) -> Instruction {
         Instruction::new(mnemonic, AddressingMode::Implied, Operand::None)
@@ -578,12 +628,14 @@ mod tests {
             .label("done")
             .emit(implied(Mnemonic::Rtl));
 
-        let assembled = program.assemble(0x80_D000, CpuMode::NATIVE_M8_X8).unwrap();
+        let assembled = program
+            .assemble(location(0x80_D000), CpuMode::NATIVE_M8_X8)
+            .unwrap();
         assert_eq!(
             assembled.bytes(),
             [0x20, 0x05, 0xD0, 0xD0, 0x01, 0x60, 0x6B]
         );
-        assert_eq!(assembled.label_address("sub"), Some(0x80_D005));
+        assert_eq!(assembled.label_location("sub"), Some(location(0x80_D005)));
         assert_eq!(assembled.instruction_spans().len(), 4);
     }
 
@@ -613,12 +665,16 @@ mod tests {
             ));
         assert_eq!(
             program
-                .assemble(0x80_8000, CpuMode::NATIVE_M8_X8)
+                .assemble(location(0x80_8000), CpuMode::NATIVE_M8_X8)
                 .unwrap()
                 .bytes(),
             [0xC2, 0x20, 0xA9, 0x34, 0x12, 0xE2, 0x20, 0xA9, 0x56]
         );
-        assert!(program.assemble(0x80_8000, CpuMode::Emulation).is_err());
+        assert!(
+            program
+                .assemble(location(0x80_8000), CpuMode::Emulation)
+                .is_err()
+        );
     }
 
     #[test]
@@ -628,7 +684,7 @@ mod tests {
             .emit(implied(Mnemonic::Xce))
             .emit(implied(Mnemonic::Nop));
         assert!(matches!(
-            rejected.assemble(0x80_8000, CpuMode::Emulation),
+            rejected.assemble(location(0x80_8000), CpuMode::Emulation),
             Err(AssemblerError::CpuModeUnknown { offset: 1 })
         ));
 
@@ -639,7 +695,7 @@ mod tests {
             .emit(implied(Mnemonic::Nop));
         assert_eq!(
             accepted
-                .assemble(0x80_8000, CpuMode::Emulation)
+                .assemble(location(0x80_8000), CpuMode::Emulation)
                 .unwrap()
                 .bytes(),
             [0xFB, 0xEA]
@@ -655,21 +711,21 @@ mod tests {
             .label("far")
             .emit(implied(Mnemonic::Nop));
         assert!(matches!(
-            branch.assemble(0x80_8000, CpuMode::NATIVE_M8_X8),
+            branch.assemble(location(0x80_8000), CpuMode::NATIVE_M8_X8),
             Err(AssemblerError::RelativeOutOfRange { bits: 8, .. })
         ));
 
         let mut crossing = Assembler::new();
         crossing.data(vec![0; 2]);
         assert!(matches!(
-            crossing.assemble(0x80_FFFF, CpuMode::NATIVE_M8_X8),
+            crossing.assemble(location(0x80_FFFF), CpuMode::NATIVE_M8_X8),
             Err(AssemblerError::CrossesBankBoundary { .. })
         ));
 
         let mut end_label = Assembler::new();
         end_label.emit(implied(Mnemonic::Nop)).label("wrapped");
         assert!(matches!(
-            end_label.assemble(0x80_FFFF, CpuMode::NATIVE_M8_X8),
+            end_label.assemble(location(0x80_FFFF), CpuMode::NATIVE_M8_X8),
             Err(AssemblerError::CrossesBankBoundary { .. })
         ));
     }
@@ -691,7 +747,7 @@ mod tests {
                 program.emit(instruction);
                 assert_eq!(
                     program
-                        .assemble(0x80_8000, CpuMode::Native(widths))
+                        .assemble(location(0x80_8000), CpuMode::Native(widths))
                         .unwrap()
                         .bytes(),
                     raw,

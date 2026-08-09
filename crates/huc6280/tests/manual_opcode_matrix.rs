@@ -11,7 +11,12 @@
 //! This fixture is not generated from the production selector table, form
 //! catalog, documentation predicate, or decoder.
 
-use huc6280::{DecodeError, decode_bytes, encode_bytes};
+use huc6280::{
+    AddressPattern, AnalysisPoint, DecodeError, HardwarePort, HuC6280, IndexRegister, Location,
+    MemoryAddress, MemoryLocation, Mnemonic, Reference, RegisterLocation, StatusLocation, TState,
+    decode_bytes, encode_bytes,
+};
+use typed_isa_core::{AccessKind, AccessOccurrence, ControlAction, ReferenceKind, StaticSemantics};
 
 // `U` is an undefined manual slot. `D:MNEMONIC:MODE` is a documented selector.
 const MANUAL_ROWS: [&str; 16] = [
@@ -69,8 +74,144 @@ fn every_manual_selector_has_the_documented_form_and_exact_lowering() {
                 source[..expected_len],
                 "manual opcode ${opcode:02X} did not lower exactly"
             );
+            for t_state in [TState::Clear, TState::Set, TState::Unknown] {
+                HuC6280::semantics(&decoded, &AnalysisPoint::new(0x8000, t_state))
+                    .unwrap_or_else(|error| panic!("manual opcode ${opcode:02X}: {error}"));
+            }
         }
     }
+}
+
+#[test]
+fn manual_t_flag_rule_selects_accumulator_or_zero_page_x_and_then_clears() {
+    let adc = decode_bytes(&[0x69, 0x11]).unwrap();
+    let clear = HuC6280::semantics(&adc, &AnalysisPoint::new(0x4000, TState::Clear)).unwrap();
+    assert!(clear.location_accesses.iter().any(|access| {
+        access.location == Location::Register(RegisterLocation::Accumulator)
+            && access.kind == AccessKind::Write
+            && access.occurrence == AccessOccurrence::Always
+    }));
+    assert!(!clear.location_accesses.iter().any(|access| {
+        matches!(
+            access.location,
+            Location::Memory(MemoryLocation {
+                address: MemoryAddress::ZeroPage {
+                    base: 0,
+                    index: Some(IndexRegister::X),
+                },
+                ..
+            })
+        )
+    }));
+
+    let set = HuC6280::semantics(&adc, &AnalysisPoint::new(0x4000, TState::Set)).unwrap();
+    assert!(!set.location_accesses.iter().any(|access| {
+        access.location == Location::Register(RegisterLocation::Accumulator)
+            && access.kind == AccessKind::Write
+    }));
+    assert!(set.location_accesses.iter().any(|access| {
+        matches!(
+            access.location,
+            Location::Memory(MemoryLocation {
+                address: MemoryAddress::ZeroPage {
+                    base: 0,
+                    index: Some(IndexRegister::X),
+                },
+                ..
+            })
+        ) && access.kind == AccessKind::Write
+    }));
+    assert_eq!(
+        set.control_flow.fallthrough,
+        Some(AnalysisPoint::new(0x4002, TState::Clear))
+    );
+
+    let unknown = HuC6280::semantics(&adc, &AnalysisPoint::new(0x4000, TState::Unknown)).unwrap();
+    assert!(unknown.location_accesses.iter().any(|access| {
+        access.location == Location::Register(RegisterLocation::Accumulator)
+            && access.kind == AccessKind::Write
+            && access.occurrence == AccessOccurrence::Conditional
+    }));
+    assert!(unknown.location_accesses.iter().any(|access| {
+        access.location == Location::Register(RegisterLocation::X)
+            && access.kind == AccessKind::Read
+            && access.occurrence == AccessOccurrence::Conditional
+    }));
+}
+
+#[test]
+fn manual_special_forms_expose_mprs_ports_and_block_streams() {
+    let tam = decode_bytes(&[0x53, 0x81]).unwrap();
+    let tam = HuC6280::semantics(&tam, &AnalysisPoint::new(0, TState::Clear)).unwrap();
+    for index in [0, 7] {
+        assert!(tam.location_accesses.iter().any(|access| {
+            access.location == Location::MemoryPageRegister(index)
+                && access.kind == AccessKind::Write
+        }));
+    }
+
+    let st2 = decode_bytes(&[0x23, 0x55]).unwrap();
+    let st2 = HuC6280::semantics(&st2, &AnalysisPoint::new(0, TState::Clear)).unwrap();
+    assert!(st2.location_accesses.iter().any(|access| {
+        access.location == Location::HardwarePort(HardwarePort::Selector2)
+            && access.kind == AccessKind::Write
+    }));
+    assert!(st2.static_references.iter().any(|reference| {
+        reference.target == Reference::HardwarePort(HardwarePort::Selector2)
+            && reference.kind == ReferenceKind::Write
+    }));
+
+    let tia = decode_bytes(&[0xe3, 0x00, 0x20, 0x00, 0x40, 0x00, 0x00]).unwrap();
+    assert_eq!(tia.mnemonic(), Mnemonic::Tia);
+    let tia = HuC6280::semantics(&tia, &AnalysisPoint::new(0, TState::Clear)).unwrap();
+    assert!(tia.static_references.iter().any(|reference| {
+        reference.target
+            == Reference::Memory {
+                address: 0x2000,
+                byte_len: 65_536,
+                pattern: AddressPattern::Increment,
+            }
+            && reference.kind == ReferenceKind::Read
+    }));
+    assert!(tia.static_references.iter().any(|reference| {
+        reference.target
+            == Reference::Memory {
+                address: 0x4000,
+                byte_len: 65_536,
+                pattern: AddressPattern::Alternating,
+            }
+            && reference.kind == ReferenceKind::Write
+    }));
+}
+
+#[test]
+fn manual_control_and_status_families_have_shared_meaning() {
+    let set = decode_bytes(&[0xf4]).unwrap();
+    let set = HuC6280::semantics(&set, &AnalysisPoint::new(0xffff, TState::Clear)).unwrap();
+    assert_eq!(
+        set.control_flow.fallthrough,
+        Some(AnalysisPoint::new(0, TState::Set))
+    );
+    assert!(set.location_accesses.iter().any(|access| {
+        access.location == Location::Status(StatusLocation::MemoryOperation)
+            && access.kind == AccessKind::Write
+    }));
+
+    let brk = decode_bytes(&[0x00]).unwrap();
+    let brk = HuC6280::semantics(&brk, &AnalysisPoint::new(0x8000, TState::Set)).unwrap();
+    assert!(matches!(
+        brk.control_flow.action,
+        ControlAction::Boundary(_)
+    ));
+    assert!(brk.static_references.iter().any(|reference| {
+        reference.target
+            == Reference::Memory {
+                address: 0xfff6,
+                byte_len: 2,
+                pattern: AddressPattern::Increment,
+            }
+            && reference.kind == ReferenceKind::Read
+    }));
 }
 
 fn manual_form_len(form: &str) -> usize {

@@ -1,4 +1,4 @@
-//! Complete static instruction model for the Sharp SM83 CPU used by Game Boy systems.
+//! Complete static instruction encoding model for the Sharp SM83 CPU used by Game Boy systems.
 //!
 //! All base and CB-prefixed opcode selectors are classified. Valid instructions
 //! decode to typed operands and lower back to exact machine code. Illegal
@@ -20,6 +20,9 @@ use typed_isa_core::{
 /// Stable identifier for the exact CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
+/// Wrapping 16-bit SM83 program-counter location.
+pub type CodeLocation = u16;
+
 /// SM83 implementation of the workspace-wide static ISA protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sm83;
@@ -27,6 +30,7 @@ pub struct Sm83;
 mod assembler;
 mod codec;
 mod instruction;
+mod semantics;
 
 pub use assembler::{AssembledProgram, Assembler, AssemblerError, InstructionSpan};
 pub use codec::{
@@ -37,12 +41,17 @@ pub use instruction::{
     AluOperation, BitIndex, ByteOperand, Condition, IndirectAddress, Instruction, InstructionForm,
     Register16, RestartVector, RotateShiftOperation, StackRegister,
 };
+pub use semantics::{
+    Boundary, ByteRegister, ControlFlow, IndirectTarget, InstructionSemantics, Location,
+    MemoryAddress, Reference, ReturnAddressRule, StatusLocation,
+};
 
 impl TypedIsa for Sm83 {
     const PROFILE_ID: &'static str = PROFILE_ID;
 
     type Instruction = Instruction;
     type Form = InstructionForm;
+    type CodeLocation = CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = Infallible;
 
@@ -52,7 +61,7 @@ impl TypedIsa for Sm83 {
 
     fn decode_one(
         source: &[u8],
-        _address: u64,
+        _at: &Self::CodeLocation,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
         let decoded = decode_bytes(source)?;
         let exact_source = InstructionBytes::new(source[..decoded.length()].to_vec())
@@ -65,9 +74,41 @@ impl TypedIsa for Sm83 {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        _address: u64,
+        _at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
         Ok(InstructionBytes::new(encode_bytes(instruction))
             .expect("encoded SM83 instructions are non-empty"))
+    }
+}
+
+impl typed_isa_core::StaticSemantics for Sm83 {
+    type AnalysisPoint = CodeLocation;
+    type IndirectTarget = IndirectTarget;
+    type Boundary = Boundary;
+    type Location = Location;
+    type Reference = Reference;
+    type SemanticError = Infallible;
+
+    fn semantics(
+        instruction: &Self::Instruction,
+        at: &Self::AnalysisPoint,
+    ) -> Result<
+        typed_isa_core::InstructionSemantics<
+            Self::AnalysisPoint,
+            Self::IndirectTarget,
+            Self::Boundary,
+            Self::Location,
+            Self::Reference,
+        >,
+        Self::SemanticError,
+    > {
+        Ok(semantics::semantics(instruction, *at))
+    }
+
+    fn storage_relation(
+        left: &Self::Location,
+        right: &Self::Location,
+    ) -> typed_isa_core::StorageRelation {
+        semantics::storage_relation(left, right)
     }
 }

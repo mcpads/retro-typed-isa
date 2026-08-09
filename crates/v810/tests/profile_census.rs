@@ -1,6 +1,10 @@
 use std::collections::BTreeSet;
 
-use v810::{DecodeError, InstructionForm, decode_halfwords, encode_halfwords};
+use typed_isa_core::{AccessKind, ControlAction, ControlBoundary, StaticSemantics};
+use v810::{
+    Boundary, DecodeError, Instruction, InstructionForm, Location, Register, V810,
+    decode_halfwords, encode_halfwords,
+};
 
 const RESERVED_PRIMARY_OPCODES: [u8; 5] = [0x16, 0x1b, 0x1e, 0x32, 0x36];
 const BIT_STRING_SUBOPCODES: [u8; 12] = [
@@ -167,4 +171,85 @@ fn reserved_and_write_disabled_system_registers_fail_closed() {
         assert_eq!(decode_halfwords(load, None).is_ok(), load_valid);
         assert_eq!(decode_halfwords(store, None).is_ok(), store_valid);
     }
+}
+
+#[test]
+fn source_table_entries_have_total_static_semantics() {
+    for opcode in 0_u8..64 {
+        if RESERVED_PRIMARY_OPCODES.contains(&opcode) {
+            continue;
+        }
+        let (first, second) = representative(opcode);
+        let decoded = decode_halfwords(first, second).unwrap();
+        V810::semantics(decoded.instruction(), &0x0700_0000)
+            .unwrap_or_else(|error| panic!("primary opcode {opcode:06b}: {error}"));
+    }
+    for subopcode in BIT_STRING_SUBOPCODES {
+        let decoded = decode_halfwords((0x1f_u16 << 10) | u16::from(subopcode), None).unwrap();
+        V810::semantics(decoded.instruction(), &0x0700_0000).unwrap();
+    }
+    for subopcode in FLOATING_SUBOPCODES {
+        let decoded = decode_halfwords(0x3e_u16 << 10, Some(u16::from(subopcode) << 10)).unwrap();
+        V810::semantics(decoded.instruction(), &0x0700_0000).unwrap();
+    }
+}
+
+#[test]
+fn manual_control_families_keep_their_static_boundaries() {
+    let register = Register::new(5).unwrap();
+    let cases = [
+        Instruction::JumpRegister(register),
+        Instruction::JumpRelative(4),
+        Instruction::JumpAndLink(4),
+        Instruction::Trap(7),
+        Instruction::ReturnFromInterrupt,
+        Instruction::Halt,
+    ];
+    for instruction in cases {
+        let semantics = V810::semantics(&instruction, &0x1000).unwrap();
+        match instruction {
+            Instruction::JumpRegister(_) | Instruction::JumpRelative(_) => {
+                assert!(matches!(
+                    semantics.control_flow.action,
+                    ControlAction::Transfer { .. }
+                ));
+            }
+            Instruction::JumpAndLink(_) => assert!(matches!(
+                semantics.control_flow.action,
+                ControlAction::LinkedTransfer { .. }
+            )),
+            Instruction::Trap(7) => assert!(matches!(
+                semantics.control_flow.action,
+                ControlAction::Boundary(ControlBoundary::Trap {
+                    kind: Boundary::Trap(7),
+                    ..
+                })
+            )),
+            Instruction::ReturnFromInterrupt => assert!(matches!(
+                semantics.control_flow.action,
+                ControlAction::ExceptionReturn { .. }
+            )),
+            Instruction::Halt => assert!(matches!(
+                semantics.control_flow.action,
+                ControlAction::Boundary(ControlBoundary::Wait {
+                    kind: Boundary::Halt,
+                    ..
+                })
+            )),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn register_zero_never_appears_as_an_architectural_write() {
+    let instruction = Instruction::Register {
+        operation: v810::RegisterOperation::Add,
+        source: Register::new(1).unwrap(),
+        destination: Register::ZERO,
+    };
+    let semantics = V810::semantics(&instruction, &0).unwrap();
+    assert!(!semantics.location_accesses.iter().any(|access| {
+        access.kind == AccessKind::Write && access.location == Location::Register(Register::ZERO)
+    }));
 }

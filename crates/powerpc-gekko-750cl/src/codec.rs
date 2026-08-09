@@ -29,16 +29,10 @@ pub struct PowerPcGekko;
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
     /// The supplied instruction address is not four-byte aligned.
-    #[error("PowerPC Gekko/750CL instruction address {address:#018x} is not four-byte aligned")]
+    #[error("PowerPC Gekko/750CL code location {location:#010x} is not four-byte aligned")]
     UnalignedAddress {
         /// Supplied instruction address.
-        address: u64,
-    },
-    /// The supplied instruction address does not fit the 32-bit address space.
-    #[error("PowerPC Gekko/750CL address {address:#018x} exceeds the 32-bit address space")]
-    AddressOutOfRange {
-        /// Supplied instruction address.
-        address: u64,
+        location: crate::CodeLocation,
     },
     /// Fewer than four source bytes were available.
     #[error("truncated PowerPC Gekko/750CL instruction: needed 4 bytes, got {got}")]
@@ -64,16 +58,10 @@ pub enum DecodeError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
     /// The supplied instruction address is not four-byte aligned.
-    #[error("PowerPC Gekko/750CL instruction address {address:#018x} is not four-byte aligned")]
+    #[error("PowerPC Gekko/750CL code location {location:#010x} is not four-byte aligned")]
     UnalignedAddress {
         /// Supplied instruction address.
-        address: u64,
-    },
-    /// The supplied instruction address does not fit the 32-bit address space.
-    #[error("PowerPC Gekko/750CL address {address:#018x} exceeds the 32-bit address space")]
-    AddressOutOfRange {
-        /// Supplied instruction address.
-        address: u64,
+        location: crate::CodeLocation,
     },
     /// The form received the wrong number of operands.
     #[error("instruction has {actual} operands; {expected} required")]
@@ -173,8 +161,11 @@ pub enum EncodeError {
     },
 }
 
-fn decode_common_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
-    let address = checked_address_decode(address)?;
+fn decode_common_word(
+    word: u32,
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
+    let address = checked_decode_location(location)?;
     let form = InstructionForm::detect(word).ok_or(DecodeError::ReservedWord { word })?;
     let support = form.modifier_support();
     let modifiers = InstructionModifiers {
@@ -194,48 +185,66 @@ fn decode_common_word(word: u32, address: u64) -> Result<Instruction, DecodeErro
         .map_err(|_| DecodeError::ReservedWord { word })
 }
 
-fn decode_common_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
+fn decode_common_bytes(
+    source: &[u8],
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
         .ok_or(DecodeError::UnexpectedEnd { got: source.len() })?;
     decode_common_word(
         u32::from_be_bytes(bytes.try_into().expect("four-byte slice")),
-        address,
+        location,
     )
 }
 
-/// Decodes one PowerPC 750CL instruction word at `address`.
-pub fn decode_750cl_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
-    decode_common_word(word, address)
+/// Decodes one PowerPC 750CL instruction word at `location`.
+pub fn decode_750cl_word(
+    word: u32,
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
+    decode_common_word(word, location)
 }
 
 /// Decodes the first four big-endian bytes as a PowerPC 750CL instruction.
-pub fn decode_750cl_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
-    decode_common_bytes(source, address)
+pub fn decode_750cl_bytes(
+    source: &[u8],
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
+    decode_common_bytes(source, location)
 }
 
-/// Decodes one IBM Gekko instruction word at `address`.
+/// Decodes one IBM Gekko instruction word at `location`.
 ///
 /// This additionally rejects SPR selectors that exist only on the 750CL.
-pub fn decode_gekko_word(word: u32, address: u64) -> Result<Instruction, DecodeError> {
-    let instruction = decode_common_word(word, address)?;
+pub fn decode_gekko_word(
+    word: u32,
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
+    let instruction = decode_common_word(word, location)?;
     validate_gekko_decode(&instruction)?;
     Ok(instruction)
 }
 
 /// Decodes the first four big-endian bytes as an IBM Gekko instruction.
-pub fn decode_gekko_bytes(source: &[u8], address: u64) -> Result<Instruction, DecodeError> {
+pub fn decode_gekko_bytes(
+    source: &[u8],
+    location: crate::CodeLocation,
+) -> Result<Instruction, DecodeError> {
     let bytes = source
         .get(..4)
         .ok_or(DecodeError::UnexpectedEnd { got: source.len() })?;
     decode_gekko_word(
         u32::from_be_bytes(bytes.try_into().expect("four-byte slice")),
-        address,
+        location,
     )
 }
 
-fn encode_common_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
-    let address = checked_address_encode(address)?;
+fn encode_common_word(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<u32, EncodeError> {
+    let address = checked_encode_location(location)?;
     let definition = instruction.form().definition();
     let mut word = definition.bits;
     for (field, operand) in definition
@@ -261,26 +270,38 @@ fn encode_common_word(instruction: &Instruction, address: u64) -> Result<u32, En
 }
 
 /// Encodes a validated instruction as a PowerPC 750CL instruction word.
-pub fn encode_750cl_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
-    encode_common_word(instruction, address)
+pub fn encode_750cl_word(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<u32, EncodeError> {
+    encode_common_word(instruction, location)
 }
 
 /// Encodes a validated instruction as four big-endian PowerPC 750CL bytes.
-pub fn encode_750cl_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
-    Ok(encode_common_word(instruction, address)?.to_be_bytes())
+pub fn encode_750cl_bytes(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<[u8; 4], EncodeError> {
+    Ok(encode_common_word(instruction, location)?.to_be_bytes())
 }
 
 /// Encodes a validated instruction as an IBM Gekko instruction word.
 ///
 /// This additionally rejects SPR selectors that exist only on the 750CL.
-pub fn encode_gekko_word(instruction: &Instruction, address: u64) -> Result<u32, EncodeError> {
+pub fn encode_gekko_word(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<u32, EncodeError> {
     validate_gekko_encode(instruction)?;
-    encode_common_word(instruction, address)
+    encode_common_word(instruction, location)
 }
 
 /// Encodes a validated instruction as four big-endian IBM Gekko bytes.
-pub fn encode_gekko_bytes(instruction: &Instruction, address: u64) -> Result<[u8; 4], EncodeError> {
-    Ok(encode_gekko_word(instruction, address)?.to_be_bytes())
+pub fn encode_gekko_bytes(
+    instruction: &Instruction,
+    location: crate::CodeLocation,
+) -> Result<[u8; 4], EncodeError> {
+    Ok(encode_gekko_word(instruction, location)?.to_be_bytes())
 }
 
 fn gekko_unavailable_register(instruction: &Instruction) -> Option<SpecialPurposeRegister> {
@@ -309,18 +330,18 @@ fn validate_gekko_encode(instruction: &Instruction) -> Result<(), EncodeError> {
     Ok(())
 }
 
-fn checked_address_decode(address: u64) -> Result<u32, DecodeError> {
-    if address & 3 != 0 {
-        return Err(DecodeError::UnalignedAddress { address });
+fn checked_decode_location(location: crate::CodeLocation) -> Result<u32, DecodeError> {
+    if location & 3 != 0 {
+        return Err(DecodeError::UnalignedAddress { location });
     }
-    u32::try_from(address).map_err(|_| DecodeError::AddressOutOfRange { address })
+    Ok(location)
 }
 
-fn checked_address_encode(address: u64) -> Result<u32, EncodeError> {
-    if address & 3 != 0 {
-        return Err(EncodeError::UnalignedAddress { address });
+fn checked_encode_location(location: crate::CodeLocation) -> Result<u32, EncodeError> {
+    if location & 3 != 0 {
+        return Err(EncodeError::UnalignedAddress { location });
     }
-    u32::try_from(address).map_err(|_| EncodeError::AddressOutOfRange { address })
+    Ok(location)
 }
 
 fn field(word: u32, shift: u8, mask: u32) -> u32 {
@@ -570,6 +591,7 @@ impl TypedIsa for PowerPc750Cl {
 
     type Instruction = Instruction;
     type Form = InstructionForm;
+    type CodeLocation = crate::CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -579,9 +601,9 @@ impl TypedIsa for PowerPc750Cl {
 
     fn decode_one(
         source: &[u8],
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
-        let instruction = decode_750cl_bytes(source, address)?;
+        let instruction = decode_750cl_bytes(source, *at)?;
         let bytes = InstructionBytes::new(source[..4].to_vec())
             .expect("PowerPC instructions are non-empty");
         Ok(ProtocolDecodedInstruction::new(instruction, bytes))
@@ -589,9 +611,9 @@ impl TypedIsa for PowerPc750Cl {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
-        let bytes = encode_750cl_bytes(instruction, address)?;
+        let bytes = encode_750cl_bytes(instruction, *at)?;
         Ok(InstructionBytes::new(bytes.to_vec()).expect("PowerPC instructions are non-empty"))
     }
 }
@@ -601,6 +623,7 @@ impl TypedIsa for PowerPcGekko {
 
     type Instruction = Instruction;
     type Form = InstructionForm;
+    type CodeLocation = crate::CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -611,9 +634,9 @@ impl TypedIsa for PowerPcGekko {
 
     fn decode_one(
         source: &[u8],
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
-        let instruction = decode_gekko_bytes(source, address)?;
+        let instruction = decode_gekko_bytes(source, *at)?;
         let bytes = InstructionBytes::new(source[..4].to_vec())
             .expect("PowerPC instructions are non-empty");
         Ok(ProtocolDecodedInstruction::new(instruction, bytes))
@@ -621,9 +644,9 @@ impl TypedIsa for PowerPcGekko {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        address: u64,
+        at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
-        let bytes = encode_gekko_bytes(instruction, address)?;
+        let bytes = encode_gekko_bytes(instruction, *at)?;
         Ok(InstructionBytes::new(bytes.to_vec()).expect("PowerPC instructions are non-empty"))
     }
 }

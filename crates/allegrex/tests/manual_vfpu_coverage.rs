@@ -1,6 +1,7 @@
-use allegrex::{Instruction, decode_word, encode_word};
+use allegrex::{Allegrex, AnalysisPoint, Instruction, decode_word, encode_word};
+use typed_isa_core::StaticSemantics;
 
-const ADDRESS: u64 = 0x0880_0000;
+const ADDRESS: allegrex::CodeLocation = 0x0880_0000;
 
 // One canonical word from each encoding diagram in Sony's VFPU Instruction
 // Manual. The four control-transfer samples use control register 128, and
@@ -293,6 +294,8 @@ fn every_manual_vfpu_encoding_decodes_and_reencodes_exactly() {
             word,
             "{mnemonic}"
         );
+        Allegrex::semantics(&instruction, &AnalysisPoint::new(ADDRESS))
+            .unwrap_or_else(|error| panic!("{mnemonic} semantic failure: {error}"));
     }
 }
 

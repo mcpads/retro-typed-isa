@@ -16,7 +16,7 @@ fn labels_use_the_post_instruction_program_counter() {
         program.bytes(),
         [0x68, 0x01, 0x00, 0x1e, 0xfa, 0xff, 0x1b, 0x03, 0x00, 0x01]
     );
-    assert_eq!(program.label_address("end"), Some(0x010003));
+    assert_eq!(program.label_location("end"), Some(0x010003));
 }
 
 #[test]
@@ -30,4 +30,7 @@ fn data_is_explicit_and_not_recorded_as_an_instruction() {
     let program = assembler.assemble(0).unwrap();
     assert_eq!(program.bytes(), [0x00, 0x01, 0x04, 0x05]);
     assert_eq!(program.instruction_spans().len(), 2);
+    assert_eq!(program.instruction_spans()[1].offset, 3);
+    assert_eq!(program.instruction_spans()[1].location, 3);
+    assert_eq!(program.instruction_spans()[1].bytes.as_slice(), [0x05]);
 }

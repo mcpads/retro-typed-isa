@@ -122,7 +122,10 @@ impl Assembler {
     ///
     /// The origin and each instruction placement must be four-byte aligned and
     /// the complete output must fit the 32-bit EE address space.
-    pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         validate_origin(origin)?;
         let (labels, byte_len) = self.collect_labels(origin)?;
         let mut bytes = Vec::with_capacity(byte_len);
@@ -146,7 +149,7 @@ impl Assembler {
                     Operands::BranchTwo {
                         left: *left,
                         right: *right,
-                        target: label_address(&labels, label)?,
+                        target: label_location(&labels, label)?,
                     },
                 )?,
                 Node::BranchOne {
@@ -157,19 +160,19 @@ impl Assembler {
                     *form,
                     Operands::BranchOne {
                         source: *source,
-                        target: label_address(&labels, label)?,
+                        target: label_location(&labels, label)?,
                     },
                 )?,
                 Node::Branch { form, label } => Instruction::new(
                     *form,
                     Operands::Branch {
-                        target: label_address(&labels, label)?,
+                        target: label_location(&labels, label)?,
                     },
                 )?,
                 Node::Jump { form, label } => Instruction::new(
                     *form,
                     Operands::Jump {
-                        target: label_address(&labels, label)?,
+                        target: label_location(&labels, label)?,
                     },
                 )?,
             };
@@ -179,13 +182,13 @@ impl Assembler {
                     offset: bytes.len(),
                 });
             }
-            let address = placed_address(origin, bytes.len())?;
-            let encoded = encode_bytes(&instruction, address)?;
+            let location = placed_location(origin, bytes.len())?;
+            let encoded = encode_bytes(&instruction, location)?;
             let offset = bytes.len();
             bytes.extend_from_slice(&encoded);
             instruction_spans.push(InstructionSpan {
                 offset,
-                address,
+                location,
                 bytes: InstructionBytes::new(encoded.to_vec())
                     .expect("R5900 instruction bytes are non-empty"),
                 instruction,
@@ -202,15 +205,14 @@ impl Assembler {
 
     fn collect_labels(
         &self,
-        origin: u64,
+        origin: crate::CodeLocation,
     ) -> Result<(BTreeMap<String, u32>, usize), AssemblerError> {
         let mut labels = BTreeMap::new();
         let mut offset = 0usize;
         for node in &self.nodes {
             if let Node::Label(label) = node {
-                let address = u32::try_from(placed_address(origin, offset)?)
-                    .map_err(|_| AssemblerError::AddressOverflow { origin, offset })?;
-                if labels.insert(label.clone(), address).is_some() {
+                let location = placed_location(origin, offset)?;
+                if labels.insert(label.clone(), location).is_some() {
                     return Err(AssemblerError::DuplicateLabel {
                         label: label.clone(),
                     });
@@ -233,15 +235,15 @@ impl Assembler {
 /// Immutable bytes, labels, and typed instruction spans from assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
-    origin: u64,
+    origin: crate::CodeLocation,
     bytes: Vec<u8>,
     labels: BTreeMap<String, u32>,
-    instruction_spans: Vec<InstructionSpan<Instruction>>,
+    instruction_spans: Vec<InstructionSpan<crate::CodeLocation, Instruction>>,
 }
 
 impl AssembledProgram {
     /// Returns the requested program origin.
-    pub const fn origin(&self) -> u64 {
+    pub const fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -261,7 +263,7 @@ impl AssembledProgram {
     }
 
     /// Returns spans for executable instructions only.
-    pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
+    pub fn instruction_spans(&self) -> &[InstructionSpan<crate::CodeLocation, Instruction>] {
         &self.instruction_spans
     }
 }
@@ -273,13 +275,7 @@ pub enum AssemblerError {
     #[error("R5900 origin {origin:#x} is not four-byte aligned")]
     UnalignedOrigin {
         /// Rejected origin address.
-        origin: u64,
-    },
-    /// The requested origin exceeds the 32-bit target address space.
-    #[error("R5900 origin {origin:#x} exceeds the 32-bit address space")]
-    OriginOutOfRange {
-        /// Rejected origin address.
-        origin: u64,
+        origin: crate::CodeLocation,
     },
     /// A label name is declared more than once.
     #[error("duplicate label {label}")]
@@ -303,7 +299,7 @@ pub enum AssemblerError {
     #[error("address overflow from origin {origin:#x} at output offset {offset:#x}")]
     AddressOverflow {
         /// Program origin involved in the overflow.
-        origin: u64,
+        origin: crate::CodeLocation,
         /// Output offset involved in the overflow.
         offset: usize,
     },
@@ -315,39 +311,36 @@ pub enum AssemblerError {
     Encode(#[from] EncodeError),
 }
 
-fn validate_origin(origin: u64) -> Result<(), AssemblerError> {
+fn validate_origin(origin: crate::CodeLocation) -> Result<(), AssemblerError> {
     if origin & 3 != 0 {
         return Err(AssemblerError::UnalignedOrigin { origin });
-    }
-    if origin > u64::from(u32::MAX) {
-        return Err(AssemblerError::OriginOutOfRange { origin });
     }
     Ok(())
 }
 
-fn placed_address(origin: u64, offset: usize) -> Result<u64, AssemblerError> {
-    let offset_u64 =
-        u64::try_from(offset).map_err(|_| AssemblerError::AddressOverflow { origin, offset })?;
-    let address = origin
-        .checked_add(offset_u64)
-        .ok_or(AssemblerError::AddressOverflow { origin, offset })?;
-    if address > u64::from(u32::MAX) {
-        return Err(AssemblerError::AddressOverflow { origin, offset });
-    }
-    Ok(address)
+fn placed_location(
+    origin: crate::CodeLocation,
+    offset: usize,
+) -> Result<crate::CodeLocation, AssemblerError> {
+    let placed_offset =
+        u32::try_from(offset).map_err(|_| AssemblerError::AddressOverflow { origin, offset })?;
+    origin
+        .checked_add(placed_offset)
+        .ok_or(AssemblerError::AddressOverflow { origin, offset })
 }
 
-fn validate_extent(origin: u64, byte_len: usize) -> Result<(), AssemblerError> {
+fn validate_extent(origin: crate::CodeLocation, byte_len: usize) -> Result<(), AssemblerError> {
     let byte_len_u64 = u64::try_from(byte_len).map_err(|_| AssemblerError::AddressOverflow {
         origin,
         offset: byte_len,
     })?;
-    let end = origin
-        .checked_add(byte_len_u64)
-        .ok_or(AssemblerError::AddressOverflow {
-            origin,
-            offset: byte_len,
-        })?;
+    let end =
+        u64::from(origin)
+            .checked_add(byte_len_u64)
+            .ok_or(AssemblerError::AddressOverflow {
+                origin,
+                offset: byte_len,
+            })?;
     if end > u64::from(u32::MAX) + 1 {
         return Err(AssemblerError::AddressOverflow {
             origin,
@@ -357,7 +350,7 @@ fn validate_extent(origin: u64, byte_len: usize) -> Result<(), AssemblerError> {
     Ok(())
 }
 
-fn label_address(labels: &BTreeMap<String, u32>, label: &str) -> Result<u32, AssemblerError> {
+fn label_location(labels: &BTreeMap<String, u32>, label: &str) -> Result<u32, AssemblerError> {
     labels
         .get(label)
         .copied()

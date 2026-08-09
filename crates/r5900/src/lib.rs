@@ -19,11 +19,15 @@
 /// Stable identifier of the R5900 protocol profile.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
+/// Aligned 32-bit R5900 executable address.
+pub type CodeLocation = u32;
+
 mod assembler;
 mod codec;
 mod expected_write;
 mod forms;
 mod instruction;
+mod semantics;
 
 pub use assembler::{AssembledProgram, Assembler, AssemblerError};
 pub use codec::{
@@ -32,6 +36,12 @@ pub use codec::{
 pub use expected_write::ExpectedWriteVerifier;
 pub use forms::InstructionForm;
 pub use instruction::*;
+pub use semantics::{
+    AnalysisPoint, Boundary, ControlFlow, DebugRegister, FpuState, GeneralStorage, ImplicitState,
+    IndirectTarget, InstructionSemantics, Location, MemoryAddress, MemoryLocation, MemoryWidth,
+    ProductRegister, ProductStorage, Reference, SemanticError, VectorMemoryAddress,
+    VectorMemoryLocation, VectorState,
+};
 pub use typed_isa_core::InstructionSpan;
 
 /// Formats a typed instruction into a stable diagnostic representation.

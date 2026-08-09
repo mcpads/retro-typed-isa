@@ -1,7 +1,9 @@
 use huc6280::{
-    AddressingMode, ControlFlow, DecodeError, EncodeError, Instruction, Mnemonic, Operand,
-    decode_bytes, encode_bytes, format_bytes, format_instruction, instruction_form,
+    AddressingMode, AnalysisPoint, Boundary, DecodeError, EncodeError, HuC6280, IndirectTarget,
+    Instruction, Mnemonic, Operand, PointerAddress, TState, decode_bytes, encode_bytes,
+    format_bytes, format_instruction, instruction_form,
 };
+use typed_isa_core::{ControlAction, ControlBoundary, ControlTarget, StaticSemantics};
 
 #[test]
 fn every_multibyte_opcode_rejects_each_truncated_prefix() {
@@ -32,8 +34,17 @@ fn brk_is_one_encoded_byte_but_reports_interrupt_flow() {
     let instruction = decode_bytes(&[0x00]).unwrap();
     assert_eq!(instruction.encoded_len(), 1);
     assert_eq!(encode_bytes(&instruction).unwrap(), [0x00]);
-    assert_eq!(instruction.fallthrough_address(0xFFFF), 0x0000);
-    assert_eq!(instruction.control_flow(0x8000), ControlFlow::Interrupt);
+    assert_eq!(instruction.fallthrough_location(0xFFFF), 0x0000);
+    assert!(matches!(
+        HuC6280::semantics(&instruction, &AnalysisPoint::new(0x8000, TState::Clear))
+            .unwrap()
+            .control_flow
+            .action,
+        ControlAction::Boundary(ControlBoundary::Trap {
+            kind: Boundary::Break,
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -100,12 +111,19 @@ fn placement_derived_control_flow_uses_wrapping_16_bit_addresses() {
         Operand::Relative(-4),
     )
     .unwrap();
+    let conditional_flow =
+        HuC6280::semantics(&conditional, &AnalysisPoint::new(0x0001, TState::Set))
+            .unwrap()
+            .control_flow;
     assert_eq!(
-        conditional.control_flow(0x0001),
-        ControlFlow::Branch {
-            target: 0xFFFF,
-            fallthrough: Some(0x0003),
+        conditional_flow.action,
+        ControlAction::Transfer {
+            target: ControlTarget::Direct(AnalysisPoint::new(0xFFFF, TState::Clear)),
         }
+    );
+    assert_eq!(
+        conditional_flow.fallthrough,
+        Some(AnalysisPoint::new(0x0003, TState::Clear))
     );
 
     let call = Instruction::new(
@@ -115,10 +133,13 @@ fn placement_derived_control_flow_uses_wrapping_16_bit_addresses() {
     )
     .unwrap();
     assert_eq!(
-        call.control_flow(0xFFF0),
-        ControlFlow::Call {
-            target: 0x0012,
-            return_address: 0xFFF2,
+        HuC6280::semantics(&call, &AnalysisPoint::new(0xFFF0, TState::Clear))
+            .unwrap()
+            .control_flow
+            .action,
+        ControlAction::LinkedTransfer {
+            target: ControlTarget::Direct(AnalysisPoint::new(0x0012, TState::Clear)),
+            return_site: AnalysisPoint::new(0xFFF2, TState::Clear),
         }
     );
 
@@ -129,8 +150,18 @@ fn placement_derived_control_flow_uses_wrapping_16_bit_addresses() {
     )
     .unwrap();
     assert_eq!(
-        indirect.control_flow(0x8000),
-        ControlFlow::Jump { target: None }
+        HuC6280::semantics(&indirect, &AnalysisPoint::new(0x8000, TState::Clear))
+            .unwrap()
+            .control_flow
+            .action,
+        ControlAction::Transfer {
+            target: ControlTarget::Indirect(IndirectTarget::JumpPointer(
+                PointerAddress::Absolute {
+                    base: 0x1234,
+                    indexed_by_x: false,
+                }
+            )),
+        }
     );
 }
 

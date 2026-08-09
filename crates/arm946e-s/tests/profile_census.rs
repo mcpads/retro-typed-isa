@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
 
 use arm946e_s::{
-    ArmInstructionForm, DecodeError, HalfwordSelection, SaturatingOperation, ThumbInstructionForm,
-    decode_arm_bytes, decode_thumb_bytes, encode_arm_bytes, encode_thumb_bytes,
+    AnalysisPoint, Arm946EsArm, Arm946EsThumb, ArmInstructionForm, DecodeError, HalfwordSelection,
+    ProcessorMode, SaturatingOperation, ThumbInstructionForm, decode_arm_bytes, decode_thumb_bytes,
+    encode_arm_bytes, encode_thumb_bytes,
 };
+use typed_isa_core::StaticSemantics;
 
 #[test]
 fn ddi_0100i_armv5te_table_has_thirty_four_extension_forms() {
@@ -219,6 +221,11 @@ fn ddi_0100i_fixed_vectors_reach_every_armv5te_extension_form() {
         let instruction = decode_arm_bytes(&word.to_le_bytes()).unwrap();
         assert_eq!(instruction.form(), expected_form, "word {word:#010x}");
         assert_eq!(encode_arm_bytes(&instruction).unwrap(), word.to_le_bytes());
+        Arm946EsArm::semantics(
+            &instruction,
+            &AnalysisPoint::arm(0x1000, ProcessorMode::System),
+        )
+        .unwrap();
         forms.insert(instruction.form());
     }
     assert_eq!(forms.len(), 34);
@@ -241,6 +248,11 @@ fn thumb_v5_additions_are_independent_of_the_armv4t_denominator() {
         let instruction = decode_thumb_bytes(bytes).unwrap();
         assert_eq!(instruction.form(), expected_form);
         assert_eq!(encode_thumb_bytes(&instruction).unwrap(), bytes);
+        Arm946EsThumb::semantics(
+            &instruction,
+            &AnalysisPoint::thumb(0x1000, ProcessorMode::System),
+        )
+        .unwrap();
     }
 }
 
@@ -252,7 +264,14 @@ fn every_thumb_selector_is_fail_closed_or_round_trips_exactly() {
             source.extend_from_slice(&0xf800_u16.to_le_bytes());
         }
         match decode_thumb_bytes(&source) {
-            Ok(instruction) => assert_eq!(encode_thumb_bytes(&instruction).unwrap(), source),
+            Ok(instruction) => {
+                assert_eq!(encode_thumb_bytes(&instruction).unwrap(), source);
+                Arm946EsThumb::semantics(
+                    &instruction,
+                    &AnalysisPoint::thumb(0x1000, ProcessorMode::System),
+                )
+                .unwrap();
+            }
             Err(
                 DecodeError::ReservedEncoding { .. }
                 | DecodeError::UnpredictableEncoding { .. }
@@ -269,6 +288,11 @@ fn every_thumb_selector_is_fail_closed_or_round_trips_exactly() {
         let source = [prefix.to_le_bytes()[0], prefix.to_le_bytes()[1], 0x00, 0xe8];
         let instruction = decode_thumb_bytes(&source).unwrap();
         assert_eq!(encode_thumb_bytes(&instruction).unwrap(), source);
+        Arm946EsThumb::semantics(
+            &instruction,
+            &AnalysisPoint::thumb(0x1000, ProcessorMode::System),
+        )
+        .unwrap();
     }
 }
 
@@ -279,7 +303,12 @@ fn arm_structural_selector_lattice_is_fail_closed_or_round_trips_exactly() {
             let word = 0xe001_2304 | (upper_selector << 20) | (lower_selector << 4);
             match decode_arm_bytes(&word.to_le_bytes()) {
                 Ok(instruction) => {
-                    assert_eq!(encode_arm_bytes(&instruction).unwrap(), word.to_le_bytes())
+                    assert_eq!(encode_arm_bytes(&instruction).unwrap(), word.to_le_bytes());
+                    Arm946EsArm::semantics(
+                        &instruction,
+                        &AnalysisPoint::arm(0x1000, ProcessorMode::System),
+                    )
+                    .unwrap();
                 }
                 Err(
                     DecodeError::ReservedEncoding { .. }

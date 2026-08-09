@@ -1,9 +1,25 @@
+use typed_isa_core::StaticSemantics;
 use v30::{
-    BitIndex, DecodeError, Instruction, InstructionForm, Mnemonic, ModRmEncodingClass, Operand,
-    OperandForm, Prefix, PrimaryOpcodeClass, Register8, SecondaryOpcodeClass,
-    SecondaryOperandEncoding, SemanticPrefix, classify_primary_modrm, classify_primary_opcode,
-    classify_secondary_modrm, classify_secondary_opcode, decode_bytes, encode_bytes,
+    AnalysisPoint, BitIndex, DecodeError, Instruction, InstructionForm, InterruptState, Mnemonic,
+    ModRmEncodingClass, Operand, OperandForm, Prefix, PrimaryOpcodeClass, Register8,
+    SecondaryOpcodeClass, SecondaryOperandEncoding, SemanticPrefix, classify_primary_modrm,
+    classify_primary_opcode, classify_secondary_modrm, classify_secondary_opcode, decode_bytes,
+    encode_bytes,
 };
+
+fn assert_semantics(instruction: &Instruction) {
+    v30::V30::semantics(
+        instruction,
+        &AnalysisPoint::new(
+            v30::CodeLocation {
+                seg: 0x1000,
+                off: 0x0100,
+            },
+            InterruptState::Unknown,
+        ),
+    )
+    .unwrap();
+}
 
 #[test]
 fn semantic_form_denominator_is_unique_and_stable() {
@@ -24,6 +40,7 @@ fn every_semantic_form_has_a_canonical_typed_byte_vector() {
     for (form, vector) in forms.iter().zip(canonical) {
         assert_eq!(vector.form(), form);
         assert_eq!(encode_bytes(vector.instruction()).unwrap(), vector.bytes());
+        assert_semantics(vector.instruction());
         let decoded = decode_bytes(vector.bytes()).unwrap();
         assert_eq!(
             InstructionForm::of(&decoded.instruction).as_ref(),
@@ -118,6 +135,7 @@ fn all_primary_opcode_bytes_have_a_manual_class() {
                     decode_bytes(&bytes).is_ok(),
                     "classified primary opcode {opcode:#04x} did not decode"
                 );
+                assert_semantics(&decode_bytes(&bytes).unwrap().instruction);
             }
             PrimaryOpcodeClass::Prefix(kind) => {
                 prefix += 1;
@@ -129,7 +147,8 @@ fn all_primary_opcode_bytes_have_a_manual_class() {
                     Prefix::Repnc => &[0x64, 0xa6],
                     Prefix::Segment(_) => &[opcode, 0xa4],
                 };
-                assert!(decode_bytes(bytes).is_ok());
+                let decoded = decode_bytes(bytes).unwrap();
+                assert_semantics(&decoded.instruction);
             }
             PrimaryOpcodeClass::SecondaryEscape => escape += 1,
             PrimaryOpcodeClass::Reserved => {
@@ -172,6 +191,7 @@ fn all_secondary_opcode_bytes_match_the_manual_partition() {
                     SecondaryOperandEncoding::Immediate8 => bytes.push(0),
                 }
                 let decoded = decode_bytes(&bytes).unwrap();
+                assert_semantics(&decoded.instruction);
                 assert_eq!(
                     InstructionForm::of(&decoded.instruction)
                         .unwrap()
@@ -201,11 +221,15 @@ fn every_primary_modrm_selector_matches_the_decoder() {
             let mut bytes = [0_u8; 15];
             bytes[0] = opcode;
             bytes[1] = modrm;
+            let decoded = decode_bytes(&bytes);
             assert_eq!(
-                decode_bytes(&bytes).is_ok(),
+                decoded.is_ok(),
                 class == ModRmEncodingClass::Valid,
                 "primary={opcode:#04x}, modrm={modrm:#04x}, class={class:?}"
             );
+            if let Ok(decoded) = decoded {
+                assert_semantics(&decoded.instruction);
+            }
         }
     }
 }
@@ -219,11 +243,15 @@ fn every_secondary_modrm_selector_matches_the_decoder() {
                 continue;
             }
             let bytes = [0x0f, secondary, modrm, 0, 0, 0, 0];
+            let decoded = decode_bytes(&bytes);
             assert_eq!(
-                decode_bytes(&bytes).is_ok(),
+                decoded.is_ok(),
                 class == ModRmEncodingClass::Valid,
                 "secondary={secondary:#04x}, modrm={modrm:#04x}, class={class:?}"
             );
+            if let Ok(decoded) = decoded {
+                assert_semantics(&decoded.instruction);
+            }
         }
     }
 }

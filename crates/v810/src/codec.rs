@@ -516,6 +516,7 @@ impl TypedIsa for V810 {
 
     type Instruction = Instruction;
     type Form = crate::InstructionForm;
+    type CodeLocation = crate::CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -525,7 +526,7 @@ impl TypedIsa for V810 {
 
     fn decode_one(
         source: &[u8],
-        _address: u64,
+        _at: &Self::CodeLocation,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
         let decoded = decode_bytes(source)?;
         let exact_source = InstructionBytes::new(source[..decoded.byte_len()].to_vec())
@@ -538,7 +539,7 @@ impl TypedIsa for V810 {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        _address: u64,
+        _at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
         Ok(InstructionBytes::new(encode_bytes(instruction)?)
             .expect("encoded V810 instructions are non-empty"))

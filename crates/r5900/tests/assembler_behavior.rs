@@ -6,7 +6,7 @@ use r5900::{
     Assembler, AssemblerError, ExpectedWriteVerifier, Instruction, InstructionForm, Operands,
 };
 
-const ORIGIN: u64 = 0x0010_0000;
+const ORIGIN: r5900::CodeLocation = 0x0010_0000;
 
 #[test]
 fn labels_lower_to_checked_cop2_branches_and_data_is_not_executable() {
@@ -35,7 +35,7 @@ fn labels_lower_to_checked_cop2_branches_and_data_is_not_executable() {
         program
             .instruction_spans()
             .iter()
-            .map(|span| (span.offset, span.address))
+            .map(|span| (span.offset, span.location))
             .collect::<Vec<_>>(),
         [(0, 0x0010_0000), (4, 0x0010_0004), (12, 0x0010_000c)]
     );
@@ -87,7 +87,7 @@ fn expected_write_accepts_only_the_named_typed_r5900_program() {
     assembler
         .emit(Instruction::new(InstructionForm::Vnop, Operands::None).unwrap())
         .emit(Instruction::new(InstructionForm::Vwaitq, Operands::None).unwrap());
-    let source = assembler.assemble(0).unwrap();
+    let source = assembler.assemble(ORIGIN).unwrap();
     let verifier = ExpectedWriteVerifier::new(move |source_id: &str| {
         if source_id == "hook-body" {
             Ok(source.clone())
@@ -95,12 +95,12 @@ fn expected_write_accepts_only_the_named_typed_r5900_program() {
             Err(MachineCodeVerifierError::new("unknown typed source"))
         }
     });
-    let baseline = [0xff_u8; 8];
+    let baseline = [0xff_u8; 9];
     let replacement = vec![0xff, 0x02, 0x00, 0x4a, 0xbf, 0x03, 0x00, 0x4a];
     let plan = WritePlan::new()
         .region(ImageRegion {
             id: "code".to_owned(),
-            range: 0..8,
+            range: 1..9,
             kind: RegionKind::MachineCode,
             reason: "hook site".to_owned(),
         })
@@ -108,20 +108,22 @@ fn expected_write_accepts_only_the_named_typed_r5900_program() {
             id: "hook".to_owned(),
             owner: "renderer-hook".to_owned(),
             purpose: "install typed hook".to_owned(),
-            offset: 0,
-            expected_original: baseline.to_vec(),
+            offset: 1,
+            expected_original: baseline[1..].to_vec(),
             replacement: replacement.clone(),
             intent: WriteIntent::MachineCode(MachineCodeProvenance {
                 assembly_source_id: "hook-body".to_owned(),
                 isa_profile_id: r5900::PROFILE_ID.to_owned(),
             }),
         });
-    assert_eq!(plan.apply(&baseline, Some(&verifier)).unwrap(), replacement);
+    let mut expected = vec![0xff];
+    expected.extend_from_slice(&replacement);
+    assert_eq!(plan.apply(&baseline, Some(&verifier)).unwrap(), expected);
 
     let wrong_profile = WritePlan::new()
         .region(ImageRegion {
             id: "code".to_owned(),
-            range: 0..8,
+            range: 1..9,
             kind: RegionKind::MachineCode,
             reason: "hook site".to_owned(),
         })
@@ -129,8 +131,8 @@ fn expected_write_accepts_only_the_named_typed_r5900_program() {
             id: "hook".to_owned(),
             owner: "renderer-hook".to_owned(),
             purpose: "install typed hook".to_owned(),
-            offset: 0,
-            expected_original: baseline.to_vec(),
+            offset: 1,
+            expected_original: baseline[1..].to_vec(),
             replacement,
             intent: WriteIntent::MachineCode(MachineCodeProvenance {
                 assembly_source_id: "hook-body".to_owned(),

@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use typed_isa_core::{InstructionBytes, InstructionSpan};
 
-use crate::{CodeMode, DecodeError, EncodeError, Instruction, decode_bytes, encode_bytes};
+use crate::{
+    CodeLocation, CodeMode, DecodeError, EncodeError, Instruction, decode_bytes, encode_bytes,
+};
 
 #[derive(Debug, Clone)]
 enum Node {
@@ -58,7 +60,7 @@ impl Assembler {
     ///
     /// Each instruction must use the assembler's code mode and decode back to
     /// the same typed value and exact byte sequence.
-    pub fn assemble(&self, origin: u64) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(&self, origin: CodeLocation) -> Result<AssembledProgram, AssemblerError> {
         let mut labels = BTreeMap::new();
         let mut bytes = Vec::new();
         let mut instruction_spans = Vec::new();
@@ -66,8 +68,8 @@ impl Assembler {
         for node in &self.nodes {
             match node {
                 Node::Label(label) => {
-                    let address = placed_address(origin, bytes.len())?;
-                    if labels.insert(label.clone(), address).is_some() {
+                    let location = placed_location(origin, bytes.len())?;
+                    if labels.insert(label.clone(), location).is_some() {
                         return Err(AssemblerError::DuplicateLabel {
                             label: label.clone(),
                         });
@@ -81,7 +83,7 @@ impl Assembler {
                             instruction: instruction.code_mode(),
                         });
                     }
-                    let address = placed_address(origin, bytes.len())?;
+                    let location = placed_location(origin, bytes.len())?;
                     let encoded = encode_bytes(instruction)?;
                     let decoded = decode_bytes(&encoded, self.code_mode)?;
                     if decoded.instruction() != instruction || decoded.source_bytes() != encoded {
@@ -93,7 +95,7 @@ impl Assembler {
                     bytes.extend_from_slice(&encoded);
                     instruction_spans.push(InstructionSpan {
                         offset,
-                        address,
+                        location,
                         bytes: InstructionBytes::new(encoded)
                             .expect("encoded Intel 80386 instructions are non-empty"),
                         instruction: instruction.clone(),
@@ -112,25 +114,28 @@ impl Assembler {
     }
 }
 
-fn placed_address(origin: u64, offset: usize) -> Result<u64, AssemblerError> {
-    origin
-        .checked_add(u64::try_from(offset).map_err(|_| AssemblerError::AddressOverflow { origin })?)
-        .ok_or(AssemblerError::AddressOverflow { origin })
+fn placed_location(origin: CodeLocation, offset: usize) -> Result<CodeLocation, AssemblerError> {
+    let offset = u32::try_from(offset).map_err(|_| AssemblerError::LocationOverflow { origin })?;
+    let placed_offset = origin
+        .offset()
+        .checked_add(offset)
+        .ok_or(AssemblerError::LocationOverflow { origin })?;
+    Ok(CodeLocation::new(origin.selector(), placed_offset))
 }
 
 /// Immutable bytes, labels, and typed instruction spans from assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledProgram {
-    origin: u64,
+    origin: CodeLocation,
     code_mode: CodeMode,
     bytes: Vec<u8>,
-    labels: BTreeMap<String, u64>,
-    instruction_spans: Vec<InstructionSpan<Instruction>>,
+    labels: BTreeMap<String, CodeLocation>,
+    instruction_spans: Vec<InstructionSpan<CodeLocation, Instruction>>,
 }
 
 impl AssembledProgram {
     /// Returns the requested program origin.
-    pub const fn origin(&self) -> u64 {
+    pub const fn origin(&self) -> CodeLocation {
         self.origin
     }
 
@@ -150,12 +155,12 @@ impl AssembledProgram {
     }
 
     /// Returns the resolved address of `name`, if declared.
-    pub fn label_address(&self, name: &str) -> Option<u64> {
+    pub fn label_location(&self, name: &str) -> Option<CodeLocation> {
         self.labels.get(name).copied()
     }
 
     /// Returns spans for executable instructions only.
-    pub fn instruction_spans(&self) -> &[InstructionSpan<Instruction>] {
+    pub fn instruction_spans(&self) -> &[InstructionSpan<CodeLocation, Instruction>] {
         &self.instruction_spans
     }
 }
@@ -169,11 +174,11 @@ pub enum AssemblerError {
         /// Duplicated label name.
         label: String,
     },
-    /// The origin plus output length overflows a 64-bit address.
-    #[error("Intel 80386 assembly from {origin:#018x} exceeds the address space")]
-    AddressOverflow {
+    /// The origin plus output length overflows the code-segment offset.
+    #[error("Intel 80386 assembly from {origin:?} exceeds the code-segment offset space")]
+    LocationOverflow {
         /// Program origin involved in the overflow.
-        origin: u64,
+        origin: CodeLocation,
     },
     /// An instruction was constructed for a different code-segment mode.
     #[error(

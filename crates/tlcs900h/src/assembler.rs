@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use typed_isa_core::InstructionBytes;
 
 use crate::{
     Condition, DecodeError, EncodeError, Instruction, MainInstruction, decode_bytes, encode_bytes,
@@ -99,7 +100,10 @@ impl Assembler {
     ///
     /// Every placed address must remain in the 24-bit address space, and each
     /// instruction span is decoded and re-encoded before success.
-    pub fn assemble(&self, origin: u32) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         require_address(origin)?;
         let (labels, byte_len) = self.collect_labels(origin)?;
         let mut bytes = Vec::with_capacity(byte_len);
@@ -120,7 +124,7 @@ impl Assembler {
                         displacement: i8::try_from(relative_displacement(
                             address,
                             2,
-                            label_address(&labels, label)?,
+                            label_location(&labels, label)?,
                         )?)
                         .map_err(|_| {
                             AssemblerError::RelativeJumpOutOfRange {
@@ -136,7 +140,7 @@ impl Assembler {
                         displacement: i16::try_from(relative_displacement(
                             address,
                             3,
-                            label_address(&labels, label)?,
+                            label_location(&labels, label)?,
                         )?)
                         .map_err(|_| {
                             AssemblerError::RelativeJumpOutOfRange {
@@ -150,17 +154,17 @@ impl Assembler {
                     i16::try_from(relative_displacement(
                         address,
                         3,
-                        label_address(&labels, label)?,
+                        label_location(&labels, label)?,
                     )?)
                     .map_err(|_| AssemblerError::RelativeCallOutOfRange {
                         label: label.clone(),
                     })?,
                 )),
                 Node::JumpDirect(label) => Instruction::Main(MainInstruction::JumpDirect24(
-                    label_address(&labels, label)?,
+                    label_location(&labels, label)?,
                 )),
                 Node::CallDirect(label) => Instruction::Main(MainInstruction::CallDirect24(
-                    label_address(&labels, label)?,
+                    label_location(&labels, label)?,
                 )),
             };
 
@@ -169,9 +173,10 @@ impl Assembler {
             bytes.extend_from_slice(&encoded);
             instruction_spans.push(InstructionSpan {
                 offset,
-                address,
+                location: address,
+                bytes: InstructionBytes::new(encoded)
+                    .expect("encoded TLCS-900/H instructions are non-empty"),
                 instruction,
-                byte_len: encoded.len(),
             });
         }
 
@@ -217,7 +222,7 @@ impl Assembler {
     }
 }
 
-fn label_address(labels: &BTreeMap<String, u32>, label: &str) -> Result<u32, AssemblerError> {
+fn label_location(labels: &BTreeMap<String, u32>, label: &str) -> Result<u32, AssemblerError> {
     labels
         .get(label)
         .copied()
@@ -257,13 +262,14 @@ fn relative_displacement(
 
 fn verify_spans(bytes: &[u8], spans: &[InstructionSpan]) -> Result<(), AssemblerError> {
     for span in spans {
-        let source = bytes.get(span.offset..span.offset + span.byte_len).ok_or(
-            AssemblerError::VerificationFailed {
+        let source = bytes
+            .get(span.offset..span.offset + span.bytes.len().get())
+            .ok_or(AssemblerError::VerificationFailed {
                 offset: span.offset,
-            },
-        )?;
+            })?;
         let decoded = decode_bytes(source)?;
-        if decoded.instruction() != &span.instruction
+        if source != span.bytes.as_slice()
+            || decoded.instruction() != &span.instruction
             || encode_bytes(decoded.instruction())? != source
         {
             return Err(AssemblerError::VerificationFailed {
@@ -274,18 +280,8 @@ fn verify_spans(bytes: &[u8], spans: &[InstructionSpan]) -> Result<(), Assembler
     Ok(())
 }
 
-/// Location and typed identity of one executable instruction in assembled bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstructionSpan {
-    /// Byte offset from the program origin.
-    pub offset: usize,
-    /// Absolute 24-bit instruction address.
-    pub address: u32,
-    /// Semantic instruction placed at the address.
-    pub instruction: Instruction,
-    /// Encoded variable instruction length.
-    pub byte_len: usize,
-}
+/// Workspace-wide instruction-placement evidence specialized for TLCS-900/H.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<crate::CodeLocation, Instruction>;
 
 /// Immutable bytes, labels, and typed instruction spans from assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,7 +294,7 @@ pub struct AssembledProgram {
 
 impl AssembledProgram {
     /// Returns the requested program origin.
-    pub const fn origin(&self) -> u32 {
+    pub const fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -313,7 +309,7 @@ impl AssembledProgram {
     }
 
     /// Returns the resolved address of `name`, if declared.
-    pub fn label_address(&self, name: &str) -> Option<u32> {
+    pub fn label_location(&self, name: &str) -> Option<crate::CodeLocation> {
         self.labels.get(name).copied()
     }
 

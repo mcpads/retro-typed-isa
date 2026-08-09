@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use typed_isa_core::InstructionBytes;
 
 use crate::codec::{DecodeError, EncodeError, Instruction, Operand, decode_bytes, encode_bytes};
 use crate::instruction::{AddressingMode, InstructionForm, Mnemonic, canonical_opcode};
@@ -144,7 +145,10 @@ impl Assembler {
     ///
     /// The complete output must fit between `origin` and the end of the 16-bit
     /// address space. Explicit data remains outside the instruction-span list.
-    pub fn assemble(&self, origin: u16) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         let (labels, byte_len) = self.collect_labels(origin)?;
         ensure_address_span(origin, byte_len)?;
 
@@ -155,11 +159,11 @@ impl Assembler {
                 Statement::Label(_) => {}
                 Statement::Data(data) => bytes.extend_from_slice(data),
                 Statement::LabelWord(label) => {
-                    let address = label_address(&labels, label)?;
+                    let address = label_location(&labels, label)?;
                     bytes.extend_from_slice(&address.to_le_bytes());
                 }
                 Statement::Instruction(instruction) => {
-                    emit_instruction(&mut bytes, &mut instructions, *instruction)?;
+                    emit_instruction(origin, &mut bytes, &mut instructions, *instruction)?;
                 }
                 Statement::LabelReference {
                     mnemonic,
@@ -169,7 +173,7 @@ impl Assembler {
                 } => {
                     ensure_label_mode(*mode)?;
                     let target =
-                        checked_label_addend(label_address(&labels, label)?, *addend, label)?;
+                        checked_label_addend(label_location(&labels, label)?, *addend, label)?;
                     let pc = address_for_offset(origin, bytes.len())?;
                     let operand = if *mode == AddressingMode::Relative {
                         Operand::Relative(relative_displacement(
@@ -182,14 +186,14 @@ impl Assembler {
                         Operand::Word(target)
                     };
                     let instruction = Instruction::new(*mnemonic, *mode, operand)?;
-                    emit_instruction(&mut bytes, &mut instructions, instruction)?;
+                    emit_instruction(origin, &mut bytes, &mut instructions, instruction)?;
                 }
                 Statement::ZeroPageBranch {
                     mnemonic,
                     address,
                     label,
                 } => {
-                    let target = label_address(&labels, label)?;
+                    let target = label_location(&labels, label)?;
                     let pc = address_for_offset(origin, bytes.len())?;
                     let displacement = relative_displacement(pc, 3, target, label)?;
                     let instruction = Instruction::new(
@@ -200,7 +204,7 @@ impl Assembler {
                             displacement,
                         },
                     )?;
-                    emit_instruction(&mut bytes, &mut instructions, instruction)?;
+                    emit_instruction(origin, &mut bytes, &mut instructions, instruction)?;
                 }
                 Statement::BlockTransferFromLabel {
                     mnemonic,
@@ -208,7 +212,7 @@ impl Assembler {
                     destination,
                     length,
                 } => {
-                    let source = label_address(&labels, source)?;
+                    let source = label_location(&labels, source)?;
                     let instruction = Instruction::new(
                         *mnemonic,
                         AddressingMode::BlockTransfer,
@@ -218,7 +222,7 @@ impl Assembler {
                             length: *length,
                         },
                     )?;
-                    emit_instruction(&mut bytes, &mut instructions, instruction)?;
+                    emit_instruction(origin, &mut bytes, &mut instructions, instruction)?;
                 }
             }
         }
@@ -264,16 +268,8 @@ impl Assembler {
     }
 }
 
-/// Location and typed identity of one instruction in assembled output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InstructionSpan {
-    /// Byte offset relative to the beginning of the assembled program.
-    pub offset: usize,
-    /// Number of bytes occupied by the instruction.
-    pub len: usize,
-    /// Typed instruction that produced the bytes in this span.
-    pub instruction: Instruction,
-}
+/// Workspace-wide instruction-placement evidence specialized for HuC6280.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<crate::CodeLocation, Instruction>;
 
 /// Checked assembled bytes with resolved labels and verified instruction spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,7 +282,7 @@ pub struct AssembledProgram {
 
 impl AssembledProgram {
     /// Return the 16-bit address assigned to the first output byte.
-    pub fn origin(&self) -> u16 {
+    pub fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -301,7 +297,7 @@ impl AssembledProgram {
     }
 
     /// Return the resolved 16-bit address of a defined label, if present.
-    pub fn label_address(&self, name: &str) -> Option<u16> {
+    pub fn label_location(&self, name: &str) -> Option<crate::CodeLocation> {
         self.labels.get(name).copied()
     }
 
@@ -416,23 +412,27 @@ fn ensure_label_mode(mode: AddressingMode) -> Result<(), AssemblerError> {
 }
 
 fn emit_instruction(
+    origin: crate::CodeLocation,
     bytes: &mut Vec<u8>,
     instructions: &mut Vec<InstructionSpan>,
     instruction: Instruction,
 ) -> Result<(), AssemblerError> {
     let encoded = encode_bytes(&instruction)?;
     let offset = bytes.len();
-    let len = encoded.len();
+    let location = address_for_offset(origin, offset)?;
+    let instruction_bytes =
+        InstructionBytes::new(encoded.clone()).expect("encoded HuC6280 instructions are non-empty");
     bytes.extend_from_slice(&encoded);
     instructions.push(InstructionSpan {
         offset,
-        len,
+        location,
+        bytes: instruction_bytes,
         instruction,
     });
     Ok(())
 }
 
-fn label_address(labels: &BTreeMap<String, u16>, label: &str) -> Result<u16, AssemblerError> {
+fn label_location(labels: &BTreeMap<String, u16>, label: &str) -> Result<u16, AssemblerError> {
     labels
         .get(label)
         .copied()
@@ -492,13 +492,16 @@ fn verify_instruction_spans(
     instructions: &[InstructionSpan],
 ) -> Result<(), AssemblerError> {
     for span in instructions {
-        let encoded = bytes.get(span.offset..span.offset + span.len).ok_or(
-            AssemblerError::VerificationFailed {
+        let encoded = bytes
+            .get(span.offset..span.offset + span.bytes.len().get())
+            .ok_or(AssemblerError::VerificationFailed {
                 offset: span.offset,
-            },
-        )?;
+            })?;
         let decoded = decode_bytes(encoded)?;
-        if decoded != span.instruction || encode_bytes(&decoded)? != encoded {
+        if encoded != span.bytes.as_slice()
+            || decoded != span.instruction
+            || encode_bytes(&decoded)? != encoded
+        {
             return Err(AssemblerError::VerificationFailed {
                 offset: span.offset,
             });

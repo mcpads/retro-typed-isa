@@ -3,8 +3,7 @@
 use thiserror::Error;
 
 use crate::instruction::{
-    AddressingMode, ControlFlow, InstructionForm, Mnemonic, OPCODE_TABLE, canonical_opcode,
-    opcode_is_documented,
+    AddressingMode, InstructionForm, Mnemonic, OPCODE_TABLE, canonical_opcode, opcode_is_documented,
 };
 
 /// Typed operand values. The opcode form determines their interpretation.
@@ -98,53 +97,16 @@ impl Instruction {
         opcode_is_documented(self.opcode)
     }
 
-    /// Return the sequential address immediately following this instruction.
+    /// Return the sequential code location immediately following this instruction.
     ///
     /// RP2A03 program-counter arithmetic wraps in the 16-bit address space.
-    pub fn fallthrough_address(self, pc: u16) -> u16 {
-        pc.wrapping_add(self.encoded_len() as u16)
+    pub fn fallthrough_location(self, location: crate::CodeLocation) -> crate::CodeLocation {
+        location.wrapping_add(self.encoded_len() as u16)
     }
 
     /// Classify static control transfer at the supplied instruction address.
-    pub fn control_flow(self, pc: u16) -> ControlFlow {
-        use Mnemonic::*;
-
-        let next = self.fallthrough_address(pc);
-        match self.mnemonic() {
-            Bcc | Bcs | Beq | Bmi | Bne | Bpl | Bvc | Bvs => ControlFlow::Branch {
-                target: self.relative_target(next),
-                fallthrough: Some(next),
-            },
-            Jmp => match self.addressing_mode() {
-                AddressingMode::Absolute => ControlFlow::Jump {
-                    target: Some(self.absolute_target()),
-                },
-                AddressingMode::AbsoluteIndirect => ControlFlow::Jump { target: None },
-                _ => unreachable!("validated JMP has an unsupported addressing mode"),
-            },
-            Jsr => ControlFlow::Call {
-                target: self.absolute_target(),
-                return_address: next,
-            },
-            Rti | Rts => ControlFlow::Return,
-            Brk => ControlFlow::Interrupt,
-            Kil => ControlFlow::Stop,
-            _ => ControlFlow::FallThrough { next },
-        }
-    }
-
-    fn relative_target(self, next: u16) -> u16 {
-        let Operand::Relative(displacement) = self.operand else {
-            unreachable!("validated relative instruction has a non-relative operand")
-        };
-        next.wrapping_add(displacement as i16 as u16)
-    }
-
-    fn absolute_target(self) -> u16 {
-        let Operand::Word(target) = self.operand else {
-            unreachable!("validated absolute instruction has a non-word operand")
-        };
-        target
+    pub fn control_flow(self, location: crate::CodeLocation) -> crate::ControlFlow {
+        crate::semantics::semantics(&self, location).control_flow
     }
 }
 
@@ -398,24 +360,39 @@ mod tests {
 
     #[test]
     fn control_flow_resolves_static_targets() {
+        use typed_isa_core::{ControlAction, ControlBoundary, ControlTarget};
+
         let branch = decode_bytes(&[0xD0, 0xFC]).unwrap();
         assert_eq!(
             branch.control_flow(0x8000),
-            ControlFlow::Branch {
-                target: 0x7FFE,
-                fallthrough: Some(0x8002)
+            crate::ControlFlow {
+                action: ControlAction::Transfer {
+                    target: ControlTarget::Direct(0x7FFE),
+                },
+                fallthrough: Some(0x8002),
+                delay_slot: None,
             }
         );
         let jump = decode_bytes(&[0x4C, 0x34, 0x12]).unwrap();
         assert_eq!(
             jump.control_flow(0x8000),
-            ControlFlow::Jump {
-                target: Some(0x1234)
+            crate::ControlFlow {
+                action: ControlAction::Transfer {
+                    target: ControlTarget::Direct(0x1234),
+                },
+                fallthrough: None,
+                delay_slot: None,
             }
         );
         assert_eq!(
             decode_bytes(&[0x02]).unwrap().control_flow(0),
-            ControlFlow::Stop
+            crate::ControlFlow {
+                action: ControlAction::Boundary(ControlBoundary::Stop {
+                    kind: crate::Boundary::JammedUntilReset,
+                }),
+                fallthrough: None,
+                delay_slot: None,
+            }
         );
     }
 }

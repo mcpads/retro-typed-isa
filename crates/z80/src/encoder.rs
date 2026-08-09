@@ -445,7 +445,10 @@ pub enum VerifyError {
 }
 
 /// Decode and re-encode a complete documented Z80 code byte sequence.
-pub fn verify_placed_program(bytes: &[u8], origin: u16) -> Result<Vec<Instruction>, VerifyError> {
+pub fn verify_placed_program(
+    bytes: &[u8],
+    origin: crate::CodeLocation,
+) -> Result<Vec<Instruction>, VerifyError> {
     if usize::from(origin) + bytes.len() > 0x1_0000 {
         return Err(VerifyError::AddressOverflow {
             origin,

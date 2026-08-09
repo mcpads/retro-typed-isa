@@ -1779,54 +1779,6 @@ impl Instruction {
             ),
         }
     }
-
-    /// Computes the instruction's static control-flow effect at the supplied address.
-    pub fn control_flow(&self, address: u32) -> Result<ControlFlow, crate::EncodeError> {
-        let byte_len = u32::try_from(crate::encode_bytes(self)?.len())
-            .expect("an MC68000 instruction length fits in u32");
-        let next = address.wrapping_add(byte_len);
-        let branch_base = address.wrapping_add(2);
-        Ok(match *self {
-            Self::Branch { kind, displacement } => {
-                let displacement = match displacement {
-                    BranchDisplacement::Byte(value) => i32::from(value),
-                    BranchDisplacement::Word(value) => i32::from(value),
-                };
-                let target = add_signed(branch_base, displacement);
-                match kind {
-                    BranchKind::Always => ControlFlow::Branch {
-                        target,
-                        fallthrough: None,
-                    },
-                    BranchKind::Subroutine => ControlFlow::Call {
-                        target: Some(target),
-                        return_address: next,
-                    },
-                    BranchKind::Conditional(_) => ControlFlow::Branch {
-                        target,
-                        fallthrough: Some(next),
-                    },
-                }
-            }
-            Self::DecrementBranch { displacement, .. } => ControlFlow::Branch {
-                target: add_signed(branch_base, i32::from(displacement)),
-                fallthrough: Some(next),
-            },
-            Self::Jump { target } => ControlFlow::Jump {
-                target: direct_target(target, branch_base),
-            },
-            Self::JumpSubroutine { target } => ControlFlow::Call {
-                target: direct_target(target, branch_base),
-                return_address: next,
-            },
-            Self::ReturnFromException => ControlFlow::ExceptionReturn,
-            Self::ReturnAndRestore | Self::ReturnFromSubroutine => ControlFlow::Return,
-            Self::Illegal | Self::Trap { .. } => ControlFlow::Interrupt,
-            Self::TrapOnOverflow => ControlFlow::ConditionalInterrupt { fallthrough: next },
-            Self::Stop { .. } => ControlFlow::Stop,
-            _ => ControlFlow::FallThrough { next },
-        })
-    }
 }
 
 fn shift_mnemonic(operation: ShiftOperation, direction: ShiftDirection) -> Mnemonic {
@@ -1849,61 +1801,4 @@ fn bit_mnemonic(operation: BitOperation) -> Mnemonic {
         BitOperation::Clear => Mnemonic::Bclr,
         BitOperation::Set => Mnemonic::Bset,
     }
-}
-
-fn add_signed(base: u32, displacement: i32) -> u32 {
-    base.wrapping_add(displacement as u32)
-}
-
-fn direct_target(target: EffectiveAddress, pc_base: u32) -> Option<u32> {
-    match target {
-        EffectiveAddress::AbsoluteWord(address) => Some(i32::from(address as i16) as u32),
-        EffectiveAddress::AbsoluteLong(address) => Some(address),
-        EffectiveAddress::ProgramCounterDisplacement(displacement) => {
-            Some(add_signed(pc_base, i32::from(displacement)))
-        }
-        _ => None,
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// The statically determined control-flow effect of an instruction.
-pub enum ControlFlow {
-    /// The fall through form.
-    FallThrough {
-        /// The next operand.
-        next: u32,
-    },
-    /// The branch form.
-    Branch {
-        /// The computed control-flow target.
-        target: u32,
-        /// The address reached when control flow does not transfer.
-        fallthrough: Option<u32>,
-    },
-    /// The call form.
-    Call {
-        /// The computed control-flow target.
-        target: Option<u32>,
-        /// The return address recorded by a subroutine call.
-        return_address: u32,
-    },
-    /// The jump form.
-    Jump {
-        /// The computed control-flow target.
-        target: Option<u32>,
-    },
-    /// The return form.
-    Return,
-    /// The exception return form.
-    ExceptionReturn,
-    /// The interrupt form.
-    Interrupt,
-    /// The conditional interrupt form.
-    ConditionalInterrupt {
-        /// The address reached when control flow does not transfer.
-        fallthrough: u32,
-    },
-    /// The stop form.
-    Stop,
 }

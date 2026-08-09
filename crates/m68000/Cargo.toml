@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Complete MC68000 instruction model and placement-aware assembler"
+description = "Typed MC68000 instruction model, static analysis, and placement-aware assembler"
 
 [dependencies]
 thiserror.workspace = true

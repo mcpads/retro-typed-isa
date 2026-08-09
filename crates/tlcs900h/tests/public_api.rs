@@ -75,11 +75,11 @@ fn bit_operations_remain_typed_through_memory_lowering() {
 
 #[test]
 fn shared_protocol_consumes_only_the_leading_instruction() {
-    let decoded = Tlcs900H::decode_one(&[0x30, 0x34, 0x12, 0xff], 0).unwrap();
+    let decoded = Tlcs900H::decode_one(&[0x30, 0x34, 0x12, 0xff], &0).unwrap();
 
     assert_eq!(decoded.source().as_slice(), [0x30, 0x34, 0x12]);
     assert_eq!(
-        Tlcs900H::encode_one(decoded.instruction(), 0)
+        Tlcs900H::encode_one(decoded.instruction(), &0)
             .unwrap()
             .as_slice(),
         decoded.source().as_slice()

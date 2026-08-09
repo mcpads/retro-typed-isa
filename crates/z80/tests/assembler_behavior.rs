@@ -18,6 +18,9 @@ fn resolves_relative_absolute_and_call_labels() {
     );
     assert_eq!(program.origin(), 0x4000);
     assert_eq!(program.instructions().len(), 4);
+    assert_eq!(program.instruction_spans()[1].offset, 2);
+    assert_eq!(program.instruction_spans()[1].location, 0x4002);
+    assert_eq!(program.instruction_spans()[1].bytes.as_slice(), [0x00]);
 }
 
 #[test]

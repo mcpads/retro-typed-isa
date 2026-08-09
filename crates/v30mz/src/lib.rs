@@ -26,14 +26,16 @@ use typed_isa_core::{
 mod assembler;
 mod expected_write;
 
-pub use assembler::{AssembledProgram, Assembler, AssemblerError};
+pub use assembler::{AssembledProgram, Assembler, AssemblerError, InstructionSpan};
 pub use expected_write::ExpectedWriteVerifier;
 pub use v30::Instruction as VSeriesInstruction;
 pub use v30::{
-    CallTarget, Condition, ControlFlow, EffectiveAddress, EffectiveAddressBase,
-    EffectiveAddressDisplacement, EffectiveAddressError, EscapeOpcode, FloatingPointOperand,
-    InstructionAddress, JmpTarget, LoopCondition, Operand, OperandForm, OperandSize, PortAddress,
-    Register8, Register16, SegmentRegister, SemanticPrefix, ShiftCount, SignedImmediate,
+    AnalysisPoint, Boundary, CallTarget, CodeLocation, Condition, ControlFlow, EffectiveAddress,
+    EffectiveAddressBase, EffectiveAddressDisplacement, EffectiveAddressError, EscapeOpcode,
+    ExternalProcessorFamily, Flag, FloatingPointOperand, IndirectTarget, InstructionSemantics,
+    InterruptState, JmpTarget, Location, LoopCondition, MemoryLocation, OffsetAddress, Operand,
+    OperandForm, OperandSize, PortAddress, PortLocation, Reference, Register8, Register16,
+    SegmentRegister, SegmentSelection, SemanticError, SemanticPrefix, ShiftCount, SignedImmediate,
 };
 
 /// Stable identifier for the exact CPU profile implemented by this crate.
@@ -292,6 +294,7 @@ impl TypedIsa for V30Mz {
 
     type Instruction = Instruction;
     type Form = InstructionForm;
+    type CodeLocation = CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -301,7 +304,7 @@ impl TypedIsa for V30Mz {
 
     fn decode_one(
         source: &[u8],
-        _address: u64,
+        _at: &Self::CodeLocation,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
         let decoded = decode_bytes(source)?;
         let exact_source = InstructionBytes::new(decoded.source_bytes().to_vec())
@@ -314,18 +317,41 @@ impl TypedIsa for V30Mz {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        _address: u64,
+        _at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
         let bytes = encode_bytes(instruction)?;
         Ok(InstructionBytes::new(bytes).expect("encoded V30MZ instructions are non-empty"))
     }
 }
 
+impl typed_isa_core::StaticSemantics for V30Mz {
+    type AnalysisPoint = AnalysisPoint;
+    type IndirectTarget = IndirectTarget;
+    type Boundary = Boundary;
+    type Location = Location;
+    type Reference = Reference;
+    type SemanticError = SemanticError;
+
+    fn semantics(
+        instruction: &Self::Instruction,
+        at: &Self::AnalysisPoint,
+    ) -> Result<InstructionSemantics, Self::SemanticError> {
+        <v30::V30 as typed_isa_core::StaticSemantics>::semantics(instruction.as_v_series(), at)
+    }
+
+    fn storage_relation(
+        left: &Self::Location,
+        right: &Self::Location,
+    ) -> typed_isa_core::StorageRelation {
+        <v30::V30 as typed_isa_core::StaticSemantics>::storage_relation(left, right)
+    }
+}
+
 /// One instruction proven to occupy a specific location in a verified program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacedInstruction {
-    /// Segmented instruction address used for static control-flow resolution.
-    pub address: InstructionAddress,
+    /// Segmented architectural code location used for control-flow resolution.
+    pub location: CodeLocation,
     /// Byte offset relative to the beginning of the verified program.
     pub offset: usize,
     /// Complete encoded length, including prefixes.
@@ -343,7 +369,7 @@ pub struct PlacedInstruction {
 /// simulate the program.
 pub fn verify_placed_program(
     bytes: &[u8],
-    origin: InstructionAddress,
+    origin: CodeLocation,
 ) -> Result<Vec<PlacedInstruction>, ProgramVerificationError> {
     if usize::from(origin.off) + bytes.len() > 0x1_0000 {
         return Err(ProgramVerificationError::CodeSegmentBoundary {
@@ -355,25 +381,26 @@ pub fn verify_placed_program(
     let mut instructions = Vec::new();
     let mut offset = 0usize;
     while offset < bytes.len() {
-        let address = InstructionAddress {
+        let location = CodeLocation {
             seg: origin.seg,
             off: origin.off + offset as u16,
         };
         let decoded = decode_bytes(&bytes[offset..])
-            .map_err(|source| ProgramVerificationError::Decode { address, source })?;
+            .map_err(|source| ProgramVerificationError::Decode { location, source })?;
         let reencoded = encode_bytes(decoded.instruction())
-            .map_err(|source| ProgramVerificationError::Encode { address, source })?;
+            .map_err(|source| ProgramVerificationError::Encode { location, source })?;
         if reencoded != decoded.source_bytes() {
-            return Err(ProgramVerificationError::NonCanonicalEncoding { address });
+            return Err(ProgramVerificationError::NonCanonicalEncoding { location });
         }
-        let next = InstructionAddress {
-            seg: address.seg,
-            off: address.off + decoded.byte_len() as u16,
-        };
-        let control_flow = v30::control_flow(decoded.instruction().as_v_series(), next);
+        let control_flow = <V30Mz as typed_isa_core::StaticSemantics>::semantics(
+            decoded.instruction(),
+            &AnalysisPoint::new(location, InterruptState::Unknown),
+        )
+        .expect("a canonically re-encoded V30MZ instruction has static semantics")
+        .control_flow;
         let byte_len = decoded.byte_len();
         instructions.push(PlacedInstruction {
-            address,
+            location,
             offset,
             byte_len,
             instruction: decoded.into_instruction(),
@@ -391,30 +418,30 @@ pub enum ProgramVerificationError {
     #[error("program at {origin:?} with {byte_len} bytes crosses the 64 KiB code segment")]
     CodeSegmentBoundary {
         /// Address assigned to the first byte of the program.
-        origin: InstructionAddress,
+        origin: CodeLocation,
         /// Complete byte length that does not fit in the segment.
         byte_len: usize,
     },
-    /// Bytes at a placed address do not decode as a V30MZ instruction.
-    #[error("decode failed at {address:?}: {source}")]
+    /// Bytes at a placed code location do not decode as a V30MZ instruction.
+    #[error("decode failed at {location:?}: {source}")]
     Decode {
-        /// Address at which decoding failed.
-        address: InstructionAddress,
+        /// Code location at which decoding failed.
+        location: CodeLocation,
         /// Profile decode failure.
         source: DecodeError,
     },
-    /// A decoded instruction cannot be canonically lowered at its address.
-    #[error("encode failed at {address:?}: {source}")]
+    /// A decoded instruction cannot be canonically lowered at its code location.
+    #[error("encode failed at {location:?}: {source}")]
     Encode {
-        /// Address of the instruction that could not be lowered.
-        address: InstructionAddress,
+        /// Code location of the instruction that could not be lowered.
+        location: CodeLocation,
         /// Profile encode failure.
         source: EncodeError,
     },
     /// Source bytes decode successfully but differ from canonical generated code.
-    #[error("instruction at {address:?} is not in canonical generated-code form")]
+    #[error("instruction at {location:?} is not in canonical generated-code form")]
     NonCanonicalEncoding {
-        /// Address of the non-canonical source encoding.
-        address: InstructionAddress,
+        /// Code location of the non-canonical source encoding.
+        location: CodeLocation,
     },
 }

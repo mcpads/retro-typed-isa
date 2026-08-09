@@ -244,41 +244,6 @@ impl InstructionForm {
     }
 }
 
-/// Static control-transfer classification for one placed instruction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlFlow {
-    /// Execution continues at the next sequential address.
-    FallThrough {
-        /// Address immediately after the instruction.
-        next: u16,
-    },
-    /// A conditional branch has a direct target and an optional fallthrough.
-    Branch {
-        /// Address reached when the branch condition is true.
-        target: u16,
-        /// Address reached when the condition is false, if execution can continue.
-        fallthrough: Option<u16>,
-    },
-    /// An unconditional jump transfers control directly or through memory.
-    Jump {
-        /// Direct static target, or `None` for an indirect jump.
-        target: Option<u16>,
-    },
-    /// A direct subroutine call transfers control and records its return point.
-    Call {
-        /// Direct subroutine entry address.
-        target: u16,
-        /// Address of the next sequential instruction after the call.
-        return_address: u16,
-    },
-    /// Control returns through a stack-supplied address.
-    Return,
-    /// Control enters an interrupt vector.
-    Interrupt,
-    /// Instruction fetch stops until an external reset.
-    Stop,
-}
-
 const fn op(mnemonic: Mnemonic, mode: AddressingMode) -> InstructionForm {
     InstructionForm::new(mnemonic, mode)
 }

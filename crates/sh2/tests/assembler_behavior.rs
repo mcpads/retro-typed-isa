@@ -13,6 +13,12 @@ fn resolves_pc_relative_labels_and_emits_big_endian_words() {
     assert_eq!(program.words(), &[0xA000, 0x0009, 0x0018]);
     assert_eq!(program.bytes(), &[0xA0, 0x00, 0x00, 0x09, 0x00, 0x18]);
     assert_eq!(program.instructions()[0], Instruction::Bra { disp: 0 });
+    assert_eq!(program.instruction_spans()[0].offset, 0);
+    assert_eq!(program.instruction_spans()[0].location, 0x0600_0000);
+    assert_eq!(
+        program.instruction_spans()[0].bytes.as_slice(),
+        [0xA0, 0x00]
+    );
 }
 
 #[test]

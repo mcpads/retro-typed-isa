@@ -1,17 +1,36 @@
 use std::collections::BTreeSet;
 
+use typed_isa_core::StaticSemantics;
 use vr4300::{
-    CacheOperation, Coprocessor, Coprocessor2ControlRegister, Coprocessor2Register,
+    AnalysisPoint, CacheOperation, Coprocessor, Coprocessor2ControlRegister, Coprocessor2Register,
     CoprocessorBranchCondition, CoprocessorMemoryOperation, CoprocessorMemoryRegister,
     Cp0Operation, Cp0Register, EqualityCondition, FixedFormat, FloatingBinaryOperation,
     FloatingComparePredicate, FloatingFormat, FloatingRegister, FloatingRounding,
     FloatingUnaryOperation, FpuControlRegister, GeneralRegister, ImmediateArithmeticOperation,
     Instruction, LogicalImmediateOperation, MemoryOperation, MultiplyDivideOperation,
-    NumericFormat, ShiftOperation, SignCondition, SpecialRegister, ThreeRegisterOperation,
-    TrapCondition, decode_word, encode_word,
+    NumericFormat, ShiftOperation, SignCondition, SpecialRegister, StatusFr,
+    ThreeRegisterOperation, TrapCondition, Vr4300Fr0, Vr4300Fr1,
 };
 
 const ADDRESS: u64 = 0x8000_0000;
+
+fn decode_word(
+    word: u32,
+    location: vr4300::CodeLocation,
+) -> Result<Instruction, vr4300::DecodeError> {
+    let result = vr4300::decode_word(word, location, StatusFr::One);
+    if let Ok(instruction) = &result {
+        Vr4300Fr1::semantics(instruction, &AnalysisPoint::new(location)).unwrap();
+    }
+    result
+}
+
+fn encode_word(
+    instruction: &Instruction,
+    location: vr4300::CodeLocation,
+) -> Result<u32, vr4300::EncodeError> {
+    vr4300::encode_word(instruction, location, StatusFr::One)
+}
 
 #[test]
 fn appendix_opcode_maps_have_an_independent_selector_denominator() {
@@ -161,6 +180,26 @@ fn fpu_format_matrix_matches_tables_17_1_and_17_3() {
 }
 
 #[test]
+fn status_fr_zero_applies_the_manual_fgr_pair_boundary() {
+    let fr0 = |word| vr4300::decode_word(word, ADDRESS, StatusFr::Zero);
+    let fr1 = |word| vr4300::decode_word(word, ADDRESS, StatusFr::One);
+
+    // Word transfers and word loads address individual FGR halves in FR=0.
+    assert!(fr0(0x4401_0800).is_ok(), "MFC1 with odd fs");
+    assert!(fr0(0xc401_0000).is_ok(), "LWC1 with odd ft");
+
+    // Doubleword transfers, doubleword loads, and arithmetic address logical
+    // FPRs, for which FR=0 admits only the even member of each FGR pair.
+    for word in [0x4421_0800, 0xd401_0000, 0x4604_1040] {
+        assert!(
+            fr0(word).is_err(),
+            "FR=0 unexpectedly accepted {word:#010x}"
+        );
+        assert!(fr1(word).is_ok(), "FR=1 unexpectedly rejected {word:#010x}");
+    }
+}
+
+#[test]
 fn every_source_listed_semantic_form_has_checked_lowering() {
     let vectors = source_form_vectors();
     let forms = vectors
@@ -184,6 +223,18 @@ fn every_source_listed_semantic_form_has_checked_lowering() {
             "round trip changed {:?}",
             instruction.form()
         );
+        for status_fr in [StatusFr::Zero, StatusFr::One] {
+            let result = match status_fr {
+                StatusFr::Zero => Vr4300Fr0::semantics(&instruction, &AnalysisPoint::new(ADDRESS)),
+                StatusFr::One => Vr4300Fr1::semantics(&instruction, &AnalysisPoint::new(ADDRESS)),
+            };
+            result.unwrap_or_else(|error| {
+                panic!(
+                    "failed to derive {status_fr:?} semantics for {:?}: {error}",
+                    instruction.form()
+                )
+            });
+        }
     }
 }
 

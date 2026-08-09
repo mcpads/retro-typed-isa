@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use typed_isa_core::InstructionBytes;
 
 use crate::codec::{EncodeError, VerifyError, encode_word, verify_placed_program};
 use crate::instruction::{Instruction, Register};
@@ -108,7 +109,10 @@ impl Assembler {
     /// Resolves labels and encodes the complete program at `origin`.
     ///
     /// Every control-flow instruction must have a non-control-flow delay slot.
-    pub fn assemble(&self, origin: u32) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         if origin & 3 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });
         }
@@ -162,11 +166,20 @@ impl Assembler {
 
         let mut words = Vec::with_capacity(instructions.len());
         let mut bytes = Vec::with_capacity(instructions.len() * 4);
+        let mut instruction_spans = Vec::with_capacity(instructions.len());
         for (index, instruction) in instructions.iter().enumerate() {
-            let address = self.address_for(origin, index)?;
-            let word = encode_word(instruction, address).map_err(AssemblerError::Encode)?;
+            let location = self.address_for(origin, index)?;
+            let word = encode_word(instruction, location).map_err(AssemblerError::Encode)?;
+            let encoded = word.to_le_bytes();
             words.push(word);
-            bytes.extend_from_slice(&word.to_le_bytes());
+            instruction_spans.push(InstructionSpan {
+                offset: bytes.len(),
+                location,
+                bytes: InstructionBytes::new(encoded.to_vec())
+                    .expect("encoded R3000A instructions are non-empty"),
+                instruction: instruction.clone(),
+            });
+            bytes.extend_from_slice(&encoded);
         }
 
         let decoded = verify_placed_program(&bytes, origin).map_err(AssemblerError::Verify)?;
@@ -185,6 +198,7 @@ impl Assembler {
             bytes,
             words,
             instructions,
+            instruction_spans,
         })
     }
 
@@ -272,11 +286,15 @@ pub struct AssembledProgram {
     bytes: Vec<u8>,
     words: Vec<u32>,
     instructions: Vec<Instruction>,
+    instruction_spans: Vec<InstructionSpan>,
 }
+
+/// Workspace-wide instruction-placement evidence specialized for R3000A.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<crate::CodeLocation, Instruction>;
 
 impl AssembledProgram {
     /// Returns the requested program origin.
-    pub fn origin(&self) -> u32 {
+    pub fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -298,6 +316,11 @@ impl AssembledProgram {
     /// Returns semantic instructions in placement order.
     pub fn instructions(&self) -> &[Instruction] {
         &self.instructions
+    }
+
+    /// Returns the exact bytes, location, and typed identity of each instruction.
+    pub fn instruction_spans(&self) -> &[InstructionSpan] {
+        &self.instruction_spans
     }
 }
 

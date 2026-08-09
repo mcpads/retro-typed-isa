@@ -1,6 +1,7 @@
-use allegrex::{DecodeError, Instruction, decode_word, encode_word};
+use allegrex::{Allegrex, AnalysisPoint, DecodeError, Instruction, decode_word, encode_word};
+use typed_isa_core::StaticSemantics;
 
-const ADDRESS: u64 = 0x0880_0000;
+const ADDRESS: allegrex::CodeLocation = 0x0880_0000;
 
 // One word for each instruction encoding listed in the CPU manual's table of
 // contents. CACHE entries are counted separately because the manual assigns
@@ -221,6 +222,8 @@ fn assert_manual_words(words: &[(&str, u32)]) {
             word,
             "{mnemonic}"
         );
+        Allegrex::semantics(&instruction, &AnalysisPoint::new(ADDRESS))
+            .unwrap_or_else(|error| panic!("{mnemonic} semantic failure: {error}"));
     }
 }
 

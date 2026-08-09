@@ -30,7 +30,7 @@ fn arm_labels_use_the_architectural_pc_plus_eight_base() {
         .emit(arm_move_one())
         .branch_to_label(Condition::Always, "loop");
     let program = assembler.assemble(0x1000).unwrap();
-    assert_eq!(program.label_address("loop"), Some(0x1000));
+    assert_eq!(program.label_location("loop"), Some(0x1000));
     assert_eq!(
         program.bytes(),
         [0x01, 0x00, 0xa0, 0xe3, 0xfd, 0xff, 0xff, 0xea]
@@ -50,7 +50,7 @@ fn thumb_labels_use_the_architectural_pc_plus_four_base() {
         .branch_to_label(Condition::NotEqual, "loop")
         .call_label("loop");
     let program = assembler.assemble(0x1000).unwrap();
-    assert_eq!(program.label_address("loop"), Some(0x1000));
+    assert_eq!(program.label_location("loop"), Some(0x1000));
     assert_eq!(
         program.bytes(),
         [0x01, 0x20, 0xfd, 0xd1, 0xff, 0xf7, 0xfc, 0xff]

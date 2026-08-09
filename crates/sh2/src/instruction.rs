@@ -1501,62 +1501,13 @@ impl Instruction {
         }
     }
 
-    /// Static control-flow facts at the address where this instruction is placed.
-    pub fn control_flow(&self, pc: u32) -> ControlFlow {
-        let next = pc.wrapping_add(2);
-        let after_delay_slot = pc.wrapping_add(4);
-        match self {
-            Self::Bt { .. } | Self::Bf { .. } => ControlFlow::Branch {
-                target: self.branch_target(pc).expect("PC-relative branch"),
-                fallthrough: Some(next),
-                delay_slot: None,
-            },
-            Self::Bts { .. } | Self::Bfs { .. } => ControlFlow::Branch {
-                target: self.branch_target(pc).expect("PC-relative branch"),
-                fallthrough: Some(after_delay_slot),
-                delay_slot: Some(next),
-            },
-            Self::Bra { .. } => ControlFlow::Branch {
-                target: self.branch_target(pc).expect("PC-relative branch"),
-                fallthrough: None,
-                delay_slot: Some(next),
-            },
-            Self::Bsr { .. } => ControlFlow::Call {
-                target: self.branch_target(pc),
-                return_address: after_delay_slot,
-                delay_slot: next,
-            },
-            Self::Braf { .. } | Self::Jmp { .. } => ControlFlow::Jump {
-                target: None,
-                delay_slot: next,
-            },
-            Self::Bsrf { .. } | Self::Jsr { .. } => ControlFlow::Call {
-                target: None,
-                return_address: after_delay_slot,
-                delay_slot: next,
-            },
-            Self::Rts => ControlFlow::Return { delay_slot: next },
-            Self::Rte => ControlFlow::ExceptionReturn { delay_slot: next },
-            Self::Trapa { .. } => ControlFlow::Interrupt,
-            _ => ControlFlow::FallThrough { next },
-        }
-    }
-
-    /// Whether this instruction has a delay slot.
+    /// Whether shared static semantics report a delay slot.
     pub fn has_delay_slot(&self) -> bool {
-        matches!(
-            self,
-            Self::Bts { .. }
-                | Self::Bfs { .. }
-                | Self::Bra { .. }
-                | Self::Bsr { .. }
-                | Self::Braf { .. }
-                | Self::Bsrf { .. }
-                | Self::Jmp { .. }
-                | Self::Jsr { .. }
-                | Self::Rts
-                | Self::Rte
-        )
+        crate::semantics::semantics(self, 0)
+            .expect("zero is an aligned SH-2 analysis point")
+            .control_flow
+            .delay_slot
+            .is_some()
     }
 
     /// Whether the instruction is forbidden in a delayed branch's slot.
@@ -1579,11 +1530,12 @@ impl Instruction {
         )
     }
 
-    /// Compute the PC-relative branch target address.
+    /// Compute the PC-relative branch target code location.
     ///
     /// `pc` is the address of this instruction itself.
     /// Returns `None` for non-branch instructions or register-indirect branches.
-    pub fn branch_target(&self, pc: u32) -> Option<u32> {
+    pub fn branch_target(&self, location: crate::CodeLocation) -> Option<crate::CodeLocation> {
+        let pc = location;
         match self {
             Self::Bt { disp } | Self::Bf { disp } | Self::Bts { disp } | Self::Bfs { disp } => {
                 // target = PC + 4 + sign_extended(disp) * 2
@@ -1600,69 +1552,30 @@ impl Instruction {
     /// Compute the literal pool address for PC-relative load instructions.
     ///
     /// `pc` is the address of this instruction itself.
-    pub fn literal_pool_addr(&self, pc: u32) -> Option<u32> {
+    pub fn literal_pool_address(&self, location: crate::CodeLocation) -> Option<u32> {
+        let pc = location;
         match self {
             Self::MovLPcRel { disp, .. } => {
                 // addr = (PC & 0xFFFFFFFC) + 4 + disp * 4
-                Some((pc & 0xFFFF_FFFC) + 4 + (*disp as u32) * 4)
+                Some(
+                    (pc & 0xFFFF_FFFC)
+                        .wrapping_add(4)
+                        .wrapping_add(u32::from(*disp) * 4),
+                )
             }
             Self::MovWPcRel { disp, .. } => {
                 // addr = PC + 4 + disp * 2  (no alignment)
-                Some(pc + 4 + (*disp as u32) * 2)
+                Some(pc.wrapping_add(4).wrapping_add(u32::from(*disp) * 2))
             }
             Self::Mova { disp } => {
                 // addr = (PC & 0xFFFFFFFC) + 4 + disp * 4
-                Some((pc & 0xFFFF_FFFC) + 4 + (*disp as u32) * 4)
+                Some(
+                    (pc & 0xFFFF_FFFC)
+                        .wrapping_add(4)
+                        .wrapping_add(u32::from(*disp) * 4),
+                )
             }
             _ => None,
         }
     }
-}
-
-/// Placement-aware static control-flow classification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlFlow {
-    /// Sequential fall-through.
-    FallThrough {
-        /// Next sequential instruction address.
-        next: u32,
-    },
-    /// Direct branch with optional fall-through and delay slot.
-    Branch {
-        /// Resolved target address when statically known.
-        target: u32,
-        /// Sequential successor when the branch is not taken.
-        fallthrough: Option<u32>,
-        /// Address of the instruction executed in the delay slot.
-        delay_slot: Option<u32>,
-    },
-    /// Direct or register-indirect call.
-    Call {
-        /// Resolved target address when statically known.
-        target: Option<u32>,
-        /// Address written to the procedure register.
-        return_address: u32,
-        /// Address of the instruction executed in the delay slot.
-        delay_slot: u32,
-    },
-    /// Direct or register-indirect jump.
-    Jump {
-        /// Resolved target address when statically known.
-        target: Option<u32>,
-        /// Address of the instruction executed in the delay slot.
-        delay_slot: u32,
-    },
-    /// Procedure return.
-    Return {
-        /// Address of the instruction executed in the delay slot.
-        delay_slot: u32,
-    },
-    /// Exception return.
-    ExceptionReturn {
-        /// Address of the instruction executed in the delay slot.
-        delay_slot: u32,
-    },
-    /// Synchronous software interrupt.
-    /// Synchronous software interrupt.
-    Interrupt,
 }

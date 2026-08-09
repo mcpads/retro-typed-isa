@@ -7,7 +7,7 @@ use allegrex::{
     VfpuMemoryOffset, VfpuOperands, VfpuOperation, decode_word, encode_bytes, encode_word,
 };
 
-const ADDRESS: u64 = 0x0880_0000;
+const ADDRESS: allegrex::CodeLocation = 0x0880_0000;
 
 #[test]
 fn public_field_types_reject_values_outside_the_manual_bit_widths() {

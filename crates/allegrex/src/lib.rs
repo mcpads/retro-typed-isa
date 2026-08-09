@@ -15,10 +15,14 @@
 /// Stable identifier for the little-endian Allegrex protocol profile.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
+/// Aligned 32-bit Allegrex executable address.
+pub type CodeLocation = u32;
+
 mod assembler;
 mod codec;
 mod expected_write;
 mod instruction;
+mod semantics;
 mod vfpu;
 
 pub use assembler::{AssembledProgram, Assembler, AssemblerError};
@@ -27,6 +31,11 @@ pub use codec::{
 };
 pub use expected_write::ExpectedWriteVerifier;
 pub use instruction::*;
+pub use semantics::{
+    AnalysisPoint, Boundary, ControlFlow, FpuState, ImplicitState, IndirectTarget,
+    InstructionSemantics, Location, MemoryAddress, MemoryLocation, MemoryWidth, Reference,
+    SemanticError,
+};
 pub use typed_isa_core::InstructionSpan;
 pub use vfpu::*;
 

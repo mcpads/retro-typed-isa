@@ -1,7 +1,8 @@
 use huc6280::{
-    AddressingMode, Assembler, ControlFlow, Instruction, InstructionForm, Mnemonic, Operand,
-    PROFILE_ID, decode_bytes, encode_bytes,
+    AddressingMode, AnalysisPoint, Assembler, HuC6280, Instruction, InstructionForm, Mnemonic,
+    Operand, PROFILE_ID, TState, decode_bytes, encode_bytes,
 };
+use typed_isa_core::{ControlAction, StaticSemantics};
 
 #[test]
 fn public_api_builds_places_and_lowers_typed_code_to_bytes() {
@@ -32,8 +33,15 @@ fn public_api_builds_places_and_lowers_typed_code_to_bytes() {
     let decoded = decode_bytes(program.bytes()).unwrap();
     assert_eq!(decoded, load);
     assert_eq!(encode_bytes(&decoded).unwrap(), [0xA9, 0x2A]);
+    let flow = HuC6280::semantics(
+        &decoded,
+        &AnalysisPoint::new(program.origin(), TState::Clear),
+    )
+    .unwrap()
+    .control_flow;
+    assert_eq!(flow.action, ControlAction::Continue);
     assert_eq!(
-        decoded.control_flow(program.origin()),
-        ControlFlow::FallThrough { next: 0x8002 }
+        flow.fallthrough,
+        Some(AnalysisPoint::new(0x8002, TState::Clear))
     );
 }

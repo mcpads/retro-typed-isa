@@ -928,33 +928,13 @@ impl Instruction {
         }
     }
 
-    /// Classifies control flow and resolves explicit absolute targets.
-    pub fn control_flow(&self) -> ControlFlow {
-        match self {
-            Self::J { target } => ControlFlow::Jump { target: *target },
-            Self::Jal { target } => ControlFlow::Call { target: *target },
-            Self::Jr { rs } if *rs == Register::RA => ControlFlow::Return,
-            Self::Jr { .. } => ControlFlow::IndirectJump,
-            Self::Jalr { .. } => ControlFlow::IndirectCall,
-            Self::Beq { rs, rt, target } if *rs == Register::ZERO && *rt == Register::ZERO => {
-                ControlFlow::Branch { target: *target }
-            }
-            Self::Beq { target, .. }
-            | Self::Bne { target, .. }
-            | Self::Blez { target, .. }
-            | Self::Bgtz { target, .. }
-            | Self::Bltz { target, .. }
-            | Self::Bgez { target, .. } => ControlFlow::ConditionalBranch { target: *target },
-            Self::Bltzal { target, .. } | Self::Bgezal { target, .. } => {
-                ControlFlow::Call { target: *target }
-            }
-            _ => ControlFlow::FallThrough,
-        }
-    }
-
-    /// Returns whether the instruction requires one following delay-slot instruction.
+    /// Returns whether shared static semantics require a following delay-slot instruction.
     pub fn has_delay_slot(&self) -> bool {
-        !matches!(self.control_flow(), ControlFlow::FallThrough)
+        crate::semantics::semantics(self, 0)
+            .expect("zero is an aligned R3000A analysis point")
+            .control_flow
+            .delay_slot
+            .is_some()
     }
 
     /// Returns the general-purpose register written by this instruction, when
@@ -965,81 +945,19 @@ impl Instruction {
     /// the branch condition; callers doing constant propagation must therefore
     /// conservatively invalidate it.
     pub fn written_gpr(&self) -> Option<Register> {
-        match self {
-            Self::Add { rd, .. }
-            | Self::Addu { rd, .. }
-            | Self::Sub { rd, .. }
-            | Self::Subu { rd, .. }
-            | Self::And { rd, .. }
-            | Self::Or { rd, .. }
-            | Self::Xor { rd, .. }
-            | Self::Nor { rd, .. }
-            | Self::Slt { rd, .. }
-            | Self::Sltu { rd, .. }
-            | Self::Sll { rd, .. }
-            | Self::Srl { rd, .. }
-            | Self::Sra { rd, .. }
-            | Self::Sllv { rd, .. }
-            | Self::Srlv { rd, .. }
-            | Self::Srav { rd, .. }
-            | Self::Mfhi { rd }
-            | Self::Mflo { rd }
-            | Self::Jalr { rd, .. } => Some(*rd),
-            Self::Addi { rt, .. }
-            | Self::Addiu { rt, .. }
-            | Self::Andi { rt, .. }
-            | Self::Ori { rt, .. }
-            | Self::Xori { rt, .. }
-            | Self::Lui { rt, .. }
-            | Self::Slti { rt, .. }
-            | Self::Sltiu { rt, .. }
-            | Self::Lb { rt, .. }
-            | Self::Lbu { rt, .. }
-            | Self::Lh { rt, .. }
-            | Self::Lhu { rt, .. }
-            | Self::Lw { rt, .. }
-            | Self::Lwl { rt, .. }
-            | Self::Lwr { rt, .. }
-            | Self::Mfc0 { rt, .. }
-            | Self::Mfc2 { rt, .. }
-            | Self::Cfc2 { rt, .. } => Some(*rt),
-            Self::Jal { .. } | Self::Bltzal { .. } | Self::Bgezal { .. } => Some(Register::RA),
-            _ => None,
-        }
+        let semantics =
+            crate::semantics::semantics(self, 0).expect("zero is an aligned R3000A analysis point");
+        let mut written = semantics.location_accesses.iter().filter_map(|access| {
+            if access.kind == typed_isa_core::AccessKind::Write {
+                if let crate::Location::Gpr(register) = access.location {
+                    return Some(register);
+                }
+            }
+            None
+        });
+        let first = written.next()?;
+        written.all(|register| register == first).then_some(first)
     }
-}
-
-/// Static control-flow classification of one instruction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlFlow {
-    /// Execution continues with the next instruction.
-    FallThrough,
-    /// An unconditional PC-relative branch.
-    Branch {
-        /// Absolute branch target.
-        target: u32,
-    },
-    /// A conditional PC-relative branch.
-    ConditionalBranch {
-        /// Absolute branch target.
-        target: u32,
-    },
-    /// A direct jump within the current 256 MiB region.
-    Jump {
-        /// Absolute jump target.
-        target: u32,
-    },
-    /// A direct or conditional-link call.
-    Call {
-        /// Absolute call target.
-        target: u32,
-    },
-    /// A register-indirect jump through `$ra`.
-    Return,
-    /// A register-indirect jump through another register.
-    IndirectJump,
-    /// A register-indirect jump that writes a link register.
-    IndirectCall,
 }
 
 #[cfg(test)]

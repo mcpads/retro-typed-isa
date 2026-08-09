@@ -29,11 +29,11 @@ pub enum DecodeError {
         /// Rejected instruction word.
         word: u16,
     },
-    /// A placed instruction address is not two-byte aligned.
-    #[error("SH-2 instruction address 0x{address:08X} is not two-byte aligned")]
-    UnalignedInstructionAddress {
-        /// Rejected instruction address.
-        address: u32,
+    /// A placed code location is not two-byte aligned.
+    #[error("SH-2 code location 0x{location:08X} is not two-byte aligned")]
+    UnalignedCodeLocation {
+        /// Rejected executable location.
+        location: crate::CodeLocation,
     },
     /// A placed instruction address overflows 32 bits.
     #[error("SH-2 address overflow from 0x{origin:08X} at instruction {index}")]
@@ -764,7 +764,7 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<Instruction, DecodeError> {
 
 pub(crate) fn decode_program(bytes: &[u8], origin: u32) -> Result<Vec<Instruction>, DecodeError> {
     if origin & 1 != 0 {
-        return Err(DecodeError::UnalignedInstructionAddress { address: origin });
+        return Err(DecodeError::UnalignedCodeLocation { location: origin });
     }
     if bytes.len() % 2 != 0 {
         return Err(DecodeError::TruncatedInput { len: bytes.len() });

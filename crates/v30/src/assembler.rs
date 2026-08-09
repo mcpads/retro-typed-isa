@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
+use typed_isa_core::InstructionBytes;
+
 use crate::{
-    Condition, ControlFlow, EncodeError, Instruction, InstructionAddress, JmpTarget, LoopCondition,
+    CodeLocation, Condition, ControlFlow, EncodeError, Instruction, JmpTarget, LoopCondition,
     PlacedInstruction, ProgramVerificationError, encode_bytes, verify_placed_program,
 };
 
@@ -102,7 +104,10 @@ impl Assembler {
     }
 
     /// Resolves labels, encodes instructions, and verifies the placed program.
-    pub fn assemble(&self, origin: InstructionAddress) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         let (labels, byte_len) = self.collect_labels()?;
         crate::analysis::ensure_segment_capacity(origin, byte_len)
             .map_err(AssemblerError::Verify)?;
@@ -162,13 +167,26 @@ impl Assembler {
             );
         }
 
-        let instructions = verify_placed_program(&bytes, origin).map_err(AssemblerError::Verify)?;
+        let placed_instructions =
+            verify_placed_program(&bytes, origin).map_err(AssemblerError::Verify)?;
+        let instruction_spans = placed_instructions
+            .iter()
+            .map(|placed| InstructionSpan {
+                offset: placed.offset,
+                location: placed.location,
+                bytes: InstructionBytes::new(
+                    bytes[placed.offset..placed.offset + placed.byte_len].to_vec(),
+                )
+                .expect("encoded V30 instructions are non-empty"),
+                instruction: placed.instruction.clone(),
+            })
+            .collect();
         let labels = labels
             .into_iter()
             .map(|(name, offset)| {
                 (
                     name,
-                    InstructionAddress {
+                    CodeLocation {
                         seg: origin.seg,
                         off: origin.off + offset as u16,
                     },
@@ -178,7 +196,8 @@ impl Assembler {
         Ok(AssembledProgram {
             origin,
             bytes,
-            instructions,
+            instruction_spans,
+            placed_instructions,
             labels,
         })
     }
@@ -237,15 +256,19 @@ fn relative_displacement(offset: usize, instruction_len: usize, target: usize) -
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Verified native V30 bytes, labels, and placed-instruction metadata.
 pub struct AssembledProgram {
-    origin: InstructionAddress,
+    origin: CodeLocation,
     bytes: Vec<u8>,
-    instructions: Vec<PlacedInstruction>,
-    labels: BTreeMap<String, InstructionAddress>,
+    instruction_spans: Vec<InstructionSpan>,
+    placed_instructions: Vec<PlacedInstruction>,
+    labels: BTreeMap<String, CodeLocation>,
 }
+
+/// Workspace-wide instruction-placement evidence specialized for V30.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<CodeLocation, Instruction>;
 
 impl AssembledProgram {
     /// Performs the origin operation.
-    pub fn origin(&self) -> InstructionAddress {
+    pub fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -260,12 +283,17 @@ impl AssembledProgram {
     }
 
     /// Returns verified instruction placements.
-    pub fn instruction_spans(&self) -> &[PlacedInstruction] {
-        &self.instructions
+    pub fn instruction_spans(&self) -> &[InstructionSpan] {
+        &self.instruction_spans
     }
 
-    /// Returns a resolved label address.
-    pub fn label_address(&self, label: &str) -> Option<InstructionAddress> {
+    /// Returns V30-specific placement and static control-flow analysis.
+    pub fn placed_instructions(&self) -> &[PlacedInstruction] {
+        &self.placed_instructions
+    }
+
+    /// Returns a resolved label code location.
+    pub fn label_location(&self, label: &str) -> Option<crate::CodeLocation> {
         self.labels.get(label).copied()
     }
 }

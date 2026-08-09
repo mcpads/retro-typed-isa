@@ -14,10 +14,16 @@ fn labels_lower_to_current_pc_relative_displacements() {
         .jump_and_link("loop");
 
     let program = assembler.assemble(0x1000).unwrap();
-    assert_eq!(program.label_address("loop"), Some(0x1000));
+    assert_eq!(program.label_location("loop"), Some(0x1000));
     assert_eq!(
         program.bytes(),
         [0x1f, 0x18, 0xfe, 0x95, 0xff, 0xaf, 0xfc, 0xff]
+    );
+    assert_eq!(program.instruction_spans()[1].offset, 2);
+    assert_eq!(program.instruction_spans()[1].location, 0x1002);
+    assert_eq!(
+        program.instruction_spans()[1].bytes.as_slice(),
+        [0xfe, 0x95]
     );
 }
 

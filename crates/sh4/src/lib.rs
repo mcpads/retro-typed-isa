@@ -1,7 +1,7 @@
 //! Hitachi SH-4 instruction semantics, byte lowering, and checked assembly.
 //!
 //! This crate covers the complete fixed-width 16-bit SH-4 CPU and FPU
-//! instruction profile from the SH-4 Software Manual. Byte APIs use the
+//! instruction encoding profile from the SH-4 Software Manual. Byte APIs use the
 //! little-endian serialization used by the imported Dreamcast consumers;
 //! natural word APIs are endian-neutral. FPSCR.PR and FPSCR.SZ are explicit
 //! decode inputs. Execution, pipeline timing, scheduling, and simulation are
@@ -12,21 +12,31 @@
 /// Stable identifier for the CPU profile implemented by this crate.
 pub const PROFILE_ID: &str = env!("CARGO_PKG_NAME");
 
+/// Halfword-aligned 32-bit SH-4 executable address.
+pub type CodeLocation = u32;
+
 mod assembler;
 mod codec;
 mod display;
 mod encoder;
 mod instruction;
+mod semantics;
 
 pub use assembler::{
-    AssembledProgram, Assembler, AssemblerError, LiteralValue, PlacedInstruction, PlacedLiteral,
+    AssembledProgram, Assembler, AssemblerError, InstructionSpan, LiteralValue, PlacedInstruction,
+    PlacedLiteral,
 };
 pub use codec::{DecodeError, DecodedWord, classify_word, decode_bytes, decode_word};
 pub use encoder::{EncodeError, VerifyError, encode_bytes, encode_word, verify_placed_program};
 pub use instruction::{
-    BankedRegister, ControlFlow, DoubleRegister, ExtendedDoubleRegister, FloatRegister, FpscrState,
+    BankedRegister, DoubleRegister, ExtendedDoubleRegister, FloatRegister, FpscrState,
     FpuPairRegister, FpuPrecision, FpuTransferSize, Instruction, InstructionForm, Register,
     VectorRegister,
+};
+pub use semantics::{
+    Addressing, AnalysisPoint, Boundary, ControlFlow, FloatBank, FloatLaneBank, FpscrField,
+    GeneralRegisterBank, GeneralRegisterLocation, IndirectTarget, InstructionSemantics, Location,
+    MemoryLocation, Reference, SemanticError, SrField,
 };
 
 /// SH-4 profiles whose FPSCR.PR and FPSCR.SZ decode inputs are externally known.
@@ -71,6 +81,7 @@ macro_rules! implement_profile {
 
             type Instruction = Instruction;
             type Form = InstructionForm;
+            type CodeLocation = CodeLocation;
             type DecodeError = DecodeError;
             type EncodeError = EncodeError;
 
@@ -81,13 +92,12 @@ macro_rules! implement_profile {
 
             fn decode_one(
                 source: &[u8],
-                address: u64,
+                at: &Self::CodeLocation,
             ) -> Result<typed_isa_core::DecodedInstruction<Self::Instruction>, Self::DecodeError>
             {
-                let address = u32::try_from(address)
-                    .map_err(|_| DecodeError::AddressOutOfRange { address })?;
-                if address & 1 != 0 {
-                    return Err(DecodeError::UnalignedInstructionAddress { address });
+                let location = *at;
+                if location & 1 != 0 {
+                    return Err(DecodeError::UnalignedCodeLocation { location });
                 }
                 let instruction = decode_bytes(source, $fpscr)?;
                 let source = typed_isa_core::InstructionBytes::new(source[..2].to_vec())
@@ -97,12 +107,11 @@ macro_rules! implement_profile {
 
             fn encode_one(
                 instruction: &Self::Instruction,
-                address: u64,
+                at: &Self::CodeLocation,
             ) -> Result<typed_isa_core::InstructionBytes, Self::EncodeError> {
-                let address = u32::try_from(address)
-                    .map_err(|_| EncodeError::AddressOutOfRange { address })?;
-                if address & 1 != 0 {
-                    return Err(EncodeError::UnalignedInstructionAddress { address });
+                let location = *at;
+                if location & 1 != 0 {
+                    return Err(EncodeError::UnalignedCodeLocation { location });
                 }
                 validate_profile_instruction(instruction, $fpscr)?;
                 Ok(
@@ -114,6 +123,29 @@ macro_rules! implement_profile {
 
         impl Sh4Profile for $profile {
             const FPSCR: FpscrState = $fpscr;
+        }
+
+        impl typed_isa_core::StaticSemantics for $profile {
+            type AnalysisPoint = AnalysisPoint;
+            type IndirectTarget = IndirectTarget;
+            type Boundary = Boundary;
+            type Location = Location;
+            type Reference = Reference;
+            type SemanticError = SemanticError;
+
+            fn semantics(
+                instruction: &Self::Instruction,
+                at: &Self::AnalysisPoint,
+            ) -> Result<InstructionSemantics, Self::SemanticError> {
+                semantics::semantics::<Self>(instruction, *at)
+            }
+
+            fn storage_relation(
+                left: &Self::Location,
+                right: &Self::Location,
+            ) -> typed_isa_core::StorageRelation {
+                semantics::storage_relation(left, right)
+            }
         }
     };
 }

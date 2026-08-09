@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use typed_isa_core::InstructionBytes;
 
 use crate::{Condition, DecodeError, EncodeError, Instruction, decode_bytes, encode_bytes};
 
@@ -69,7 +70,10 @@ impl Assembler {
     ///
     /// `origin` and every instruction position must be halfword-aligned. Branch
     /// and jump displacements are measured from the current instruction address.
-    pub fn assemble(&self, origin: u32) -> Result<AssembledProgram, AssemblerError> {
+    pub fn assemble(
+        &self,
+        origin: crate::CodeLocation,
+    ) -> Result<AssembledProgram, AssemblerError> {
         if origin & 1 != 0 {
             return Err(AssemblerError::UnalignedOrigin { origin });
         }
@@ -89,7 +93,7 @@ impl Assembler {
                     condition: *condition,
                     displacement: i16::try_from(relative_displacement(
                         placed_address(origin, bytes.len())?,
-                        label_address(&labels, label)?,
+                        label_location(&labels, label)?,
                     )?)
                     .map_err(|_| AssemblerError::BranchOutOfRange {
                         label: label.clone(),
@@ -97,11 +101,11 @@ impl Assembler {
                 },
                 Node::JumpRelative(label) => Instruction::JumpRelative(relative_displacement(
                     placed_address(origin, bytes.len())?,
-                    label_address(&labels, label)?,
+                    label_location(&labels, label)?,
                 )?),
                 Node::JumpAndLink(label) => Instruction::JumpAndLink(relative_displacement(
                     placed_address(origin, bytes.len())?,
-                    label_address(&labels, label)?,
+                    label_location(&labels, label)?,
                 )?),
             };
 
@@ -116,9 +120,10 @@ impl Assembler {
             bytes.extend_from_slice(&encoded);
             instruction_spans.push(InstructionSpan {
                 offset,
-                address,
+                location: address,
+                bytes: InstructionBytes::new(encoded)
+                    .expect("encoded V810 instructions are non-empty"),
                 instruction,
-                byte_len: encoded.len(),
             });
         }
 
@@ -166,7 +171,7 @@ fn node_len(node: &Node) -> usize {
     }
 }
 
-fn label_address(labels: &BTreeMap<String, u32>, label: &str) -> Result<u32, AssemblerError> {
+fn label_location(labels: &BTreeMap<String, u32>, label: &str) -> Result<u32, AssemblerError> {
     labels
         .get(label)
         .copied()
@@ -188,13 +193,14 @@ fn relative_displacement(address: u32, target: u32) -> Result<i32, AssemblerErro
 
 fn verify_spans(bytes: &[u8], spans: &[InstructionSpan]) -> Result<(), AssemblerError> {
     for span in spans {
-        let source = bytes.get(span.offset..span.offset + span.byte_len).ok_or(
-            AssemblerError::VerificationFailed {
+        let source = bytes
+            .get(span.offset..span.offset + span.bytes.len().get())
+            .ok_or(AssemblerError::VerificationFailed {
                 offset: span.offset,
-            },
-        )?;
+            })?;
         let decoded = decode_bytes(source)?;
-        if decoded.instruction() != &span.instruction
+        if source != span.bytes.as_slice()
+            || decoded.instruction() != &span.instruction
             || encode_bytes(decoded.instruction())? != source
         {
             return Err(AssemblerError::VerificationFailed {
@@ -205,18 +211,8 @@ fn verify_spans(bytes: &[u8], spans: &[InstructionSpan]) -> Result<(), Assembler
     Ok(())
 }
 
-/// Location and typed identity of one instruction in assembled output.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstructionSpan {
-    /// Byte offset relative to the beginning of the assembled program.
-    pub offset: usize,
-    /// Placed 32-bit instruction address.
-    pub address: u32,
-    /// Typed instruction that produced the bytes in this span.
-    pub instruction: Instruction,
-    /// Number of bytes occupied by the instruction.
-    pub byte_len: usize,
-}
+/// Workspace-wide instruction-placement evidence specialized for V810.
+pub type InstructionSpan = typed_isa_core::InstructionSpan<crate::CodeLocation, Instruction>;
 
 /// Checked assembled bytes with resolved labels and verified instruction spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,7 +225,7 @@ pub struct AssembledProgram {
 
 impl AssembledProgram {
     /// Return the address assigned to the first output byte.
-    pub const fn origin(&self) -> u32 {
+    pub const fn origin(&self) -> crate::CodeLocation {
         self.origin
     }
 
@@ -244,7 +240,7 @@ impl AssembledProgram {
     }
 
     /// Return the resolved address of a defined label, if present.
-    pub fn label_address(&self, name: &str) -> Option<u32> {
+    pub fn label_location(&self, name: &str) -> Option<crate::CodeLocation> {
         self.labels.get(name).copied()
     }
 

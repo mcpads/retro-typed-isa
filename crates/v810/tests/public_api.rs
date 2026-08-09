@@ -47,11 +47,11 @@ fn extension_instruction_preserves_subopcode_and_reserved_zeroes() {
 
 #[test]
 fn shared_protocol_consumes_one_instruction_from_a_longer_source() {
-    let decoded = V810::decode_one(&[0x41, 0xa4, 0xfc, 0xff, 0x00, 0x00], 0).unwrap();
+    let decoded = V810::decode_one(&[0x41, 0xa4, 0xfc, 0xff, 0x00, 0x00], &0).unwrap();
 
     assert_eq!(decoded.source().as_slice(), [0x41, 0xa4, 0xfc, 0xff]);
     assert_eq!(
-        V810::encode_one(decoded.instruction(), 0)
+        V810::encode_one(decoded.instruction(), &0)
             .unwrap()
             .as_slice(),
         decoded.source().as_slice()

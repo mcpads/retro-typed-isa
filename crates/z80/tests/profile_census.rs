@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
-use z80::{DecodeError, InstructionForm, decode_bytes, encode_bytes};
+use typed_isa_core::StaticSemantics;
+use z80::{DecodeError, InstructionForm, Z80, decode_bytes, encode_bytes};
 
 // Normative source: Zilog, Z80 CPU User Manual, UM008011-0816,
 // "Z80 Instruction Set" (pages 67-291). The functions below encode the
@@ -152,6 +153,8 @@ fn source_defined_selector_families_are_complete_and_exact() {
             *bytes,
             "encoding {bytes:02X?}"
         );
+        Z80::semantics(&instruction, &0x1000)
+            .unwrap_or_else(|error| panic!("source-defined encoding {bytes:02X?}: {error}"));
         forms.insert(instruction.form());
     }
 

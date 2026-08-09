@@ -9,17 +9,11 @@ use crate::instruction::{
 /// An SH-4 instruction cannot be represented by the declared 16-bit profile.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
-    #[error("SH-4 instruction address {address:#x} exceeds the 32-bit address space")]
-    /// The address out of range form.
-    AddressOutOfRange {
-        /// The instruction or literal address.
-        address: u64,
-    },
-    #[error("SH-4 instruction address 0x{address:08X} is not two-byte aligned")]
-    /// The unaligned instruction address form.
-    UnalignedInstructionAddress {
-        /// The instruction or literal address.
-        address: u32,
+    #[error("SH-4 code location 0x{location:08X} is not two-byte aligned")]
+    /// The unaligned executable location form.
+    UnalignedCodeLocation {
+        /// The rejected executable location.
+        location: crate::CodeLocation,
     },
     #[error("SH-4 {form:?} is not valid under {fpscr:?}")]
     /// The fpscr state mismatch form.
@@ -375,7 +369,7 @@ pub enum VerifyError {
 /// Decode and re-encode an entire placed SH-4 code byte sequence.
 pub fn verify_placed_program(
     bytes: &[u8],
-    origin: u32,
+    origin: crate::CodeLocation,
     fpscr: FpscrState,
 ) -> Result<Vec<Instruction>, VerifyError> {
     let instructions = decode_program(bytes, origin, fpscr)?;

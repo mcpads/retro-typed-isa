@@ -5,7 +5,8 @@ use core::fmt::Write;
 use crate::{AddressingMode, Instruction, Operand};
 
 /// Format one placed instruction as `MNEMONIC OPERAND`.
-pub fn format_instruction(instruction: Instruction, pc: u16) -> String {
+pub fn format_instruction(instruction: Instruction, location: crate::CodeLocation) -> String {
+    let pc = location;
     let mnemonic = instruction.mnemonic().to_string();
     let operand = format_operand(instruction, pc);
     if operand.is_empty() {
@@ -40,7 +41,7 @@ fn format_operand(instruction: Instruction, pc: u16) -> String {
         (AddressingMode::ZeroPageX, Operand::Byte(address)) => format!("${address:02X},X"),
         (AddressingMode::ZeroPageY, Operand::Byte(address)) => format!("${address:02X},Y"),
         (AddressingMode::Relative, Operand::Relative(displacement)) => {
-            let next = instruction.fallthrough_address(pc);
+            let next = instruction.fallthrough_location(pc);
             format!("${:04X}", next.wrapping_add(displacement as i16 as u16))
         }
         (AddressingMode::Absolute, Operand::Word(address)) => format!("${address:04X}"),

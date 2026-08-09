@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 use crate::instruction::{
-    AddressingMode, ControlFlow, InstructionForm, Mnemonic, canonical_opcode, instruction_form,
+    AddressingMode, InstructionForm, Mnemonic, canonical_opcode, instruction_form,
     opcode_is_documented,
 };
 
@@ -142,67 +142,11 @@ impl Instruction {
         opcode_is_documented(self.opcode)
     }
 
-    /// Return the sequential address immediately following this instruction.
+    /// Return the sequential code location immediately following this instruction.
     ///
     /// HuC6280 program-counter arithmetic wraps in the 16-bit address space.
-    pub fn fallthrough_address(self, pc: u16) -> u16 {
-        pc.wrapping_add(self.encoded_len() as u16)
-    }
-
-    /// Classify static control transfer at the supplied instruction address.
-    pub fn control_flow(self, pc: u16) -> ControlFlow {
-        use Mnemonic::*;
-
-        let next = self.fallthrough_address(pc);
-        match self.mnemonic() {
-            Bpl | Bmi | Bvc | Bvs | Bcc | Bcs | Bne | Beq | Bbr { .. } | Bbs { .. } => {
-                ControlFlow::Branch {
-                    target: self.relative_target(next),
-                    fallthrough: Some(next),
-                }
-            }
-            Bra => ControlFlow::Branch {
-                target: self.relative_target(next),
-                fallthrough: None,
-            },
-            Bsr => ControlFlow::Call {
-                target: self.relative_target(next),
-                return_address: next,
-            },
-            Jsr => ControlFlow::Call {
-                target: self.absolute_target(),
-                return_address: next,
-            },
-            Jmp => match self.addressing_mode() {
-                AddressingMode::Absolute => ControlFlow::Jump {
-                    target: Some(self.absolute_target()),
-                },
-                AddressingMode::AbsoluteIndirect | AddressingMode::AbsoluteIndexedIndirectX => {
-                    ControlFlow::Jump { target: None }
-                }
-                _ => unreachable!("validated JMP has an unsupported addressing mode"),
-            },
-            Rti | Rts => ControlFlow::Return,
-            Brk => ControlFlow::Interrupt,
-            _ => ControlFlow::FallThrough { next },
-        }
-    }
-
-    fn relative_target(self, next: u16) -> u16 {
-        let displacement = match self.operand {
-            Operand::Relative(displacement) | Operand::ZeroPageRelative { displacement, .. } => {
-                displacement
-            }
-            _ => unreachable!("validated relative instruction has a non-relative operand"),
-        };
-        next.wrapping_add(displacement as i16 as u16)
-    }
-
-    fn absolute_target(self) -> u16 {
-        match self.operand {
-            Operand::Word(target) => target,
-            _ => unreachable!("validated absolute control flow has a non-word operand"),
-        }
+    pub fn fallthrough_location(self, location: crate::CodeLocation) -> crate::CodeLocation {
+        location.wrapping_add(self.encoded_len() as u16)
     }
 }
 

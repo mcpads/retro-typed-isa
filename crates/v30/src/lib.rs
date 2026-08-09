@@ -23,17 +23,21 @@ mod instruction;
 #[cfg(test)]
 mod instruction_tests;
 mod selector;
+mod semantics;
 
-pub use analysis::{
-    ControlFlow, PlacedInstruction, ProgramVerificationError, control_flow, verify_placed_program,
-};
-pub use assembler::{AssembledProgram, Assembler, AssemblerError};
+pub use analysis::{PlacedInstruction, ProgramVerificationError, verify_placed_program};
+pub use assembler::{AssembledProgram, Assembler, AssemblerError, InstructionSpan};
 pub use expected_write::ExpectedWriteVerifier;
 pub use form::{CanonicalInstruction, InstructionForm, Mnemonic, OperandForm, SemanticPrefix};
 pub use selector::{
     ModRmEncodingClass, PrimaryOpcodeClass, SecondaryOpcodeClass, SecondaryOperandEncoding,
     classify_primary_modrm, classify_primary_opcode, classify_secondary_modrm,
     classify_secondary_opcode,
+};
+pub use semantics::{
+    AnalysisPoint, Boundary, ControlFlow, ExternalProcessorFamily, Flag, IndirectTarget,
+    InstructionSemantics, InterruptState, Location, MemoryLocation, OffsetAddress, PortLocation,
+    Reference, SegmentSelection, SemanticError,
 };
 
 pub use instruction::{
@@ -42,8 +46,8 @@ pub use instruction::{
     ExternalRegister, ExternalRegisterError, FloatingPointOperand, Fpo2Opcode, Fpo2OpcodeError,
     InstructionKind as Instruction, JmpTarget, LoopCondition, Mem as EffectiveAddress,
     MemBase as EffectiveAddressBase, OpSize as OperandSize, Operand, PortAddr as PortAddress,
-    Reg8 as Register8, Reg16 as Register16, RegisterIndexError, SegOff as InstructionAddress,
-    ShiftCount, SignedImmediate, Sreg as SegmentRegister,
+    Reg8 as Register8, Reg16 as Register16, RegisterIndexError, SegOff as CodeLocation, ShiftCount,
+    SignedImmediate, Sreg as SegmentRegister,
 };
 
 /// Stable identifier for the exact CPU profile implemented by this crate.
@@ -143,13 +147,12 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedInstruction, DecodeError> {
     if bytes.is_empty() {
         return Err(DecodeError::Truncated { needed: 1, got: 0 });
     }
-    let decoded = decode::decode(bytes, InstructionAddress { seg: 0, off: 0 }).map_err(
-        |error| match error {
+    let decoded =
+        decode::decode(bytes, CodeLocation { seg: 0, off: 0 }).map_err(|error| match error {
             decode::DecodeError::Truncated { needed, got } => {
                 DecodeError::Truncated { needed, got }
             }
-        },
-    )?;
+        })?;
     if let Some(raw) = unknown_raw(&decoded.kind) {
         if let Some(needed) = inferred_truncated_len(bytes) {
             return Err(DecodeError::Truncated {
@@ -270,7 +273,7 @@ fn inferred_truncated_len(bytes: &[u8]) -> Option<usize> {
     }
     let mut probe = bytes.to_vec();
     probe.resize(15, 0);
-    let decoded = decode::decode(&probe, InstructionAddress { seg: 0, off: 0 }).ok()?;
+    let decoded = decode::decode(&probe, CodeLocation { seg: 0, off: 0 }).ok()?;
     if unknown_raw(&decoded.kind).is_some() || decoded.bytes.len() <= bytes.len() {
         return None;
     }
@@ -314,6 +317,7 @@ impl typed_isa_core::TypedIsa for V30 {
 
     type Instruction = Instruction;
     type Form = InstructionForm;
+    type CodeLocation = CodeLocation;
     type DecodeError = DecodeError;
     type EncodeError = EncodeError;
 
@@ -323,7 +327,7 @@ impl typed_isa_core::TypedIsa for V30 {
 
     fn decode_one(
         source: &[u8],
-        _address: u64,
+        _at: &Self::CodeLocation,
     ) -> Result<typed_isa_core::DecodedInstruction<Self::Instruction>, Self::DecodeError> {
         let decoded = decode_bytes(source)?;
         let source = typed_isa_core::InstructionBytes::new(decoded.source_bytes().to_vec())
@@ -336,12 +340,35 @@ impl typed_isa_core::TypedIsa for V30 {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        _address: u64,
+        _at: &Self::CodeLocation,
     ) -> Result<typed_isa_core::InstructionBytes, Self::EncodeError> {
         Ok(
             typed_isa_core::InstructionBytes::new(encode_bytes(instruction)?)
                 .expect("encoded V30 instructions are non-empty"),
         )
+    }
+}
+
+impl typed_isa_core::StaticSemantics for V30 {
+    type AnalysisPoint = AnalysisPoint;
+    type IndirectTarget = IndirectTarget;
+    type Boundary = Boundary;
+    type Location = Location;
+    type Reference = Reference;
+    type SemanticError = SemanticError;
+
+    fn semantics(
+        instruction: &Self::Instruction,
+        at: &Self::AnalysisPoint,
+    ) -> Result<InstructionSemantics, Self::SemanticError> {
+        semantics::semantics(instruction, *at)
+    }
+
+    fn storage_relation(
+        left: &Self::Location,
+        right: &Self::Location,
+    ) -> typed_isa_core::StorageRelation {
+        semantics::storage_relation(left, right)
     }
 }
 

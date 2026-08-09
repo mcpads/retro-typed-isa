@@ -67,10 +67,10 @@ fn typed_thumb_instructions_lower_to_little_endian_halfwords() {
 
 #[test]
 fn protocol_profiles_consume_only_the_leading_instruction() {
-    let arm = Arm7TdmiArm::decode_one(&[0x01, 0x00, 0xa0, 0xe3, 0xaa], 0x0800_0000).unwrap();
+    let arm = Arm7TdmiArm::decode_one(&[0x01, 0x00, 0xa0, 0xe3, 0xaa], &0x0800_0000).unwrap();
     assert_eq!(arm.source().as_slice(), [0x01, 0x00, 0xa0, 0xe3]);
 
-    let thumb = Arm7TdmiThumb::decode_one(&[0x01, 0x20, 0xaa], 0x0800_0000).unwrap();
+    let thumb = Arm7TdmiThumb::decode_one(&[0x01, 0x20, 0xaa], &0x0800_0000).unwrap();
     assert_eq!(thumb.source().as_slice(), [0x01, 0x20]);
 }
 

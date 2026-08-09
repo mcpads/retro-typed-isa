@@ -653,36 +653,3 @@ pub(crate) fn canonical_opcode(form: InstructionForm) -> Option<u8> {
         .find(|(opcode, candidate)| opcode_is_documented(*opcode as u8) && **candidate == form)
         .map(|(opcode, _)| opcode as u8)
 }
-
-/// Placement-aware static control-flow classification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlFlow {
-    /// Execution continues at the next sequential address.
-    FallThrough {
-        /// Address immediately after the instruction.
-        next: u16,
-    },
-    /// A conditional or unconditional relative branch.
-    Branch {
-        /// Address reached when the branch is taken.
-        target: u16,
-        /// Address reached when the condition is false, or `None` for `BRA`.
-        fallthrough: Option<u16>,
-    },
-    /// A direct subroutine call.
-    Call {
-        /// Direct subroutine entry address.
-        target: u16,
-        /// Address of the next sequential instruction after the call.
-        return_address: u16,
-    },
-    /// An unconditional jump transfers control directly or through memory.
-    Jump {
-        /// Direct static target, or `None` for an indirect jump.
-        target: Option<u16>,
-    },
-    /// Control returns through a stack-supplied address.
-    Return,
-    /// Control enters an interrupt vector.
-    Interrupt,
-}

@@ -1,4 +1,8 @@
-use i386::{CodeMode, DecodeError, PrimaryOpcodeClass, decode_bytes, encode_bytes};
+use i386::{
+    AddressSize, AnalysisPoint, CodeLocation, CodeMode, DecodeError, I386Code16, I386Code32,
+    InterruptState, PrimaryOpcodeClass, decode_bytes, encode_bytes,
+};
+use typed_isa_core::StaticSemantics;
 
 fn assert_semantically_reconstructible(decoded: &i386::DecodedInstruction) {
     let instruction = decoded.instruction();
@@ -19,6 +23,52 @@ fn assert_semantically_reconstructible(decoded: &i386::DecodedInstruction) {
     let reparsed = decode_bytes(&bytes, instruction.code_mode()).unwrap();
     assert_eq!(reparsed.instruction().operation(), instruction.operation());
     assert_eq!(reparsed.instruction().operands(), instruction.operands());
+
+    let at = AnalysisPoint::new(
+        CodeLocation::new(8, 0x1000),
+        InterruptState::Enabled,
+        AddressSize::Bits16,
+    );
+    I386Code16::semantics(instruction, &at).unwrap();
+
+    let code32_bytes = toggle_default_size_prefixes(decoded.source_bytes());
+    let code32 = decode_bytes(&code32_bytes, CodeMode::Code32).unwrap_or_else(|error| {
+        panic!(
+            "code32 counterpart failed for {:02x?}: {error}; transformed {:02x?}",
+            decoded.source_bytes(),
+            code32_bytes
+        )
+    });
+    assert_eq!(encode_bytes(code32.instruction()).unwrap(), code32_bytes);
+    let at = AnalysisPoint::new(
+        CodeLocation::new(8, 0x1000),
+        InterruptState::Enabled,
+        AddressSize::Bits32,
+    );
+    I386Code32::semantics(code32.instruction(), &at).unwrap();
+}
+
+fn toggle_default_size_prefixes(bytes: &[u8]) -> Vec<u8> {
+    let mut prefixes = Vec::new();
+    let mut opcode = 0;
+    while opcode < bytes.len()
+        && matches!(
+            bytes[opcode],
+            0x26 | 0x2e | 0x36 | 0x3e | 0x64 | 0x65 | 0x66 | 0x67 | 0xf0 | 0xf2 | 0xf3
+        )
+    {
+        prefixes.push(bytes[opcode]);
+        opcode += 1;
+    }
+    for prefix in [0x66, 0x67] {
+        if let Some(index) = prefixes.iter().position(|candidate| *candidate == prefix) {
+            prefixes.remove(index);
+        } else {
+            prefixes.push(prefix);
+        }
+    }
+    prefixes.extend_from_slice(&bytes[opcode..]);
+    prefixes
 }
 
 fn primary_sample(opcode: u8) -> Vec<u8> {

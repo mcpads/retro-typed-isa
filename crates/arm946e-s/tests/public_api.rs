@@ -44,10 +44,10 @@ fn typed_thumb_blx_forms_lower_to_reference_bytes() {
 
 #[test]
 fn protocol_profiles_consume_only_the_leading_instruction() {
-    let arm = Arm946EsArm::decode_one(&[0x51, 0x00, 0x02, 0xe1, 0xaa], 0x0200_0000).unwrap();
+    let arm = Arm946EsArm::decode_one(&[0x51, 0x00, 0x02, 0xe1, 0xaa], &0x0200_0000).unwrap();
     assert_eq!(arm.source().as_slice(), [0x51, 0x00, 0x02, 0xe1]);
 
-    let thumb = Arm946EsThumb::decode_one(&[0x12, 0xbe, 0xaa], 0x0200_0000).unwrap();
+    let thumb = Arm946EsThumb::decode_one(&[0x12, 0xbe, 0xaa], &0x0200_0000).unwrap();
     assert_eq!(thumb.source().as_slice(), [0x12, 0xbe]);
 }
 

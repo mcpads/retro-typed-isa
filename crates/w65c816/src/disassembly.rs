@@ -6,57 +6,23 @@
 
 use core::fmt;
 
-use crate::assembler::{CpuMode, transition_mode};
-use crate::codec::{DecodeError, DecodedInstruction, Operand, decode_bytes};
-use crate::isa::{AddressingMode, Mnemonic};
+use typed_isa_core::StaticSemantics;
 
-/// Static control-transfer classification for one placed instruction.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ControlFlow {
-    /// Execution continues at the next sequential address.
-    FallThrough {
-        /// Address immediately after the instruction.
-        next: u32,
-    },
-    /// A conditional or unconditional relative branch.
-    Branch {
-        /// Direct branch target in the current program bank.
-        target: u32,
-        /// Address reached when the condition is false, or `None` for BRA/BRL.
-        fallthrough: Option<u32>,
-    },
-    /// A subroutine call, possibly through an indirect pointer.
-    Call {
-        /// Direct static target, or `None` for an indirect call.
-        target: Option<u32>,
-        /// Address immediately after the call instruction.
-        return_address: u32,
-    },
-    /// An unconditional jump, possibly through an indirect pointer.
-    Jump {
-        /// Direct static target, or `None` for an indirect jump.
-        target: Option<u32>,
-    },
-    /// Control returns through a stack-supplied address.
-    Return,
-    /// Control enters a BRK or COP vector.
-    Interrupt,
-    /// Execution waits for an interrupt and then resumes sequentially.
-    Wait {
-        /// Sequential address at which execution resumes.
-        resume_address: u32,
-    },
-    /// The processor clock stops until reset.
-    Stop,
-}
+use crate::CodeLocation;
+use crate::assembler::{CpuMode, transition_mode};
+use crate::codec::{DecodeError, DecodedInstruction, decode_bytes};
+use crate::{
+    AnalysisPoint, ControlFlow, InstructionSemantics, SemanticError, W65C816M8X8, W65C816M8X16,
+    W65C816M16X8, W65C816M16X16, WidthState,
+};
 
 /// One instruction decoded at a caller-declared 24-bit code location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacedInstruction {
     /// Byte offset relative to the declared range.
     pub offset: usize,
-    /// 24-bit CPU address of the opcode byte.
-    pub address: u32,
+    /// Banked architectural code location of the opcode byte.
+    pub location: CodeLocation,
     /// Exact source bytes consumed for the instruction.
     pub raw: Vec<u8>,
     /// CPU mode used to determine immediate operand widths.
@@ -72,8 +38,8 @@ pub struct PlacedInstruction {
 /// Complete linear decode of one caller-declared, single-bank code range.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Disassembly {
-    /// 24-bit address assigned to the first source byte.
-    pub origin: u32,
+    /// Banked code location assigned to the first source byte.
+    pub origin: CodeLocation,
     /// Number of source bytes consumed by the declared range.
     pub byte_len: usize,
     /// CPU mode supplied for the entry instruction.
@@ -87,8 +53,6 @@ pub struct Disassembly {
 /// A fail-closed reason that a declared range could not be decoded linearly.
 #[derive(Debug)]
 pub enum DisassemblyError {
-    /// The origin exceeds the W65C816's 24-bit address space.
-    OriginOutOfRange(u32),
     /// The declared range crosses a 64 KiB program-bank boundary.
     CrossesBankBoundary {
         /// Address assigned to the first source byte.
@@ -108,14 +72,18 @@ pub enum DisassemblyError {
         /// Underlying byte-decoder failure.
         source: DecodeError,
     },
+    /// A decoded instruction could not produce sound static facts.
+    Semantics {
+        /// Offset of the instruction within the declared range.
+        offset: usize,
+        /// Underlying structural semantic failure.
+        source: SemanticError,
+    },
 }
 
 impl fmt::Display for DisassemblyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::OriginOutOfRange(origin) => {
-                write!(f, "disassembly origin exceeds 24-bit space: 0x{origin:X}")
-            }
             Self::CrossesBankBoundary { origin, len } => write!(
                 f,
                 "disassembly at 0x{origin:06X} with length 0x{len:X} crosses a program-bank boundary"
@@ -127,6 +95,12 @@ impl fmt::Display for DisassemblyError {
             Self::Decode { offset, source } => {
                 write!(f, "decode failed at code offset 0x{offset:X}: {source}")
             }
+            Self::Semantics { offset, source } => {
+                write!(
+                    f,
+                    "static semantics failed at code offset 0x{offset:X}: {source}"
+                )
+            }
         }
     }
 }
@@ -135,6 +109,7 @@ impl std::error::Error for DisassemblyError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Decode { source, .. } => Some(source),
+            Self::Semantics { source, .. } => Some(source),
             _ => None,
         }
     }
@@ -149,10 +124,11 @@ impl std::error::Error for DisassemblyError {
 /// responsibility of the caller.
 pub fn disassemble_linear(
     bytes: &[u8],
-    origin: u32,
+    origin: CodeLocation,
     initial_mode: CpuMode,
 ) -> Result<Disassembly, DisassemblyError> {
-    ensure_range(origin, bytes.len())?;
+    let origin_address = origin.to_u32();
+    ensure_range(origin_address, bytes.len())?;
 
     let mut instructions = Vec::new();
     let mut offset = 0;
@@ -162,13 +138,15 @@ pub fn disassemble_linear(
         let decoded = decode_bytes(&bytes[offset..], mode_before.widths())
             .map_err(|source| DisassemblyError::Decode { offset, source })?;
         let end = offset + decoded.len;
-        let address = origin + offset as u32;
-        let next = origin + end as u32;
+        let address = origin_address + offset as u32;
         let mode_after = transition_mode(mode_before, &decoded.instruction);
-        let control_flow = classify_control_flow(address, next, &decoded);
+        let point = AnalysisPoint::new(unpack_location(address), mode_before);
+        let control_flow = instruction_semantics(&decoded.instruction, &point)
+            .map_err(|source| DisassemblyError::Semantics { offset, source })?
+            .control_flow;
         instructions.push(PlacedInstruction {
             offset,
-            address,
+            location: unpack_location(address),
             raw: bytes[offset..end].to_vec(),
             mode_before,
             mode_after,
@@ -189,9 +167,6 @@ pub fn disassemble_linear(
 }
 
 fn ensure_range(origin: u32, len: usize) -> Result<(), DisassemblyError> {
-    if origin > 0xFF_FFFF {
-        return Err(DisassemblyError::OriginOutOfRange(origin));
-    }
     let bank_offset = (origin & 0xFFFF) as usize;
     if bank_offset
         .checked_add(len)
@@ -202,79 +177,36 @@ fn ensure_range(origin: u32, len: usize) -> Result<(), DisassemblyError> {
     Ok(())
 }
 
-fn classify_control_flow(address: u32, next: u32, decoded: &DecodedInstruction) -> ControlFlow {
-    use Mnemonic::*;
-
-    let mnemonic = decoded.instruction.mnemonic;
-    if is_conditional_branch(mnemonic) {
-        return ControlFlow::Branch {
-            target: relative_target(address, next, &decoded.instruction.operand)
-                .expect("branch opcode has a relative operand"),
-            fallthrough: Some(next),
-        };
-    }
-    match mnemonic {
-        Bra | Brl => ControlFlow::Branch {
-            target: relative_target(address, next, &decoded.instruction.operand)
-                .expect("branch opcode has a relative operand"),
-            fallthrough: None,
-        },
-        Jsr | Jsl => ControlFlow::Call {
-            target: direct_target(address, decoded),
-            return_address: next,
-        },
-        Jmp | Jml => ControlFlow::Jump {
-            target: direct_target(address, decoded),
-        },
-        Rti | Rtl | Rts => ControlFlow::Return,
-        Brk | Cop => ControlFlow::Interrupt,
-        Wai => ControlFlow::Wait {
-            resume_address: next,
-        },
-        Stp => ControlFlow::Stop,
-        _ => ControlFlow::FallThrough { next },
-    }
+fn unpack_location(address: u32) -> CodeLocation {
+    CodeLocation::new((address >> 16) as u8, address as u16)
 }
 
-fn is_conditional_branch(mnemonic: Mnemonic) -> bool {
-    matches!(
-        mnemonic,
-        Mnemonic::Bcc
-            | Mnemonic::Bcs
-            | Mnemonic::Beq
-            | Mnemonic::Bmi
-            | Mnemonic::Bne
-            | Mnemonic::Bpl
-            | Mnemonic::Bvc
-            | Mnemonic::Bvs
-    )
-}
-
-fn relative_target(address: u32, next: u32, operand: &Operand) -> Option<u32> {
-    let displacement = match operand {
-        Operand::Relative8(value) => i32::from(*value),
-        Operand::Relative16(value) => i32::from(*value),
-        _ => return None,
-    };
-    let bank = address & 0xFF_0000;
-    let target = (next as i32 + displacement) & 0xFFFF;
-    Some(bank | target as u32)
-}
-
-fn direct_target(address: u32, decoded: &DecodedInstruction) -> Option<u32> {
-    match (decoded.instruction.mode, &decoded.instruction.operand) {
-        (AddressingMode::Absolute, Operand::Word(target)) => {
-            Some((address & 0xFF_0000) | u32::from(*target))
-        }
-        (AddressingMode::AbsoluteLong, Operand::Long(target)) => Some(*target),
-        _ => None,
+fn instruction_semantics(
+    instruction: &crate::Instruction,
+    at: &AnalysisPoint,
+) -> Result<InstructionSemantics, SemanticError> {
+    match at
+        .mode()
+        .expect("linear disassembly supplies a known mode")
+        .widths()
+    {
+        WidthState::M8_X8 => W65C816M8X8::semantics(instruction, at),
+        WidthState::M8_X16 => W65C816M8X16::semantics(instruction, at),
+        WidthState::M16_X8 => W65C816M16X8::semantics(instruction, at),
+        WidthState::M16_X16 => W65C816M16X16::semantics(instruction, at),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{WidthState, encode_bytes};
+    use typed_isa_core::{ControlAction, ControlTarget};
+
+    use crate::{IndirectBankRule, IndirectTarget, ReturnAddressRule, WidthState, encode_bytes};
+
+    fn location(address: u32) -> CodeLocation {
+        unpack_location(address)
+    }
 
     #[test]
     fn decodes_placed_m16_code_and_resolves_branch_targets() {
@@ -285,19 +217,26 @@ mod tests {
             0x64, 0x02, // alternate-entry STZ $02
             0xA9, 0x00, 0x23, // LDA #$2300
         ];
-        let output = disassemble_linear(&bytes, 0x80_A4C1, CpuMode::NATIVE_M16_X16).unwrap();
+        let output =
+            disassemble_linear(&bytes, location(0x80_A4C1), CpuMode::NATIVE_M16_X16).unwrap();
 
         assert_eq!(output.instructions.len(), 5);
-        assert_eq!(output.instructions[0].address, 0x80_A4C1);
+        assert_eq!(output.instructions[0].location, location(0x80_A4C1));
         assert_eq!(output.instructions[0].raw, [0xA9, 0x01, 0x00]);
         assert_eq!(
             output.instructions[2].control_flow,
-            ControlFlow::Branch {
-                target: 0x80_A4CA,
+            ControlFlow {
+                action: ControlAction::Transfer {
+                    target: ControlTarget::Direct(AnalysisPoint::new(
+                        location(0x80_A4CA),
+                        CpuMode::NATIVE_M16_X16,
+                    )),
+                },
                 fallthrough: None,
+                delay_slot: None,
             }
         );
-        assert_eq!(output.instructions[3].address, 0x80_A4C8);
+        assert_eq!(output.instructions[3].location, location(0x80_A4C8));
         for instruction in &output.instructions {
             assert_eq!(
                 encode_bytes(
@@ -319,7 +258,8 @@ mod tests {
             0xE2, 0x20, // SEP #$20
             0xA9, 0x7F, // LDA #$7F
         ];
-        let output = disassemble_linear(&bytes, 0x81_8000, CpuMode::NATIVE_M8_X8).unwrap();
+        let output =
+            disassemble_linear(&bytes, location(0x81_8000), CpuMode::NATIVE_M8_X8).unwrap();
 
         assert_eq!(output.instructions.len(), 5);
         assert_eq!(
@@ -337,17 +277,22 @@ mod tests {
     fn refuses_to_guess_a_mode_after_ambiguous_status_transitions() {
         let xce_then_code = [0xFB, 0xA9, 0x00];
         assert!(matches!(
-            disassemble_linear(&xce_then_code, 0x80_8000, CpuMode::NATIVE_M16_X16),
+            disassemble_linear(&xce_then_code, location(0x80_8000), CpuMode::NATIVE_M16_X16),
             Err(DisassemblyError::CpuModeUnknown { offset: 1 })
         ));
 
         let native_plp_then_code = [0x28, 0xA9, 0x00];
         assert!(matches!(
-            disassemble_linear(&native_plp_then_code, 0x80_8000, CpuMode::NATIVE_M16_X16),
+            disassemble_linear(
+                &native_plp_then_code,
+                location(0x80_8000),
+                CpuMode::NATIVE_M16_X16
+            ),
             Err(DisassemblyError::CpuModeUnknown { offset: 1 })
         ));
 
-        let terminal_xce = disassemble_linear(&[0xFB], 0x80_8000, CpuMode::Emulation).unwrap();
+        let terminal_xce =
+            disassemble_linear(&[0xFB], location(0x80_8000), CpuMode::Emulation).unwrap();
         assert_eq!(terminal_xce.final_mode, None);
     }
 
@@ -355,31 +300,58 @@ mod tests {
     fn classifies_direct_calls_indirect_jumps_and_returns() {
         let calls = disassemble_linear(
             &[0x22, 0xCD, 0x92, 0x80, 0x6B],
-            0x80_A4F3,
+            location(0x80_A4F3),
             CpuMode::NATIVE_M16_X16,
         )
         .unwrap();
         assert_eq!(
             calls.instructions[0].control_flow,
-            ControlFlow::Call {
-                target: Some(0x80_92CD),
-                return_address: 0x80_A4F7,
+            ControlFlow {
+                action: ControlAction::LinkedTransfer {
+                    target: ControlTarget::Direct(AnalysisPoint::new(
+                        location(0x80_92CD),
+                        CpuMode::NATIVE_M16_X16,
+                    )),
+                    return_site: AnalysisPoint::new(location(0x80_A4F7), CpuMode::NATIVE_M16_X16,),
+                },
+                fallthrough: None,
+                delay_slot: None,
             }
         );
-        assert_eq!(calls.instructions[1].control_flow, ControlFlow::Return);
+        assert_eq!(
+            calls.instructions[1].control_flow,
+            ControlFlow {
+                action: ControlAction::Return {
+                    target: IndirectTarget::StackReturn(ReturnAddressRule::LongSubroutine),
+                },
+                fallthrough: None,
+                delay_slot: None,
+            }
+        );
 
         let indirect =
-            disassemble_linear(&[0x7C, 0x00, 0x90], 0x82_8000, CpuMode::Emulation).unwrap();
+            disassemble_linear(&[0x7C, 0x00, 0x90], location(0x82_8000), CpuMode::Emulation)
+                .unwrap();
         assert_eq!(
             indirect.instructions[0].control_flow,
-            ControlFlow::Jump { target: None }
+            ControlFlow {
+                action: ControlAction::Transfer {
+                    target: ControlTarget::Indirect(IndirectTarget::Pointer {
+                        mode: crate::AddressingMode::AbsoluteIndexedIndirectX,
+                        pointer: 0x9000,
+                        bank: IndirectBankRule::PreserveProgramBank,
+                    }),
+                },
+                fallthrough: None,
+                delay_slot: None,
+            }
         );
     }
 
     #[test]
     fn rejects_ranges_that_cross_a_program_bank() {
         assert!(matches!(
-            disassemble_linear(&[0xEA, 0xEA], 0x80_FFFF, CpuMode::Emulation),
+            disassemble_linear(&[0xEA, 0xEA], location(0x80_FFFF), CpuMode::Emulation),
             Err(DisassemblyError::CrossesBankBoundary { .. })
         ));
     }
