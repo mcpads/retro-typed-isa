@@ -64,8 +64,8 @@ fn group_f_is_documented(word: u16, state: FpscrState) -> bool {
         0x0..=0x5 => single || double_registers,
         0x6..=0xC => true,
         0xD => match m {
-            0x0 | 0x1 | 0x4 | 0x5 | 0x6 => single || n & 1 == 0,
-            0x2 | 0x3 => true,
+            0x0 | 0x1 => true,
+            0x2..=0x6 => single || n & 1 == 0,
             0x8 | 0x9 | 0xE => single,
             0xA | 0xB => !single && n & 1 == 0,
             0xF => single && (matches!(word, 0xF3FD | 0xFBFD) || word & 0xF3FF == 0xF1FD),

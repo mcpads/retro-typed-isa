@@ -1,7 +1,7 @@
 use sh4::{
     DecodedWord, DoubleRegister, ExtendedDoubleRegister, FloatRegister, FpscrState,
     FpuPairRegister, FpuPrecision, FpuTransferSize, Instruction, VectorRegister, classify_word,
-    decode_bytes, decode_word, encode_bytes,
+    decode_bytes, decode_word, encode_bytes, encode_word,
 };
 
 const SINGLE: FpscrState = FpscrState::new(FpuPrecision::Single, FpuTransferSize::Single);
@@ -38,6 +38,45 @@ fn precision_state_changes_arithmetic_identity() {
     assert!(matches!(
         classify_word(0xF120, DOUBLE),
         DecodedWord::Unknown { word: 0xF120 }
+    ));
+}
+
+#[test]
+fn renesas_fpu_transfer_and_conversion_selectors_match_hardware_names() {
+    // Renesas SH-4 Software Manual, table 7.10 and sections 9.34, 9.35,
+    // 9.44, and 9.46: https://www.renesas.com/en/document/mas/sh-4
+    let fr3 = FloatRegister::new(3).unwrap();
+    let single_cases = [
+        (0xF30D, Instruction::Fsts { frn: fr3 }),
+        (0xF31D, Instruction::Flds { frm: fr3 }),
+        (0xF32D, Instruction::Float { frn: fr3 }),
+        (0xF33D, Instruction::Ftrc { frm: fr3 }),
+    ];
+    for (word, instruction) in single_cases {
+        assert_eq!(decode_word(word, SINGLE), Ok(instruction));
+        assert_eq!(encode_word(&instruction), Ok(word));
+    }
+
+    let fr2 = FloatRegister::new(2).unwrap();
+    let dr2 = DoubleRegister::new(2).unwrap();
+    let double_cases = [
+        (0xF20D, Instruction::Fsts { frn: fr2 }),
+        (0xF21D, Instruction::Flds { frm: fr2 }),
+        (0xF22D, Instruction::FloatDouble { drn: dr2 }),
+        (0xF23D, Instruction::FtrcDouble { drm: dr2 }),
+    ];
+    for (word, instruction) in double_cases {
+        assert_eq!(decode_word(word, DOUBLE), Ok(instruction));
+        assert_eq!(encode_word(&instruction), Ok(word));
+    }
+
+    assert!(matches!(
+        classify_word(0xF12D, DOUBLE),
+        DecodedWord::Unknown { word: 0xF12D }
+    ));
+    assert!(matches!(
+        classify_word(0xF13D, DOUBLE),
+        DecodedWord::Unknown { word: 0xF13D }
     ));
 }
 

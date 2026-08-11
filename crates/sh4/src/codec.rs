@@ -978,12 +978,12 @@ fn decode_float_special(opcode: u16, n: u8, m: u8, fpscr: FpscrState) -> Decoded
     let single = fpscr.precision() == FpuPrecision::Single;
     let fr = FloatRegister::from_field(n);
     match m {
-        0x0 if single => known(Instruction::Float { frn: fr }),
-        0x0 => decode_double_unary(opcode, n, |drn| Instruction::FloatDouble { drn }),
-        0x1 if single => known(Instruction::Ftrc { frm: fr }),
-        0x1 => decode_double_unary(opcode, n, |drm| Instruction::FtrcDouble { drm }),
-        0x2 => known(Instruction::Fsts { frn: fr }),
-        0x3 => known(Instruction::Flds { frm: fr }),
+        0x0 => known(Instruction::Fsts { frn: fr }),
+        0x1 => known(Instruction::Flds { frm: fr }),
+        0x2 if single => known(Instruction::Float { frn: fr }),
+        0x2 => decode_double_unary(opcode, n, |drn| Instruction::FloatDouble { drn }),
+        0x3 if single => known(Instruction::Ftrc { frm: fr }),
+        0x3 => decode_double_unary(opcode, n, |drm| Instruction::FtrcDouble { drm }),
         0x4 if single => known(Instruction::Fneg { frn: fr }),
         0x4 => decode_double_unary(opcode, n, |drn| Instruction::FnegDouble { drn }),
         0x5 if single => known(Instruction::Fabs { frn: fr }),
