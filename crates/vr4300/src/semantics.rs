@@ -387,20 +387,10 @@ fn instruction_accesses(
             base,
             offset,
         } => cpu_memory(operation, register, base, offset, accesses, references),
-        EqualityBranch {
-            left,
-            right,
-            target: _,
-            ..
-        } => {
+        EqualityBranch { left, right, .. } => {
             read_gprs(accesses, [left, right]);
         }
-        SignBranch {
-            link,
-            source,
-            target: _,
-            ..
-        } => {
+        SignBranch { link, source, .. } => {
             read_gpr(accesses, source);
             if link {
                 write_gpr(accesses, GeneralRegister::RA);
@@ -545,11 +535,7 @@ fn instruction_accesses(
                 AccessOccurrence::Always,
             );
         }
-        CoprocessorBranch {
-            coprocessor,
-            target: _,
-            ..
-        } => {
+        CoprocessorBranch { coprocessor, .. } => {
             read(
                 accesses,
                 coprocessor_condition(coprocessor),

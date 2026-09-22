@@ -707,20 +707,10 @@ fn instruction_accesses(
                 write_gpr(accesses, GeneralRegister::RA, AccessOccurrence::Always);
             }
         }
-        EqualityBranch {
-            left,
-            right,
-            target: _,
-            ..
-        } => {
+        EqualityBranch { left, right, .. } => {
             read_gprs(accesses, [*left, *right]);
         }
-        SignBranch {
-            source,
-            link,
-            target: _,
-            ..
-        } => {
+        SignBranch { source, link, .. } => {
             read_gpr(accesses, *source);
             if *link {
                 write_gpr(accesses, GeneralRegister::RA, AccessOccurrence::Always);
@@ -828,7 +818,7 @@ fn instruction_accesses(
                 write_gpr(accesses, *general, AccessOccurrence::Always);
             }
         }
-        FloatingBranch { target: _, .. } => {
+        FloatingBranch { .. } => {
             read(
                 accesses,
                 Location::FpuState(FpuState::Condition),
