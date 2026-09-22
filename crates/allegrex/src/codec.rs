@@ -555,10 +555,10 @@ pub fn encode_word(
             source.index(),
             destination.index(),
             match operation {
-                FloatingRoundingOperation::Round => 0x08,
-                FloatingRoundingOperation::Truncate => 0x09,
-                FloatingRoundingOperation::Ceiling => 0x0a,
-                FloatingRoundingOperation::Floor => 0x0b,
+                FloatingRoundingOperation::Round => 0x0c,
+                FloatingRoundingOperation::Truncate => 0x0d,
+                FloatingRoundingOperation::Ceiling => 0x0e,
+                FloatingRoundingOperation::Floor => 0x0f,
             },
         )),
         FloatingCompare {
@@ -952,14 +952,14 @@ fn decode_fpu_single(word: u32) -> Result<Instruction, DecodeError> {
                 source: fs(word),
             })
         }
-        0x08..=0x0b => {
+        0x0c..=0x0f => {
             require(word, ft_index(word) == 0)?;
             Ok(Instruction::FloatingRoundToWord {
                 operation: match function(word) {
-                    0x08 => FloatingRoundingOperation::Round,
-                    0x09 => FloatingRoundingOperation::Truncate,
-                    0x0a => FloatingRoundingOperation::Ceiling,
-                    0x0b => FloatingRoundingOperation::Floor,
+                    0x0c => FloatingRoundingOperation::Round,
+                    0x0d => FloatingRoundingOperation::Truncate,
+                    0x0e => FloatingRoundingOperation::Ceiling,
+                    0x0f => FloatingRoundingOperation::Floor,
                     _ => unreachable!(),
                 },
                 destination: fd(word),

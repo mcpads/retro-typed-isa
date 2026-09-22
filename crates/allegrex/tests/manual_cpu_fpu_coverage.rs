@@ -1,5 +1,8 @@
-use allegrex::{Allegrex, AnalysisPoint, DecodeError, Instruction, decode_word, encode_word};
-use typed_isa_core::StaticSemantics;
+use allegrex::{
+    Allegrex, AnalysisPoint, Assembler, DecodeError, FloatingRegister, FloatingRoundingOperation,
+    Instruction, Location, VfpuPrefixState, decode_word, encode_word,
+};
+use typed_isa_core::{AccessKind, StaticSemantics, TypedIsa};
 
 const ADDRESS: allegrex::CodeLocation = 0x0880_0000;
 
@@ -125,6 +128,10 @@ const MANUAL_CPU_FORMS: &[(&str, u32)] = &[
     ("sc", 0xe000_0000),
 ];
 
+// Sony FPU Instruction Manual, PSP Hardware Manual Release 1.0.0,
+// pp. 45, 52, 59, 63 and the function-field table on p. 64.
+// https://github.com/Decompollaborate/rabbitizer/files/14950191/FPU-Instruction_Manual-English.pdf
+// Fixed rounding uses function bits 001100..001111, with bits 20..16 zero.
 const MANUAL_FPU_FORMS: &[(&str, u32)] = &[
     ("abs.s", 0x4600_0005),
     ("add.s", 0x4600_0000),
@@ -148,25 +155,120 @@ const MANUAL_FPU_FORMS: &[(&str, u32)] = &[
     ("c.nge.s", 0x4600_003d),
     ("c.le.s", 0x4600_003e),
     ("c.ngt.s", 0x4600_003f),
-    ("ceil.w.s", 0x4600_000a),
+    ("ceil.w.s", 0x4600_000e),
     ("cfc1", 0x4440_0000),
     ("ctc1", 0x44c0_f800),
     ("cvt.s.w", 0x4680_0020),
     ("cvt.w.s", 0x4600_0024),
     ("div.s", 0x4600_0003),
-    ("floor.w.s", 0x4600_000b),
+    ("floor.w.s", 0x4600_000f),
     ("lwc1", 0xc400_0000),
     ("mfc1", 0x4400_0000),
     ("mov.s", 0x4600_0006),
     ("mtc1", 0x4480_0000),
     ("mul.s", 0x4600_0002),
     ("neg.s", 0x4600_0007),
-    ("round.w.s", 0x4600_0008),
+    ("round.w.s", 0x4600_000c),
     ("sqrt.s", 0x4600_0004),
     ("sub.s", 0x4600_0001),
     ("swc1", 0xe400_0000),
-    ("trunc.w.s", 0x4600_0009),
+    ("trunc.w.s", 0x4600_000d),
 ];
+
+#[test]
+fn fixed_rounding_selectors_preserve_operands_and_reject_reserved_fields() {
+    for (function, operation) in [
+        (0x0c, FloatingRoundingOperation::Round),
+        (0x0d, FloatingRoundingOperation::Truncate),
+        (0x0e, FloatingRoundingOperation::Ceiling),
+        (0x0f, FloatingRoundingOperation::Floor),
+    ] {
+        for source in 0..32 {
+            for destination in 0..32 {
+                let word =
+                    0x4600_0000 | u32::from(source) << 11 | u32::from(destination) << 6 | function;
+                let instruction = Instruction::FloatingRoundToWord {
+                    operation,
+                    destination: FloatingRegister::new(destination).unwrap(),
+                    source: FloatingRegister::new(source).unwrap(),
+                };
+                assert_eq!(decode_word(word, ADDRESS).unwrap(), instruction);
+                assert_eq!(encode_word(&instruction, ADDRESS).unwrap(), word);
+            }
+        }
+        for reserved in 1..32 {
+            assert_reserved(0x4600_0000 | reserved << 16 | function);
+        }
+    }
+    for function in 0x08..=0x0b {
+        assert_reserved(0x4600_0000 | function);
+        assert_reserved(0x4600_ffc0 | function);
+    }
+}
+
+#[test]
+fn word_conversions_preserve_placed_bytes_and_register_accesses() {
+    for (index, (word, destination, source)) in [
+        (0x4600_634d_u32, 13, 12),
+        (0x4600_630d, 12, 12),
+        (0x4600_6b4d, 13, 13),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let location = ADDRESS + index as u32 * 4;
+        let source = FloatingRegister::new(source).unwrap();
+        let destination = FloatingRegister::new(destination).unwrap();
+        let instruction = Instruction::FloatingRoundToWord {
+            operation: FloatingRoundingOperation::Truncate,
+            destination,
+            source,
+        };
+        let bytes = word.to_le_bytes();
+        let decoded = Allegrex::decode_one(&bytes, &location).unwrap();
+        assert_eq!(decoded.instruction(), &instruction);
+        assert_eq!(decoded.source().as_slice(), bytes);
+        assert_eq!(
+            Allegrex::encode_one(&instruction, &location)
+                .unwrap()
+                .as_slice(),
+            bytes
+        );
+
+        let program = Assembler::new()
+            .emit(instruction.clone())
+            .assemble(location)
+            .unwrap();
+        assert_eq!(program.bytes(), bytes);
+        let span = &program.instruction_spans()[0];
+        assert_eq!(span.location, location);
+        assert_eq!(span.instruction, instruction);
+        assert_eq!(span.bytes.as_slice(), bytes);
+
+        let semantics = Allegrex::semantics(
+            &instruction,
+            &AnalysisPoint::new(location, VfpuPrefixState::unknown()),
+        )
+        .unwrap();
+        let register_accesses: Vec<_> = semantics
+            .location_accesses
+            .iter()
+            .filter_map(|access| {
+                if let Location::FloatingRegister(register) = access.location {
+                    Some((register, access.kind))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(register_accesses.len(), 2);
+        assert!(register_accesses.contains(&(source, AccessKind::Read)));
+        assert!(register_accesses.contains(&(destination, AccessKind::Write)));
+        assert!(!semantics.location_accesses.iter().any(|access| {
+            access.location == Location::FpuState(allegrex::FpuState::RoundingMode)
+        }));
+    }
+}
 
 #[test]
 fn every_cpu_manual_form_decodes_and_reencodes_exactly() {
