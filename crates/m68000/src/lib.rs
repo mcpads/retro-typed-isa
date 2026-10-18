@@ -71,8 +71,12 @@ impl typed_isa_core::TypedIsa for Mc68000 {
 
     fn decode_one(
         source: &[u8],
-        _at: &Self::CodeLocation,
+        at: &Self::CodeLocation,
     ) -> Result<typed_isa_core::DecodedInstruction<Self::Instruction>, Self::DecodeError> {
+        let location = at.logical_address();
+        if location & 1 != 0 {
+            return Err(DecodeError::UnalignedCodeLocation { location });
+        }
         let decoded = decode_bytes(source)?;
         let source = typed_isa_core::InstructionBytes::new(source[..decoded.byte_len].to_vec())
             .expect("decoded MC68000 instructions are non-empty");
@@ -84,8 +88,12 @@ impl typed_isa_core::TypedIsa for Mc68000 {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        _at: &Self::CodeLocation,
+        at: &Self::CodeLocation,
     ) -> Result<typed_isa_core::InstructionBytes, Self::EncodeError> {
+        let location = at.logical_address();
+        if location & 1 != 0 {
+            return Err(EncodeError::UnalignedCodeLocation { location });
+        }
         Ok(
             typed_isa_core::InstructionBytes::new(encode_bytes(instruction)?)
                 .expect("encoded MC68000 instructions are non-empty"),

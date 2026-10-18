@@ -47,8 +47,12 @@ impl typed_isa_core::TypedIsa for Sh2 {
 
     fn decode_one(
         source: &[u8],
-        _at: &Self::CodeLocation,
+        at: &Self::CodeLocation,
     ) -> Result<typed_isa_core::DecodedInstruction<Self::Instruction>, Self::DecodeError> {
+        let location = *at;
+        if location & 1 != 0 {
+            return Err(DecodeError::UnalignedCodeLocation { location });
+        }
         let instruction = decode_bytes(source)?;
         let source = typed_isa_core::InstructionBytes::new(source[..2].to_vec())
             .expect("decoded SH-2 instructions are non-empty");
@@ -57,8 +61,12 @@ impl typed_isa_core::TypedIsa for Sh2 {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        _at: &Self::CodeLocation,
+        at: &Self::CodeLocation,
     ) -> Result<typed_isa_core::InstructionBytes, Self::EncodeError> {
+        let location = *at;
+        if location & 1 != 0 {
+            return Err(EncodeError::UnalignedCodeLocation { location });
+        }
         Ok(
             typed_isa_core::InstructionBytes::new(encode_bytes(instruction)?.to_vec())
                 .expect("encoded SH-2 instructions are non-empty"),

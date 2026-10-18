@@ -6,6 +6,12 @@ use crate::instruction::{Instruction, InstructionForm, Register};
 /// An SH-2 instruction cannot be represented by the declared 16-bit profile.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
+    /// The supplied instruction location is not two-byte aligned.
+    #[error("SH-2 code location 0x{location:08X} is not two-byte aligned")]
+    UnalignedCodeLocation {
+        /// Rejected executable location.
+        location: crate::CodeLocation,
+    },
     /// A memory displacement does not fit the selected four-bit field.
     #[error("SH-2 {form:?} displacement {displacement} exceeds its four-bit field")]
     FourBitDisplacementOutOfRange {

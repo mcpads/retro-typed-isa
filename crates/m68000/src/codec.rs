@@ -23,6 +23,12 @@ pub enum DecodedWord {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 /// Failure returned while decoding an MC68000 instruction.
 pub enum DecodeError {
+    /// The supplied logical instruction location is not word aligned.
+    #[error("MC68000 code location 0x{location:08X} is not word aligned")]
+    UnalignedCodeLocation {
+        /// Rejected logical program-counter address.
+        location: u32,
+    },
     #[error("MC68000 instruction needs at least {needed} bytes, got {available}")]
     /// The input ends before the opcode's extension words are complete.
     TruncatedInput {
@@ -48,6 +54,12 @@ pub enum DecodeError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 /// Failure returned when a typed instruction has no legal MC68000 encoding.
 pub enum EncodeError {
+    /// The supplied logical instruction location is not word aligned.
+    #[error("MC68000 code location 0x{location:08X} is not word aligned")]
+    UnalignedCodeLocation {
+        /// Rejected logical program-counter address.
+        location: u32,
+    },
     #[error("{mnemonic:?} does not support {size:?} operands")]
     /// The instruction family does not define the requested operand size.
     InvalidSize {

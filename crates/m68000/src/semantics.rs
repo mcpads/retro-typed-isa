@@ -627,7 +627,7 @@ fn instruction_accesses(
             exception_accesses(at, 6, AccessOccurrence::Conditional, accesses);
         }
         Clear { size, destination } => {
-            write_ea(destination, size, at, pc_base, accesses, references);
+            write_ea_with_memory_read(destination, size, at, pc_base, accesses, references);
             write_logic_flags(accesses);
         }
         Compare {
@@ -743,7 +743,7 @@ fn instruction_accesses(
         }
         MoveFromStatus { destination } => {
             read(accesses, Location::StatusRegister);
-            write_ea(
+            write_ea_with_memory_read(
                 destination,
                 OperandSize::Word,
                 at,
@@ -860,7 +860,7 @@ fn instruction_accesses(
             destination,
         } => {
             read_condition(accesses, condition);
-            write_ea(
+            write_ea_with_memory_read(
                 destination,
                 OperandSize::Byte,
                 at,
@@ -1358,6 +1358,24 @@ fn read_write_ea(
     references: &mut Vec<StaticReference<Reference>>,
 ) {
     read_ea(effective_address, size, at, pc_base, accesses, references);
+    write_ea(effective_address, size, at, pc_base, accesses, references);
+}
+
+// MC68000 CLR, Scc, and MOVE from SR read a memory destination before
+// replacing it (M68000PRM pp. 4-74, 4-173, and 4-125). The discarded read
+// is still an access, but data-register destinations have no such read.
+fn write_ea_with_memory_read(
+    effective_address: EffectiveAddress,
+    size: OperandSize,
+    at: AnalysisPoint,
+    pc_base: u32,
+    accesses: &mut Vec<LocationAccess<Location>>,
+    references: &mut Vec<StaticReference<Reference>>,
+) {
+    if let Some(memory) = ea_memory(effective_address, at, pc_base, size_bytes(size)) {
+        read(accesses, Location::Memory(memory));
+        add_memory_reference(references, memory, ReferenceKind::Read);
+    }
     write_ea(effective_address, size, at, pc_base, accesses, references);
 }
 

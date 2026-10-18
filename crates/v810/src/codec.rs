@@ -36,6 +36,12 @@ impl DecodedInstruction {
 /// A fail-closed reason that source halfwords are not one valid V810 instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DecodeError {
+    /// The supplied instruction location is not halfword aligned.
+    #[error("V810 code location 0x{location:08X} is not halfword aligned")]
+    UnalignedCodeLocation {
+        /// Rejected executable location.
+        location: crate::CodeLocation,
+    },
     /// The source ends before all required little-endian halfwords are available.
     #[error("truncated V810 instruction: needed {needed} bytes, got {got}")]
     UnexpectedEnd {
@@ -87,6 +93,12 @@ pub enum DecodeError {
 /// A fail-closed reason that a typed V810 instruction cannot be lowered.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EncodeError {
+    /// The supplied instruction location is not halfword aligned.
+    #[error("V810 code location 0x{location:08X} is not halfword aligned")]
+    UnalignedCodeLocation {
+        /// Rejected executable location.
+        location: crate::CodeLocation,
+    },
     /// A signed five-bit immediate lies outside `-16..=15`.
     #[error("V810 signed 5-bit immediate {value} is outside -16..15")]
     SignedImmediateOutOfRange {
@@ -526,8 +538,12 @@ impl TypedIsa for V810 {
 
     fn decode_one(
         source: &[u8],
-        _at: &Self::CodeLocation,
+        at: &Self::CodeLocation,
     ) -> Result<ProtocolDecodedInstruction<Self::Instruction>, Self::DecodeError> {
+        let location = *at;
+        if location & 1 != 0 {
+            return Err(DecodeError::UnalignedCodeLocation { location });
+        }
         let decoded = decode_bytes(source)?;
         let exact_source = InstructionBytes::new(source[..decoded.byte_len()].to_vec())
             .expect("decoded V810 instructions are non-empty");
@@ -539,8 +555,12 @@ impl TypedIsa for V810 {
 
     fn encode_one(
         instruction: &Self::Instruction,
-        _at: &Self::CodeLocation,
+        at: &Self::CodeLocation,
     ) -> Result<InstructionBytes, Self::EncodeError> {
+        let location = *at;
+        if location & 1 != 0 {
+            return Err(EncodeError::UnalignedCodeLocation { location });
+        }
         Ok(InstructionBytes::new(encode_bytes(instruction)?)
             .expect("encoded V810 instructions are non-empty"))
     }

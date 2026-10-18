@@ -126,6 +126,45 @@ The classification policy names below use the definitions in [Rejected encoding 
 
 **Semantic gate.** The source-derived first-word space remains the encoding denominator, while semantic coverage uses the complete manual instruction and effective-address matrices. Logical-PC arithmetic, the 24-bit bus projection, and upper-byte aliases are checked explicitly. Zero-filled extension words are not semantic evidence.
 
+**Destination-access review (2026-10-18).** The MC68000 entries in Motorola's
+[Programmer's Reference Manual](https://www.nxp.com/docs/en/reference-manual/M68000PRM.pdf)
+(CLR pp. 4-73–74, MOVE from SR p. 4-125, Scc pp. 4-172–173) require a memory
+destination read even though the old value does not contribute to the result.
+Report both accesses as `Always`, at the operation width: CLR byte/word/long,
+Scc byte, and MOVE from SR word. Data-register destinations remain write-only.
+Absolute destinations also produce both read and write static references.
+
+The review of memory-writing families used the instruction descriptions and
+section 8, Tables 8-1–8-14, of the
+[MC68000 User's Manual](https://www.nxp.com/docs/en/reference-manual/MC68000UM.pdf):
+
+| Memory-writing forms | Destination operand access | Implementation review |
+| --- | --- | --- |
+| CLR, Scc, MOVE from SR | Read and write, including the discarded read | Missing reads corrected |
+| ADD/SUB/AND/OR to memory, EOR; ADDI/SUBI/ANDI/ORI/EORI; ADDQ/SUBQ | Read and write | Already represented by `read_write_ea` |
+| NEG/NEGX/NOT/NBCD/TAS; memory ASL/ASR/LSL/LSR/ROL/ROR/ROXL/ROXR | Read and write | Already represented by `read_write_ea` |
+| BCHG/BCLR/BSET, immediate and register bit selectors | Read and write, byte memory operand | Already represented by `read_ea` and `write_ea` |
+| Memory ABCD/SBCD/ADDX/SUBX | Read source and destination, write destination | Already represented by `register_pair_read_write` |
+| MOVE; MOVEM/MOVEP registers to memory | Write destination; source reads remain separate | No destination pre-read added |
+| BSR/JSR/LINK/PEA; exception-frame stores from CHK, divide, ILLEGAL, TRAP/TRAPV | Write stack destination; other source/vector reads remain separate | No destination pre-read added |
+
+This corrects operand-access facts within the existing common protocol. The
+access set does not specify ordering, bus-cycle counts, instruction prefetch,
+or device behavior. A long operand remains one four-byte access description;
+it does not claim one physical bus transfer. Other CPU profiles retain their
+own source-derived access rules. These MC68000-specific reads must not be
+inferred for another processor's clear, condition-set, or status-store forms.
+
+**Codec placement review (2026-10-18).** The existing `TypedIsa` alignment
+contract was checked across all 20 CPU crates. MC68000, SH-2, and V810 ignored
+the location despite requiring halfword alignment; their single-instruction
+codecs now reject odd locations. SH-4, both ARM processors' ARM/Thumb profiles,
+PSX R3000A, VR4300, Gekko/750CL, Allegrex, and R5900 already check the required
+alignment. The remaining profiles permit byte-aligned instructions. This
+review and correction concern instruction alignment, not all overflow, bank,
+segment, target, or sequence-placement rules. The common protocol is unchanged;
+location-free byte/word codecs still provide encoding identity only.
+
 ## NEC V30
 
 **Profile boundary and state.** `V30` models native mode. A direct code location is a segmented address, not a flattened integer. Prefix order belongs to exact encoding identity, while semantic prefixes modify the meaning of the wrapped instruction. Interrupt recognition after STI and SS loads is explicit successor context; every taken or repeated direct edge carries the post-instruction state rather than the input state.

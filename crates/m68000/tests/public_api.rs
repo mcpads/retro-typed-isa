@@ -2,7 +2,41 @@ use m68000::{
     AnalysisPoint, Assembler, DecodedInstruction, Instruction, InstructionForm, Mc68000,
     PROFILE_ID, PrivilegeMode, decode_bytes, encode_bytes, verify_placed_program,
 };
-use typed_isa_core::{ControlAction, StaticSemantics};
+use typed_isa_core::{ControlAction, StaticSemantics, TypedIsa};
+
+#[test]
+fn protocol_decode_requires_an_even_logical_location() {
+    for address in [1, 0x1001, 0xab00_1001, u32::MAX] {
+        assert_eq!(
+            Mc68000::decode_one(&[0x4e, 0x71], &m68000::CodeLocation::new(address)),
+            Err(m68000::DecodeError::UnalignedCodeLocation { location: address }),
+        );
+    }
+    for address in [0, 2, 0x1000, 0xab00_1000] {
+        let decoded =
+            Mc68000::decode_one(&[0x4e, 0x71, 0xff], &m68000::CodeLocation::new(address)).unwrap();
+        assert_eq!(decoded.instruction(), &Instruction::Nop);
+        assert_eq!(decoded.source().as_slice(), [0x4e, 0x71]);
+    }
+}
+
+#[test]
+fn protocol_encode_requires_an_even_logical_location() {
+    for address in [1, 0x1001, 0xab00_1001, u32::MAX] {
+        assert_eq!(
+            Mc68000::encode_one(&Instruction::Nop, &m68000::CodeLocation::new(address)),
+            Err(m68000::EncodeError::UnalignedCodeLocation { location: address }),
+        );
+    }
+    for address in [0, 2, 0x1000, 0xab00_1000] {
+        assert_eq!(
+            Mc68000::encode_one(&Instruction::Nop, &m68000::CodeLocation::new(address))
+                .unwrap()
+                .as_slice(),
+            [0x4e, 0x71]
+        );
+    }
+}
 
 #[test]
 fn profile_and_common_names_are_stable() {

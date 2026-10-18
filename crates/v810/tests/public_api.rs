@@ -6,6 +6,39 @@ fn register(index: u8) -> Register {
 }
 
 #[test]
+fn protocol_decode_requires_an_even_location() {
+    for location in [1, 0x1001, u32::MAX] {
+        assert_eq!(
+            V810::decode_one(&[0x00, 0x9a], &location),
+            Err(v810::DecodeError::UnalignedCodeLocation { location }),
+        );
+    }
+    for location in [0, 2, 0x1000] {
+        let decoded = V810::decode_one(&[0x00, 0x9a, 0xff], &location).unwrap();
+        assert_eq!(decoded.instruction(), &Instruction::Nop);
+        assert_eq!(decoded.source().as_slice(), [0x00, 0x9a]);
+    }
+}
+
+#[test]
+fn protocol_encode_requires_an_even_location() {
+    for location in [1, 0x1001, u32::MAX] {
+        assert_eq!(
+            V810::encode_one(&Instruction::Nop, &location),
+            Err(v810::EncodeError::UnalignedCodeLocation { location }),
+        );
+    }
+    for location in [0, 2, 0x1000] {
+        assert_eq!(
+            V810::encode_one(&Instruction::Nop, &location)
+                .unwrap()
+                .as_slice(),
+            [0x00, 0x9a],
+        );
+    }
+}
+
+#[test]
 fn typed_instructions_lower_to_little_endian_halfwords() {
     let instruction = Instruction::AddImmediate {
         immediate: -4,
